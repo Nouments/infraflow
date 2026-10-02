@@ -1,0 +1,21 @@
+sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        model: csr1000v
+        management:
+          ipv4: 192.168.100.10
+      - name: SW1
+        role: switch
+        vendor: cisco
+        model: ios-xe
+        management:
+          ipv4: 192.168.100.11
+    links:
+      - a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
