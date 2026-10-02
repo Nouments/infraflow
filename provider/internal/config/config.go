@@ -20,6 +20,7 @@ const (
 
 type Config struct {
 	ListenAddress     string    `yaml:"listen_address"`
+	APIListenAddress  string    `yaml:"api_listen_address,omitempty"`
 	ArtifactDirectory string    `yaml:"artifact_directory"`
 	TokenEnv          string    `yaml:"token_env"`
 	ChunkSize         int       `yaml:"chunk_size"`
@@ -87,6 +88,20 @@ func (config Config) Validate() error {
 		ip := net.ParseIP(host)
 		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
 			return fmt.Errorf("TLS certificate and key are required for non-loopback listen addresses")
+		}
+	}
+	if config.APIListenAddress != "" {
+		apiHost, apiPortText, err := net.SplitHostPort(config.APIListenAddress)
+		if err != nil || apiHost == "" {
+			return fmt.Errorf("api_listen_address must use host:port format")
+		}
+		apiPort, err := strconv.Atoi(apiPortText)
+		if err != nil || apiPort < 1 || apiPort > 65535 {
+			return fmt.Errorf("api_listen_address contains an invalid port")
+		}
+		apiIP := net.ParseIP(apiHost)
+		if !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback()) {
+			return fmt.Errorf("api_listen_address must be loopback-only until HTTPS is configured")
 		}
 	}
 	if config.ChunkSize < 1 || config.ChunkSize > maxChunk {

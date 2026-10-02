@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"infraflow/pkg/protocol"
 )
 
 const maxConfigBytes = 64 << 10
@@ -20,14 +22,17 @@ type Config struct {
 }
 
 type AgentConfig struct {
-	ID             string `yaml:"id"`
-	StateDirectory string `yaml:"state_directory"`
+	ID             string   `yaml:"id"`
+	SiteID         string   `yaml:"site_id,omitempty"`
+	Capabilities   []string `yaml:"capabilities,omitempty"`
+	StateDirectory string   `yaml:"state_directory"`
 }
 
 type ProviderConfig struct {
-	Address  string    `yaml:"address"`
-	TokenEnv string    `yaml:"token_env"`
-	TLS      TLSConfig `yaml:"tls"`
+	Address    string    `yaml:"address"`
+	APIAddress string    `yaml:"api_address,omitempty"`
+	TokenEnv   string    `yaml:"token_env"`
+	TLS        TLSConfig `yaml:"tls"`
 }
 
 type TLSConfig struct {
@@ -68,6 +73,22 @@ func (config Config) Validate() error {
 	if strings.TrimSpace(config.Agent.ID) == "" || len(config.Agent.ID) > 128 {
 		return fmt.Errorf("agent.id must be set and no longer than 128 characters")
 	}
+	if config.Agent.SiteID != "" && (!protocol.ValidSiteName(config.Agent.SiteID) || len(config.Agent.SiteID) > 128) {
+		return fmt.Errorf("agent.site_id must be a valid identifier no longer than 128 characters")
+	}
+	if len(config.Agent.Capabilities) > 64 {
+		return fmt.Errorf("agent.capabilities must contain at most 64 values")
+	}
+	seenCapabilities := make(map[string]struct{}, len(config.Agent.Capabilities))
+	for _, capability := range config.Agent.Capabilities {
+		if strings.TrimSpace(capability) == "" || len(capability) > 128 || strings.ContainsAny(capability, "\r\n") {
+			return fmt.Errorf("agent.capabilities contains an invalid value")
+		}
+		if _, exists := seenCapabilities[capability]; exists {
+			return fmt.Errorf("agent.capabilities contains a duplicate value")
+		}
+		seenCapabilities[capability] = struct{}{}
+	}
 	if strings.TrimSpace(config.Agent.StateDirectory) == "" {
 		return fmt.Errorf("agent.state_directory must be set")
 	}
@@ -89,6 +110,16 @@ func (config Config) Validate() error {
 		}
 		if config.Provider.TLS.CAFile != "" {
 			return fmt.Errorf("provider.tls.ca_file requires TLS to be enabled")
+		}
+	}
+	if config.Provider.APIAddress != "" {
+		parsed, err := url.Parse(config.Provider.APIAddress)
+		if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+			return fmt.Errorf("provider.api_address must be a loopback HTTP URL without a path or credentials")
+		}
+		apiIP := net.ParseIP(parsed.Hostname())
+		if !strings.EqualFold(parsed.Hostname(), "localhost") && (apiIP == nil || !apiIP.IsLoopback()) {
+			return fmt.Errorf("provider.api_address must be loopback-only until HTTPS is configured")
 		}
 	}
 	return nil

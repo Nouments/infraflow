@@ -21,9 +21,11 @@ The provider core keeps domain types independent of YAML, HTTP, a database, Ansi
 - Planning describes work; it does not execute it.
 - Artifact generation is confined to the explicitly selected provider output directory.
 - Agent streams are confined to the explicitly selected local state directory and hash-checked before atomic commit.
-- No device provisioning adapter or execution endpoint is enabled in this initial slice.
+- The generic scheduler validates task graphs, dependencies, retries, timeouts, cancellation, concurrency, and resource locks, but is not connected to a provisioning endpoint yet.
+- Desired and observed state comparison is isolated in the reconciliation core; it reports drift and hashes without changing either state.
+- No device provisioning adapter, execution endpoint, or local DHCP/DNS/TFTP bootstrap service is enabled in this initial slice.
 - Unknown provider capabilities remain unknown and are never treated as supported.
 
 ## Growth path
 
-Add durable provider-side publication/jobs next, then agent registration and synchronization. Provider-specific behavior belongs in isolated adapters and must satisfy the support evidence required by `INFRAFLOW_SPEC.md`.
+The provider now has durable planning jobs and authenticated agent registration/heartbeat state. The scheduler primitives are ready for a future execution job, while synchronization and separately isolated local bootstrap services remain next steps. Provider- and service-specific behavior belongs in isolated adapters and must satisfy the support evidence required by `INFRAFLOW_SPEC.md`.

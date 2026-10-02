@@ -88,19 +88,31 @@ InfraFlow doit permettre :
 - [ ] suivre chaque étape ;
 - [ ] journaliser chaque opération ;
 - [x] conserver les rapports d’état des artefacts génériques traités ;
-- [ ] gérer les retries ;
+- [ ] gérer les retries (le retry d’un job de planification est disponible ; les retries d’exécution et de provisioning ne le sont pas) ;
 - [ ] gérer les dépendances ;
 - [x] gérer plusieurs sites pour validation, planification et génération générique (sans provisioning) ;
 - [ ] continuer localement hors connexion ;
 - [ ] synchroniser l’état lorsque la connexion revient ;
 - [x] produire une topologie déclarative à partir des liens fournis ;
 - [ ] fournir une TUI pour l’agent ;
-- [x] fournir une API/backend minimale pour le catalogue d’artefacts et les rapports d’état des agents ;
+- [x] fournir une API/backend minimale pour le catalogue d’artefacts, les rapports d’état des agents, l’enregistrement/heartbeat des agents et les jobs de planification ;
 - [ ] fournir une interface web ;
 - [ ] exposer des événements temps réel ;
 - [ ] intégrer des tests unitaires, intégration et end-to-end ;
 - [ ] permettre à plusieurs agents de travailler parallèlement sans
   modifier anarchiquement les mêmes fichiers.
+
+### Distinction importante pour le bootstrap
+
+Les cases « générer les fichiers DHCP/DNS/PXE/iPXE » décrivent la génération
+d’artefacts statiques. Elles ne préjugent pas du mode d’exécution du site.
+
+Dans l’architecture cible, l’agent pourra fournir localement des services de
+bootstrap isolés, notamment DHCP, DNS, TFTP, HTTP et iPXE, selon les capacités
+et la configuration du site. Ces services devront être contrôlés, limités au
+workspace ou au répertoire d’artefacts autorisé, journalisés et testés avant
+d’être déclarés supportés. Ils ne sont pas encore implémentés dans le code
+actuel et restent donc décochés dans cette liste.
 
 ------------------------------------------------------------------------
 
@@ -3364,53 +3376,59 @@ Ne pas commencer par tous les constructeurs.
 ## Phase 0 — Foundation
 
 - [ ] repository ;
-- [ ] Go module ;
+- [x] Go module ;
 - [ ] CI ;
 - [ ] lint ;
-- [ ] test framework ;
+- [x] test framework ;
 - [ ] logging ;
-- [ ] config ;
-- [ ] domain model.
+- [x] config ;
+- [x] domain model.
 
 ## Phase 1 — YAML
 
 - [ ] schema ;
-- [ ] parser ;
-- [ ] validation ;
+- [x] parser ;
+- [x] validation ;
 - [ ] normalization ;
-- [ ] examples.
+- [x] examples.
 
 ## Phase 2 — Planner
 
 - [ ] graph ;
-- [ ] DAG ;
-- [ ] task model ;
-- [ ] scheduler ;
-- [ ] retry ;
-- [ ] locking.
+- [x] DAG validation ;
+- [x] task model ;
+- [x] scheduler primitives ;
+- [x] retry classification ;
+- [x] locking.
 
 ## Phase 3 — Generator
 
 - [ ] template engine ;
-- [ ] artifacts ;
-- [ ] deterministic rendering ;
+- [x] artifacts ;
+- [x] deterministic rendering ;
 - [ ] golden tests.
 
 ## Phase 4 — Agent
 
 - [ ] daemon ;
-- [ ] local state ;
+- [x] local state ;
 - [ ] local queue ;
 - [ ] executor ;
 - [ ] TUI.
 
 ## Phase 5 — Backend
 
-- [ ] API ;
-- [ ] jobs ;
+- [x] API minimale (catalogue, rapports et jobs de planification) ;
+- [x] enregistrement authentifié des agents, état persistant et heartbeat ;
+- [ ] jobs d’exécution et de provisioning ;
 - [ ] events ;
-- [ ] agent registration ;
+- [x] agent registration ;
 - [ ] sync.
+
+Les primitives génériques du scheduler (DAG, dépendances, concurrence, locks,
+timeouts, cancellation et retries classifiés) sont présentes dans le core, mais
+elles ne sont pas encore exposées par un job d’exécution ni utilisées pour
+provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 ## Phase 6 — Bootstrap services
 

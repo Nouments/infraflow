@@ -54,6 +54,34 @@ provider:
 	}
 }
 
+func TestLoadValidatesAgentAPIAddressAndIdentity(t *testing.T) {
+	valid := writeConfig(t, `agent:
+  id: agent-01
+  site_id: site-01
+  capabilities: [inventory, topology]
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  api_address: http://127.0.0.1:8080
+  token_env: TOKEN
+`)
+	if _, err := Load(valid); err != nil {
+		t.Fatal(err)
+	}
+	unsafe := writeConfig(t, `agent:
+  id: agent-01
+  site_id: "bad site"
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  api_address: http://example.com:8080
+  token_env: TOKEN
+`)
+	if _, err := Load(unsafe); err == nil {
+		t.Fatal("expected unsafe agent identity and API address to be rejected")
+	}
+}
+
 func TestValidateRequiresProviderPortAndTokenEnvironment(t *testing.T) {
 	config := Config{
 		Agent:    AgentConfig{ID: "agent-01", StateDirectory: "./state"},

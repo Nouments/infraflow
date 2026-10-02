@@ -1,4 +1,5 @@
 listen_address: 127.0.0.1:8443
+api_listen_address: 127.0.0.1:8080
 artifact_directory: ./provider-data
 token_env: INFRAFLOW_AGENT_TOKEN
 chunk_size: 65536

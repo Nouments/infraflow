@@ -1,18 +1,22 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
+	"time"
 
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/application"
 	"infraflow/provider/internal/config"
 	"infraflow/provider/internal/delivery/grpcapi"
+	"infraflow/provider/internal/delivery/httpapi"
 
 	"google.golang.org/grpc/credentials"
 )
@@ -111,7 +115,22 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
-	service := application.NewService(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{})
+	jobStore, err := filesystem.NewJobStore(settings.ArtifactDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
+	agentStore, err := filesystem.NewAgentStore(settings.ArtifactDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
+	eventStore, err := filesystem.NewEventStore(settings.ArtifactDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
+	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
 		transportCredentials, err = credentials.NewServerTLSFromFile(settings.TLS.CertificateFile, settings.TLS.KeyFile)
@@ -125,8 +144,43 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
+	var apiServer *http.Server
+	var apiListener net.Listener
+	if settings.APIListenAddress != "" {
+		handler, err := httpapi.NewHandler(service, os.Getenv(settings.TokenEnv))
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 2
+		}
+		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
+			return 1
+		}
+		apiServer = &http.Server{
+			Handler:           handler,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+		go func() {
+			if err := apiServer.Serve(apiListener); err != nil && err != http.ErrServerClosed {
+				fmt.Fprintf(stderr, "infraflow-provider: API serve: %v\n", err)
+			}
+		}()
+		defer func() {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = apiServer.Shutdown(shutdownContext)
+		}()
+		fmt.Fprintf(stdout, "InfraFlow provider HTTP API listening on %s\n", settings.APIListenAddress)
+	}
 	listener, err := net.Listen("tcp", settings.ListenAddress)
 	if err != nil {
+		if apiListener != nil {
+			_ = apiListener.Close()
+		}
 		fmt.Fprintf(stderr, "infraflow-provider: listen: %v\n", err)
 		return 1
 	}
@@ -147,5 +201,5 @@ Usage:
   infraflow-provider generate -f <infra.yaml> -out <directory>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Remote addresses require configured TLS certificate and key files.`)
+Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. When api_listen_address is configured, the loopback HTTP API manages persisted planning jobs. Remote gRPC addresses require configured TLS certificate and key files.`)
 }

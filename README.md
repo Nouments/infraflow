@@ -11,7 +11,7 @@ provider/  user-facing validation, planning, generation, and authenticated gRPC 
 agent/     independent gRPC client that downloads streams, processes supported artifacts, and reports state
 ```
 
-The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. Provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
+The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. A generic scheduler core now validates dependency graphs and provides bounded execution primitives, but provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
 
 ## Requirements
 
@@ -27,6 +27,10 @@ go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
 ```
 
 `validate` is read-only. `plan` only describes deterministic work. `generate` writes local provider artifacts; it does not contact infrastructure.
+
+The provider can also persist validated planning jobs and expose them through its authenticated loopback HTTP API when `api_listen_address` is set in the provider configuration. Job creation validates and plans only; it does not provision devices.
+
+The agent does not currently run DHCP, DNS, TFTP, HTTP, or iPXE services. These are planned local bootstrap services, distinct from generating static configuration files, and will be added only with isolated adapters, fixtures, tests, and observable results.
 
 To serve generated files to an agent, set a strong token through a secret manager or environment variable. The provider uses gRPC streaming; plaintext is restricted to loopback. Remote deployments require TLS.
 
@@ -52,6 +56,7 @@ api/proto/           Versioned gRPC protocol source
 internal/domain/     Core infrastructure and plan types
 internal/config/     YAML loading and validation
 internal/planner/    Deterministic dependency planning
+internal/reconcile/  Side-effect-free desired/observed drift comparison
 internal/generator/  Deterministic artifact generation and catalog validation
 examples/            Sample infrastructure declarations
 ARCHITECTURE.md      Service boundaries and safety rules
@@ -76,7 +81,9 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Strict YAML parsing and semantic validation
 - [x] Deterministic dependency plan generation
 - [x] Deterministic inventory and topology artifacts with hash manifest
-- [x] Provider gRPC artifact streaming/state API and independent configured agent client
-- [ ] Device provisioning adapters, backend job lifecycle, services, and web UI
+- [x] Provider gRPC artifact streaming/state API, planning-job HTTP API, authenticated agent registration/heartbeat, and independent configured agent client
+- [x] Generic dependency-aware scheduler primitives (retry, timeout, cancellation, concurrency, and locks)
+- [x] Side-effect-free desired/observed reconciliation with deterministic drift paths and state hashes
+- [ ] Agent bootstrap services, device provisioning adapters, execution job API, and web UI
 
 Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.

@@ -27,6 +27,14 @@ tls:
 	if config, err := Load(remote); err != nil || config.ChunkSize != 32768 {
 		t.Fatalf("unexpected remote config: %#v, %v", config, err)
 	}
+	api := writeProviderConfig(t, `listen_address: 127.0.0.1:8443
+api_listen_address: localhost:8080
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+`)
+	if config, err := Load(api); err != nil || config.APIListenAddress != "localhost:8080" {
+		t.Fatalf("unexpected API config: %#v, %v", config, err)
+	}
 }
 
 func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
@@ -40,6 +48,14 @@ token_env: TOKEN
 	unknown := writeProviderConfig(t, "listen_address: localhost:8443\nartifact_directory: ./data\ntoken_env: TOKEN\nsurprise: true\n")
 	if _, err := Load(unknown); err == nil || !strings.Contains(err.Error(), "surprise") {
 		t.Fatalf("expected unknown field rejection, got %v", err)
+	}
+	remoteAPI := writeProviderConfig(t, `listen_address: 127.0.0.1:8443
+api_listen_address: 0.0.0.0:8080
+artifact_directory: ./provider-data
+token_env: TOKEN
+`)
+	if _, err := Load(remoteAPI); err == nil || !strings.Contains(err.Error(), "api_listen_address must be loopback-only") {
+		t.Fatalf("expected remote API rejection, got %v", err)
 	}
 }
 

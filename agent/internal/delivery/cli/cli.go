@@ -10,6 +10,7 @@ import (
 	"infraflow/agent/internal/adapters/filesystem"
 	"infraflow/agent/internal/adapters/processor"
 	"infraflow/agent/internal/adapters/providergrpc"
+	"infraflow/agent/internal/adapters/providerhttp"
 	"infraflow/agent/internal/application"
 	"infraflow/agent/internal/config"
 )
@@ -50,6 +51,25 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	defer providerClient.Close()
+	siteID := settings.Agent.SiteID
+	if siteID == "" {
+		siteID = settings.Agent.ID
+	}
+	var registry *providerhttp.Client
+	if settings.Provider.APIAddress != "" {
+		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv))
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+			return 2
+		}
+		if err := registry.Register(context.Background(), providerhttp.Registration{
+			AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion,
+			Capabilities: settings.Agent.Capabilities,
+		}); err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: register agent: %v\n", err)
+			return 1
+		}
+	}
 	runner, err := application.NewRunner(
 		settings.Agent.ID,
 		providerClient,
@@ -66,11 +86,22 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		if registry != nil {
+			_ = registry.Heartbeat(context.Background(), providerhttp.Heartbeat{AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion, Capabilities: settings.Agent.Capabilities})
+		}
 		return 1
+	}
+	if registry != nil {
+		if heartbeatErr := registry.Heartbeat(context.Background(), providerhttp.Heartbeat{AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion, Capabilities: settings.Agent.Capabilities}); heartbeatErr != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: heartbeat: %v\n", heartbeatErr)
+			return 1
+		}
 	}
 	fmt.Fprintf(stdout, "reported execution %s\n", report.ReportID)
 	return 0
 }
+
+const agentVersion = "0.1.0"
 
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `InfraFlow Agent - provider artifact executor and state reporter
