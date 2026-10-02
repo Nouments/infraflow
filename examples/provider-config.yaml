@@ -1,0 +1,10 @@
+listen_address: 127.0.0.1:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+chunk_size: 65536
+tls:
+  certificate_file: ""
+  key_file: ""
+
+# For remote or cloud deployments, listen on the appropriate interface and
+# configure both TLS files. Never expose the token in this file.

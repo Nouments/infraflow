@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"regexp"
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"infraflow/internal/domain"
+	"infraflow/pkg/protocol"
+
+	"gopkg.in/yaml.v3"
 )
 
 const MaxInputBytes = 1 << 20
@@ -19,8 +20,6 @@ type document struct {
 	Sites []domain.Site `yaml:"sites"`
 	Site  *domain.Site  `yaml:"site"`
 }
-
-var safeName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 func Parse(data []byte) (domain.Infrastructure, error) {
 	if len(data) > MaxInputBytes {
@@ -90,7 +89,7 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 	seenMACs := make(map[string]string)
 	for _, site := range infrastructure.Sites {
 		prefix := "site " + display(site.Name)
-		if !safeName.MatchString(site.Name) || site.Name == "." || site.Name == ".." {
+		if !protocol.ValidSiteName(site.Name) {
 			problems = append(problems, prefix+": name must contain only letters, digits, '.', '_' or '-' and start with a letter or digit")
 		}
 		if _, exists := seenSites[site.Name]; exists {

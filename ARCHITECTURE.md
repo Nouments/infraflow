@@ -1,23 +1,29 @@
 # Architecture
 
-## Initial boundary
+## Service boundary
 
-The first implementation is a local CLI with a one-way flow:
+The provider and agent live in separate top-level folders and build as independent binaries. The agent imports no provider package; they communicate only through the versioned protobuf contract in `api/proto/infraflow/v1` and the shared `pkg/protocol` data types.
 
 ```text
-YAML input -> typed model -> side-effect-free validation -> plan -> local artifacts
+provider: YAML -> validate -> plan -> deterministic artifacts -> authenticated gRPC catalog/stream/report service
+agent:    YAML config -> gRPC catalog -> streamed hash-verified files -> supported local processing -> state report
 ```
 
-The CLI delegates to internal packages. Domain types do not depend on YAML, HTTP, a database, Ansible, Terraform, SSH, or a device vendor. The configuration package owns YAML decoding and input diagnostics; the planner consumes only validated domain data; generators produce deterministic, local files.
+The agent cannot validate infrastructure or generate provider artifacts. It streams published files to disk, verifies chunk metadata and final SHA-256 before atomic commit, processes supported generic inventory/topology, and reports state. Provider configuration and generation remain independent of agent implementation.
+
+The provider executable owns user commands (`validate`, `plan`, `generate`, `serve`). Its gRPC API exposes health, authenticated catalog/stream/report operations; it does not accept remote desired-state submissions or execute device provisioning jobs.
+
+The provider core keeps domain types independent of YAML, HTTP, a database, Ansible, Terraform, SSH, and device vendors. Configuration owns YAML decoding and diagnostics; planning consumes validated domain data; generation produces deterministic local files.
 
 ## Safety boundary
 
 - Validation never writes files or contacts infrastructure.
 - Planning describes work; it does not execute it.
-- Artifact generation is confined to the explicitly selected output directory.
-- No device provisioning adapter is enabled in this initial slice.
+- Artifact generation is confined to the explicitly selected provider output directory.
+- Agent streams are confined to the explicitly selected local state directory and hash-checked before atomic commit.
+- No device provisioning adapter or execution endpoint is enabled in this initial slice.
 - Unknown provider capabilities remain unknown and are never treated as supported.
 
 ## Growth path
 
-Add ports and application use cases around the validated domain and planner before adding persistence, an agent, or a backend. Provider-specific behavior belongs in isolated adapters and must satisfy the support evidence required by `INFRAFLOW_SPEC.md`.
+Add durable provider-side publication/jobs next, then agent registration and synchronization. Provider-specific behavior belongs in isolated adapters and must satisfy the support evidence required by `INFRAFLOW_SPEC.md`.

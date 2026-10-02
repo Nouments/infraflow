@@ -1,16 +1,17 @@
 # InfraFlow
 
-InfraFlow is a declarative infrastructure orchestration project. Its design follows `INFRAFLOW_SPEC.md`: generic orchestration core, explicit adapter capabilities, and a strict separation between validation, planning, and execution.
+InfraFlow is a declarative infrastructure orchestration project. Its design follows `INFRAFLOW_SPEC.md`: generic orchestration core, explicit adapter capabilities, and a strict separation between validation, planning, generation, and execution.
 
-## Current scope
+## Services
 
-This repository starts with the foundation and first safe CLI workflow:
+This monorepo contains two independently buildable services:
 
 ```text
-infra.yaml -> validate -> plan -> generate deterministic artifacts
+provider/  user-facing validation, planning, generation, and authenticated gRPC service
+agent/     independent gRPC client that downloads streams, processes supported artifacts, and reports state
 ```
 
-This workflow does not configure devices or execute external provisioning tools. Provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
+The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. Provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
 
 ## Requirements
 
@@ -20,41 +21,62 @@ This workflow does not configure devices or execute external provisioning tools.
 
 ```sh
 go test ./...
-go run ./cmd/infraflow validate -f examples/infra.yaml
-go run ./cmd/infraflow plan -f examples/infra.yaml
-go run ./cmd/infraflow generate -f examples/infra.yaml -out ./generated
+go run ./provider/cmd validate -f examples/infra.yaml
+go run ./provider/cmd plan -f examples/infra.yaml
+go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
 ```
 
-`validate` is read-only. `plan` only describes deterministic local work. `generate` writes artifacts only to the requested output directory; it does not contact infrastructure.
+`validate` is read-only. `plan` only describes deterministic work. `generate` writes local provider artifacts; it does not contact infrastructure.
+
+To serve generated files to an agent, set a strong token through a secret manager or environment variable. The provider uses gRPC streaming; plaintext is restricted to loopback. Remote deployments require TLS.
+
+```sh
+export INFRAFLOW_AGENT_TOKEN='<secret of at least 32 bytes>'
+go run ./provider/cmd serve -config examples/provider-config.yaml
+```
+
+On the agent host, provide the same token securely and configure the provider address/TLS in the agent YAML:
+
+```sh
+INFRAFLOW_AGENT_TOKEN='<same secret>' go run ./agent/cmd run \
+  -config examples/agent-config.yaml
+```
 
 ## Project layout
 
 ```text
-cmd/infraflow/       CLI entry point
+provider/            User-facing provider service and executable
+agent/               Agent config, application, adapters, delivery, and executable
+pkg/protocol/        Shared artifact and state contract
+api/proto/           Versioned gRPC protocol source
 internal/domain/     Core infrastructure and plan types
 internal/config/     YAML loading and validation
 internal/planner/    Deterministic dependency planning
-internal/generator/  Local, deterministic artifact generation
+internal/generator/  Deterministic artifact generation and catalog validation
 examples/            Sample infrastructure declarations
-docs/                Architecture and implementation notes
+ARCHITECTURE.md      Service boundaries and safety rules
 ```
 
 ## Development
 
 ```sh
-gofmt -w ./cmd ./internal
+make fmt
 go vet ./...
 go test -race ./...
-go build ./cmd/infraflow
+make build-provider
+make build-agent
 ```
+
+Focused service checks are available as `make test-provider` and `make test-agent`.
 
 ## Implementation status
 
-- [x] Go module and initial project structure
+- [x] Go module and separated provider/agent service folders
 - [x] README, architecture notes, and example input
-- [ ] Strict YAML parsing and semantic validation
-- [ ] Dependency plan generation
-- [ ] Deterministic inventory and topology artifacts
-- [ ] Agent, backend, services, provider adapters, and web UI
+- [x] Strict YAML parsing and semantic validation
+- [x] Deterministic dependency plan generation
+- [x] Deterministic inventory and topology artifacts with hash manifest
+- [x] Provider gRPC artifact streaming/state API and independent configured agent client
+- [ ] Device provisioning adapters, backend job lifecycle, services, and web UI
 
-The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.
+Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.

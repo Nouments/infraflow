@@ -70,12 +70,12 @@ explicitement déclarées.
 
 InfraFlow doit permettre :
 
-- [ ] créer une infrastructure à partir d’un fichier YAML déclaratif ;
-- [ ] valider le YAML avant toute action ;
-- [ ] détecter les erreurs de schéma avant provisioning ;
-- [ ] calculer un plan de déploiement ;
-- [ ] afficher ce plan avant exécution ;
-- [ ] générer les fichiers intermédiaires ;
+- [x] créer une infrastructure à partir d’un fichier YAML déclaratif (socle de configuration) ;
+- [x] valider le YAML avant toute action ;
+- [x] détecter les erreurs de champs inconnus et les principales erreurs sémantiques ;
+- [x] calculer un plan de déploiement générique ;
+- [x] afficher ce plan avant exécution ;
+- [x] générer les artefacts intermédiaires génériques (inventaire et topologie uniquement) ;
 - [ ] générer les configurations Ansible ;
 - [ ] générer les modules/templates Terraform nécessaires ;
 - [ ] générer les fichiers DHCP ;
@@ -83,19 +83,19 @@ InfraFlow doit permettre :
 - [ ] générer les fichiers PXE/iPXE ;
 - [ ] générer les fichiers de provisioning constructeur ;
 - [ ] générer les scripts de bootstrap ;
-- [ ] générer les inventaires ;
+- [x] générer les inventaires génériques ;
 - [ ] exécuter le provisioning ;
 - [ ] suivre chaque étape ;
 - [ ] journaliser chaque opération ;
-- [ ] conserver les résultats ;
+- [x] conserver les rapports d’état des artefacts génériques traités ;
 - [ ] gérer les retries ;
 - [ ] gérer les dépendances ;
-- [ ] gérer plusieurs sites ;
+- [x] gérer plusieurs sites pour validation, planification et génération générique (sans provisioning) ;
 - [ ] continuer localement hors connexion ;
 - [ ] synchroniser l’état lorsque la connexion revient ;
-- [ ] produire une topologie ;
+- [x] produire une topologie déclarative à partir des liens fournis ;
 - [ ] fournir une TUI pour l’agent ;
-- [ ] fournir une API/backend ;
+- [x] fournir une API/backend minimale pour le catalogue d’artefacts et les rapports d’état des agents ;
 - [ ] fournir une interface web ;
 - [ ] exposer des événements temps réel ;
 - [ ] intégrer des tests unitaires, intégration et end-to-end ;
@@ -548,72 +548,28 @@ adapters/
 
 ``` text
 infraflow/
-├── cmd/
-│   ├── infraflow-server/
-│   ├── infraflow-agent/
-│   ├── infraflow/
-│   └── infraflow-provider/
-│
+├── provider/
+│   ├── cmd/
+│   ├── internal/application/
+│   ├── internal/adapters/{filesystem,generation}/
+│   └── internal/delivery/{cli,grpcapi}/
+├── agent/
+│   ├── cmd/
+│   ├── internal/config/
+│   ├── internal/application/
+│   ├── internal/adapters/{filesystem,processor,providergrpc}/
+│   └── internal/delivery/cli/
 ├── internal/
+│   ├── config/
 │   ├── domain/
-│   ├── application/
-│   ├── ports/
-│   ├── adapters/
-│   ├── orchestrator/
-│   ├── scheduler/
-│   ├── planner/
 │   ├── generator/
-│   ├── state/
-│   ├── events/
-│   ├── security/
-│   ├── inventory/
-│   ├── topology/
-│   ├── sync/
-│   ├── agent/
-│   ├── tui/
-│   └── api/
-│
+│   ├── planner/
+│   ├── safefs/
+│   └── security/
 ├── pkg/
-│   └── sdk/
-│
-├── api/
-│   ├── openapi/
-│   └── proto/
-│
-├── templates/
-│   ├── ansible/
-│   ├── terraform/
-│   ├── dhcp/
-│   ├── dns/
-│   ├── pxe/
-│   ├── ipxe/
-│   ├── cisco/
-│   ├── mikrotik/
-│   ├── fortinet/
-│   ├── proxmox/
-│   └── linux/
-│
-├── schemas/
-│   ├── infra.schema.json
-│   └── capability.schema.json
-│
-├── fixtures/
-│   ├── cisco/
-│   ├── mikrotik/
-│   ├── fortinet/
-│   ├── proxmox/
-│   └── pxe/
-│
+│   └── protocol/infraflow/v1/
+├── api/proto/infraflow/v1/
 ├── examples/
-├── docs/
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── e2e/
-│   └── fixtures/
-│
-├── scripts/
-├── deployments/
 ├── Makefile
 ├── go.mod
 ├── go.sum
@@ -621,6 +577,8 @@ infraflow/
 ├── ARCHITECTURE.md
 └── INFRAFLOW_SPEC.md
 ```
+
+Le provider et l’agent sont deux binaires indépendants dans le même monorepo. L’agent ne dépend d’aucun package Go du provider : ils communiquent via le contrat gRPC versionné de `api/proto/infraflow/v1`, avec téléchargement d’artefacts en flux et configuration YAML distincte par service.
 
 ------------------------------------------------------------------------
 

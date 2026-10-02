@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package infraflow.v1;
+
+option go_package = "infraflow/pkg/protocol/infraflow/v1;infrav1";
+
+import "google/protobuf/timestamp.proto";
+
+message Empty {}
+
+message ArtifactRecord {
+  string type = 1;
+  string path = 2;
+  string input_hash = 3;
+  string output_hash = 4;
+}
+
+message ArtifactCatalog {
+  repeated ArtifactRecord artifacts = 1;
+}
+
+message DownloadRequest {
+  string path = 1;
+}
+
+message ArtifactChunk {
+  string path = 1;
+  string output_hash = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+  bool eof = 5;
+}
+
+message ArtifactExecutionResult {
+  string path = 1;
+  string output_hash = 2;
+  string status = 3;
+  string message = 4;
+}
+
+message AgentStateReport {
+  string report_id = 1;
+  string agent_id = 2;
+  google.protobuf.Timestamp reported_at = 3;
+  repeated ArtifactExecutionResult artifacts = 4;
+}
+
+message ReportAck {
+  bool accepted = 1;
+  bool duplicate = 2;
+}
+
+service AgentProvider {
+  rpc ListArtifacts(Empty) returns (ArtifactCatalog);
+  rpc DownloadArtifact(DownloadRequest) returns (stream ArtifactChunk);
+  rpc ReportState(AgentStateReport) returns (ReportAck);
+}
