@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"infraflow/internal/infrastructure/safefs"
@@ -21,27 +19,17 @@ func NewStateStore(root string) *StateStore {
 }
 
 func (store *StateStore) SaveArtifact(path, expectedHash string, source io.Reader) error {
+	if !validStoredArtifactPath(path) {
+		return fmt.Errorf("invalid artifact path")
+	}
 	return safefs.AtomicWriteFromReader(store.root, path, source, 0o644, expectedHash)
 }
 
 func (store *StateStore) OpenArtifact(relativePath string) (io.ReadCloser, error) {
-	site, filename, found := strings.Cut(relativePath, "/")
-	if !found || !protocol.ValidSiteName(site) || filename != "inventory.json" && filename != "topology.json" {
+	if !validStoredArtifactPath(relativePath) {
 		return nil, fmt.Errorf("invalid artifact path")
 	}
-	root, err := filepath.Abs(store.root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve state root: %w", err)
-	}
-	path := filepath.Join(root, site, filename)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("artifact must be a regular file")
-	}
-	return os.Open(path)
+	return safefs.OpenReadOnly(store.root, relativePath)
 }
 
 func (store *StateStore) SaveReport(report protocol.AgentReport) error {
@@ -51,4 +39,23 @@ func (store *StateStore) SaveReport(report protocol.AgentReport) error {
 	}
 	data = append(data, '\n')
 	return safefs.AtomicWrite(store.root, ".infraflow-agent-state.json", data, 0o600)
+}
+
+func validStoredArtifactPath(relativePath string) bool {
+	site, _, found := strings.Cut(relativePath, "/")
+	if !found || !protocol.ValidSiteName(site) {
+		return false
+	}
+	for _, artifactType := range []string{
+		"inventory", "topology", "ansible_inventory", "ansible_playbook",
+		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
+		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
+		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",
+		"bootstrap_ipxe_script", "bootstrap_ipxe_menu",
+	} {
+		if protocol.ValidArtifactPath(site, protocol.Artifact{Type: artifactType, Path: relativePath}) {
+			return true
+		}
+	}
+	return false
 }

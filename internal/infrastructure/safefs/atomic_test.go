@@ -80,3 +80,27 @@ func TestAtomicWriteFromReaderVerifiesHashBeforeReplacement(t *testing.T) {
 		t.Fatalf("failed stream replaced existing file: %q, %v", data, err)
 	}
 }
+
+func TestOpenReadOnlyRejectsTraversalAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := AtomicWrite(root, "site/file.txt", []byte("safe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := OpenReadOnly(root, "site/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = opened.Close()
+	for _, relativePath := range []string{"../outside", "site/../outside", "/absolute", "site\\\\file.txt"} {
+		if _, err := OpenReadOnly(root, relativePath); err == nil {
+			t.Errorf("accepted unsafe path %q", relativePath)
+		}
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := OpenReadOnly(root, "escape/file.txt"); err == nil {
+		t.Fatal("followed symlinked directory")
+	}
+}

@@ -5,7 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"infraflow/agent/internal/adapters/filesystem"
 	"infraflow/agent/internal/adapters/processor"
@@ -13,7 +18,9 @@ import (
 	"infraflow/agent/internal/adapters/providerhttp"
 	"infraflow/agent/internal/application"
 	"infraflow/agent/internal/config"
+	artifacthttp "infraflow/agent/internal/delivery/artifacts"
 	"infraflow/agent/internal/delivery/tui"
+	"infraflow/internal/infrastructure/security"
 )
 
 func Run(arguments []string, stdout, stderr io.Writer) int {
@@ -23,6 +30,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	}
 	if arguments[0] == "tui" {
 		return runTUI(arguments[1:], stdout, stderr)
+	}
+	if arguments[0] == "serve-artifacts" {
+		return runArtifactServer(arguments[1:], stdout, stderr)
 	}
 	if arguments[0] != "run" {
 		fmt.Fprintf(stderr, "infraflow-agent: unknown command %q\n", arguments[0])
@@ -105,6 +115,65 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runArtifactServer(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("serve-artifacts", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	directory := flags.String("directory", "", "agent state directory containing verified artifacts")
+	listenAddress := flags.String("listen", "", "HTTP listen address, for example 127.0.0.1:8081")
+	tokenEnv := flags.String("token-env", "", "environment variable containing the bearer token for non-loopback access")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *directory == "" || *listenAddress == "" {
+		fmt.Fprintln(stderr, "infraflow-agent: serve-artifacts requires -directory and -listen")
+		return 2
+	}
+	token := ""
+	if *tokenEnv != "" {
+		token = os.Getenv(*tokenEnv)
+	}
+	if !artifacthttp.IsLoopbackListenAddress(*listenAddress) && len([]byte(token)) < security.MinAgentTokenBytes {
+		fmt.Fprintf(stderr, "infraflow-agent: non-loopback artifact serving requires -token-env with a token of at least %d bytes\n", security.MinAgentTokenBytes)
+		return 2
+	}
+	store := filesystem.NewStateStore(*directory)
+	handler, err := artifacthttp.NewHandler(store, token)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: configure artifact server: %v\n", err)
+		return 2
+	}
+	listener, err := net.Listen("tcp", *listenAddress)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: artifact listen: %v\n", err)
+		return 1
+	}
+	server := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serverErr := make(chan error, 1)
+	go func() { serverErr <- server.Serve(listener) }()
+	fmt.Fprintf(stdout, "InfraFlow agent artifact server listening on http://%s\n", *listenAddress)
+	select {
+	case <-signalContext.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownContext)
+		return 0
+	case err := <-serverErr:
+		if err == http.ErrServerClosed {
+			return 0
+		}
+		fmt.Fprintf(stderr, "infraflow-agent: artifact server: %v\n", err)
+		return 1
+	}
+}
+
 func runTUI(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("tui", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -143,6 +212,7 @@ func printUsage(writer io.Writer) {
 
 Usage:
 	infraflow-agent run -config <agent.yaml>
+	infraflow-agent serve-artifacts -directory <state-dir> -listen <host:port> [-token-env <env>]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 
 The agent reads its provider address and TLS settings from YAML. Its token value is read from the configured environment variable. Artifact files are downloaded with gRPC streaming.`)

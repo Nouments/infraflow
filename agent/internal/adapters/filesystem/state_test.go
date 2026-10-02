@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -79,5 +80,27 @@ func TestStateStoreRejectsHashMismatch(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(root, "lab", "inventory.json"))
 	if err != nil || string(data) != "previous" {
 		t.Fatalf("mismatched stream replaced existing artifact: %q, %v", data, err)
+	}
+}
+
+func TestStateStoreAllowsVerifiedBootstrapArtifacts(t *testing.T) {
+	root := t.TempDir()
+	data := []byte("{\"service\":\"dns\"}\n")
+	path := "lab/bootstrap/dns/config.json"
+	store := NewStateStore(root)
+	if err := store.SaveArtifact(path, protocol.SHA256(data), bytes.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := store.OpenArtifact(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	got, err := io.ReadAll(opened)
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("bootstrap artifact could not be reopened: %q, %v", got, err)
+	}
+	if err := store.SaveArtifact("lab/.infraflow-agent-state.json", protocol.SHA256(data), bytes.NewReader(data)); err == nil {
+		t.Fatal("accepted private agent state as a publishable artifact")
 	}
 }
