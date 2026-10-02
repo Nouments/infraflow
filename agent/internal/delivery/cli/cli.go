@@ -13,12 +13,16 @@ import (
 	"infraflow/agent/internal/adapters/providerhttp"
 	"infraflow/agent/internal/application"
 	"infraflow/agent/internal/config"
+	"infraflow/agent/internal/delivery/tui"
 )
 
 func Run(arguments []string, stdout, stderr io.Writer) int {
 	if len(arguments) == 0 || arguments[0] == "help" || arguments[0] == "-h" || arguments[0] == "--help" {
 		printUsage(stdout)
 		return 0
+	}
+	if arguments[0] == "tui" {
+		return runTUI(arguments[1:], stdout, stderr)
 	}
 	if arguments[0] != "run" {
 		fmt.Fprintf(stderr, "infraflow-agent: unknown command %q\n", arguments[0])
@@ -101,6 +105,37 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTUI(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("tui", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	address := flags.String("address", "", "provider HTTP(S) API address, for example https://10.0.0.5:8080")
+	caFile := flags.String("ca-file", "", "CA certificate file for the provider HTTPS API")
+	username := flags.String("username", "", "provider platform username")
+	passwordEnv := flags.String("password-env", "INFRAFLOW_TUI_PASSWORD", "environment variable containing the platform password")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *address == "" || *username == "" || *passwordEnv == "" {
+		fmt.Fprintln(stderr, "infraflow-agent: tui requires -address and -username; password is read from -password-env")
+		return 2
+	}
+	password := os.Getenv(*passwordEnv)
+	if password == "" {
+		fmt.Fprintf(stderr, "infraflow-agent: password environment variable %s is empty\n", *passwordEnv)
+		return 2
+	}
+	client, err := providerhttp.NewUserClient(*address, *caFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	if err := tui.Run(context.Background(), os.Stdin, stdout, client, *username, password); err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 const agentVersion = "0.1.0"
 
 func printUsage(writer io.Writer) {
@@ -108,6 +143,7 @@ func printUsage(writer io.Writer) {
 
 Usage:
 	infraflow-agent run -config <agent.yaml>
+	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 
 The agent reads its provider address and TLS settings from YAML. Its token value is read from the configured environment variable. Artifact files are downloaded with gRPC streaming.`)
 }

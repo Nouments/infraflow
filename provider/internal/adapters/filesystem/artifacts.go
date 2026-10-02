@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"infraflow/internal/generator"
+	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/pkg/protocol"
 )
 
@@ -19,7 +19,7 @@ func NewArtifactRepository(root string) *ArtifactRepository {
 }
 
 func (repository *ArtifactRepository) Catalog() ([]protocol.Artifact, error) {
-	return generator.Catalog(repository.root)
+	return coregeneration.Catalog(repository.root)
 }
 
 func (repository *ArtifactRepository) Open(path string) (io.ReadCloser, protocol.Artifact, error) {

@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"infraflow/internal/domain"
-	"infraflow/internal/safefs"
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 

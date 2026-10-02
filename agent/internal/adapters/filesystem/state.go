@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"infraflow/internal/safefs"
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 

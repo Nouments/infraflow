@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,17 +9,48 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"infraflow/internal/domain"
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/application"
+	userdomain "infraflow/provider/internal/domain"
 )
 
 const maxRequestBytes = 2 << 20
 
 type Handler struct {
-	service *application.Service
-	token   []byte
+	service       *application.Service
+	agentToken    []byte
+	authenticator *application.Authenticator
+}
+
+type principal struct {
+	agent bool
+	user  userdomain.User
+}
+
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token     string          `json:"token"`
+	ExpiresAt time.Time       `json:"expires_at"`
+	User      userdomain.User `json:"user"`
+}
+
+type createUserRequest struct {
+	Username string              `json:"username"`
+	Password string              `json:"password"`
+	Role     userdomain.UserRole `json:"role"`
+}
+
+type updateUserRequest struct {
+	Role     userdomain.UserRole `json:"role"`
+	Disabled *bool               `json:"disabled"`
+	Password string              `json:"password"`
 }
 
 type createJobRequest struct {
@@ -39,21 +71,80 @@ type heartbeatRequest struct {
 	QueueDepth   int      `json:"queue_depth"`
 }
 
-func NewHandler(service *application.Service, token string) (*Handler, error) {
+func NewHandler(service *application.Service, token string, authenticators ...*application.Authenticator) (*Handler, error) {
 	if service == nil {
 		return nil, fmt.Errorf("provider application service is required")
 	}
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("API token must be at least %d bytes", security.MinAgentTokenBytes)
 	}
-	return &Handler{service: service, token: []byte(token)}, nil
+	var authenticator *application.Authenticator
+	if len(authenticators) > 1 {
+		return nil, fmt.Errorf("only one user authenticator may be configured")
+	}
+	if len(authenticators) == 1 {
+		authenticator = authenticators[0]
+	}
+	return &Handler{service: service, agentToken: []byte(token), authenticator: authenticator}, nil
 }
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	authorizations := request.Header.Values("Authorization")
-	if len(authorizations) != 1 || !security.BearerTokenMatches(authorizations[0], handler.token) {
+	if request.URL.Path == "/api/v1/auth/login" {
+		if request.Method != http.MethodPost {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		handler.login(writer, request)
+		return
+	}
+	identity, authenticated := handler.authenticate(request)
+	if !authenticated {
 		writeError(writer, http.StatusUnauthorized, "authentication required")
 		return
+	}
+
+	if request.URL.Path == "/api/v1/auth/me" {
+		if identity.agent {
+			writeError(writer, http.StatusForbidden, "user session required")
+			return
+		}
+		writeJSON(writer, http.StatusOK, identity.user)
+		return
+	}
+	if request.URL.Path == "/api/v1/auth/logout" {
+		if request.Method != http.MethodPost || identity.agent || handler.authenticator == nil {
+			writeError(writer, http.StatusForbidden, "user session required")
+			return
+		}
+		token, _ := requestBearerToken(request)
+		if err := handler.authenticator.Logout(request.Context(), token); err != nil {
+			writeError(writer, http.StatusInternalServerError, "session could not be closed")
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if strings.HasPrefix(request.URL.Path, "/api/v1/users") {
+		if identity.agent || identity.user.Role != userdomain.UserRoleAdmin {
+			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
+		handler.handleUsers(writer, request, identity.user)
+		return
+	}
+
+	if strings.HasPrefix(request.URL.Path, "/api/v1/agents/register") || strings.Contains(request.URL.Path, "/heartbeat") {
+		if !identity.agent {
+			writeError(writer, http.StatusForbidden, "agent authentication required")
+			return
+		}
+	}
+	if request.URL.Path == "/api/v1/agents" || request.URL.Path == "/api/v1/events" || strings.HasPrefix(request.URL.Path, "/api/v1/agents/") {
+		if !identity.agent && identity.user.Role != userdomain.UserRoleAdmin {
+			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
 	}
 
 	const jobsPath = "/api/v1/jobs"
@@ -123,6 +214,156 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	writeError(writer, http.StatusNotFound, "route not found")
+}
+
+func (handler *Handler) authenticate(request *http.Request) (principal, bool) {
+	authorizations := request.Header.Values("Authorization")
+	if len(authorizations) != 1 {
+		return principal{}, false
+	}
+	if security.BearerTokenMatches(authorizations[0], handler.agentToken) {
+		return principal{agent: true}, true
+	}
+	if handler.authenticator == nil {
+		return principal{}, false
+	}
+	token, ok := security.BearerToken(authorizations[0])
+	if !ok {
+		return principal{}, false
+	}
+	user, err := handler.authenticator.Authenticate(request.Context(), token)
+	if err != nil {
+		return principal{}, false
+	}
+	return principal{user: user}, true
+}
+
+func requestBearerToken(request *http.Request) (string, bool) {
+	values := request.Header.Values("Authorization")
+	if len(values) != 1 {
+		return "", false
+	}
+	return security.BearerToken(values[0])
+}
+
+func (handler *Handler) login(writer http.ResponseWriter, request *http.Request) {
+	if handler.authenticator == nil {
+		writeError(writer, http.StatusServiceUnavailable, "user authentication is not configured")
+		return
+	}
+	var input loginRequest
+	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	session, err := handler.authenticator.Login(request.Context(), input.Username, input.Password)
+	if err != nil {
+		if errors.Is(err, application.ErrInvalidCredentials) {
+			writeError(writer, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		writeError(writer, http.StatusInternalServerError, "login failed")
+		return
+	}
+	writeJSON(writer, http.StatusOK, loginResponse{Token: session.Token, ExpiresAt: session.ExpiresAt, User: session.User})
+}
+
+func (handler *Handler) handleUsers(writer http.ResponseWriter, request *http.Request, actor userdomain.User) {
+	if handler.authenticator == nil {
+		writeError(writer, http.StatusServiceUnavailable, "user authentication is not configured")
+		return
+	}
+	if request.URL.Path == "/api/v1/users" {
+		switch request.Method {
+		case http.MethodGet:
+			users, err := handler.authenticator.ListUsers(request.Context())
+			if err != nil {
+				writeError(writer, http.StatusInternalServerError, "users are unavailable")
+				return
+			}
+			writeJSON(writer, http.StatusOK, users)
+		case http.MethodPost:
+			var input createUserRequest
+			if err := decodeRequest(writer, request, &input); err != nil {
+				return
+			}
+			if input.Role == "" {
+				input.Role = userdomain.UserRoleUser
+			}
+			user, err := handler.authenticator.CreateUser(request.Context(), input.Username, input.Password, input.Role)
+			if err != nil {
+				handler.writeUserError(writer, err)
+				return
+			}
+			writeJSON(writer, http.StatusCreated, user)
+		default:
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+	prefix := "/api/v1/users/"
+	if !strings.HasPrefix(request.URL.Path, prefix) || request.Method != http.MethodPatch {
+		writeError(writer, http.StatusNotFound, "route not found")
+		return
+	}
+	id := strings.TrimPrefix(request.URL.Path, prefix)
+	if id == "" || strings.Contains(id, "/") {
+		writeError(writer, http.StatusNotFound, "user not found")
+		return
+	}
+	user, err := handler.authenticatorUser(request.Context(), id)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+	var input updateUserRequest
+	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	if input.Role != "" {
+		user.Role = input.Role
+	}
+	if input.Disabled != nil {
+		user.Disabled = *input.Disabled
+	}
+	if err := application.ValidateUserUpdate(user, input.Password); err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+	if err := handler.authenticator.EnsureAdminChangeAllowed(request.Context(), actor, user); err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+	if _, err := handler.authenticator.UpdateUser(request.Context(), user, input.Password); err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+	updated, err := handler.authenticatorUser(request.Context(), id)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
+}
+
+func (handler *Handler) authenticatorUser(ctx context.Context, id string) (userdomain.User, error) {
+	// Lookup through the authenticated repository is intentionally kept behind
+	// the application authenticator; the handler never reads SQLite directly.
+	return handler.authenticator.User(ctx, id)
+}
+
+func (handler *Handler) writeUserError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, application.ErrInvalidUser):
+		writeError(writer, http.StatusBadRequest, err.Error())
+	case errors.Is(err, application.ErrUserConflict):
+		writeError(writer, http.StatusConflict, "username already exists")
+	case errors.Is(err, application.ErrUserNotFound):
+		writeError(writer, http.StatusNotFound, "user not found")
+	case errors.Is(err, application.ErrLastAdmin):
+		writeError(writer, http.StatusConflict, err.Error())
+	default:
+		writeError(writer, http.StatusInternalServerError, "user operation failed")
+	}
 }
 
 func (handler *Handler) listAgents(writer http.ResponseWriter) {

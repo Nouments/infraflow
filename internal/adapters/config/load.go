@@ -16,6 +16,12 @@ import (
 
 const MaxInputBytes = 1 << 20
 
+type Parser struct{}
+
+func (Parser) Parse(data []byte) (domain.Infrastructure, error) {
+	return Parse(data)
+}
+
 type document struct {
 	Sites []domain.Site `yaml:"sites"`
 	Site  *domain.Site  `yaml:"site"`

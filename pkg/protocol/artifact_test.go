@@ -40,4 +40,7 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !ValidArtifactPath("lab", Artifact{Type: "terraform_locals", Path: "lab/terraform/locals.tf"}) || !ValidArtifactPath("lab", Artifact{Type: "terraform_tfvars_example", Path: "lab/terraform/terraform.tfvars.example"}) {
 		t.Fatal("expected valid Terraform artifact paths")
 	}
+	if !ValidArtifactPath("lab", Artifact{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"}) || !ValidArtifactPath("lab", Artifact{Type: "bootstrap_ipxe_script", Path: "lab/bootstrap/pxe/ipxe/bootstrap.ipxe"}) {
+		t.Fatal("expected valid bootstrap artifact paths")
+	}
 }

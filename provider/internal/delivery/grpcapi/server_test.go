@@ -19,9 +19,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"infraflow/internal/config"
-	"infraflow/internal/generator"
-	"infraflow/internal/security"
+	configadapter "infraflow/internal/adapters/config"
+	"infraflow/internal/adapters/generation"
+	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 	"infraflow/provider/internal/adapters/filesystem"
@@ -31,7 +32,7 @@ import (
 
 func TestGRPCStreamsArtifactsAndReportsState(t *testing.T) {
 	root := t.TempDir()
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte("sites:\n  - name: lab\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestGRPCStreamsArtifactsAndReportsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{})
+	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{}, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
 	token := strings.Repeat("g", security.MinAgentTokenBytes)
 	server, err := NewServer(service, token, 7, nil)
 	if err != nil {
@@ -120,7 +121,7 @@ func TestGRPCStreamsArtifactsAndReportsState(t *testing.T) {
 
 func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 	root := t.TempDir()
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte("sites:\n  - name: lab\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +132,7 @@ func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{})
+	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{}, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
 	server, err := NewServer(service, strings.Repeat("g", security.MinAgentTokenBytes), DefaultChunkSize, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +157,7 @@ func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 
 func TestGRPCDoesNotCommitTamperedArtifactStream(t *testing.T) {
 	root := t.TempDir()
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte("sites:\n  - name: lab\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +171,7 @@ func TestGRPCDoesNotCommitTamperedArtifactStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{})
+	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{}, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
 	token := strings.Repeat("g", security.MinAgentTokenBytes)
 	server, err := NewServer(service, token, DefaultChunkSize, nil)
 	if err != nil {

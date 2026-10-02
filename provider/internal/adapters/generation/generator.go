@@ -1,21 +1,25 @@
 package generation
 
 import (
+	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/domain"
-	"infraflow/internal/generator"
 	"infraflow/pkg/protocol"
 )
 
 type Generator struct{}
 
 func (Generator) Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
-	return generator.Generate(infrastructure, outputDirectory)
+	return coregeneration.Generate(infrastructure, outputDirectory)
 }
 
 func (Generator) GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
-	return generator.GenerateAnsible(infrastructure, outputDirectory)
+	return coregeneration.GenerateAnsible(infrastructure, outputDirectory)
 }
 
 func (Generator) GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
-	return generator.GenerateTerraform(infrastructure, outputDirectory)
+	return coregeneration.GenerateTerraform(infrastructure, outputDirectory)
+}
+
+func (Generator) GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
+	return coregeneration.GenerateBootstrap(infrastructure, outputDirectory)
 }

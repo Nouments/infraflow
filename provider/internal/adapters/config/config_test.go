@@ -13,7 +13,7 @@ artifact_directory: ./provider-data
 token_env: INFRAFLOW_AGENT_TOKEN
 `)
 	config, err := Load(loopback)
-	if err != nil || config.ChunkSize != defaultChunk {
+	if err != nil || config.ChunkSize != defaultChunk || config.DatabasePath == "" || config.AdminUsername != "admin" || config.AdminCredentialFile == "" || config.AdminCredentialScript == "" || config.SessionTTLMinutes != 480 {
 		t.Fatalf("unexpected local config: %#v, %v", config, err)
 	}
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
@@ -54,13 +54,13 @@ api_listen_address: 0.0.0.0:8080
 artifact_directory: ./provider-data
 token_env: TOKEN
 `)
-	if _, err := Load(remoteAPI); err == nil || !strings.Contains(err.Error(), "api_listen_address must be loopback-only") {
+	if _, err := Load(remoteAPI); err == nil || !strings.Contains(err.Error(), "api_listen_address requires TLS") {
 		t.Fatalf("expected remote API rejection, got %v", err)
 	}
 }
 
 func TestProviderDeploymentTemplateLoads(t *testing.T) {
-	if _, err := Load(filepath.Join("..", "..", "..", "examples", "provider-config.yaml")); err != nil {
+	if _, err := Load(filepath.Join("..", "..", "..", "..", "examples", "provider-config.yaml")); err != nil {
 		t.Fatalf("provider deployment template is invalid: %v", err)
 	}
 }

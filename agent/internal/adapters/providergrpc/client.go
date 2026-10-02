@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 )

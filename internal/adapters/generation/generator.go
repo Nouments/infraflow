@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"infraflow/internal/config"
+	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
-	"infraflow/internal/safefs"
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 

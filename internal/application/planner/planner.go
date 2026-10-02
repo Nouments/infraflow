@@ -1,3 +1,5 @@
+// Package planner contains the application-level plan builder. It only
+// depends on domain types and has no delivery or infrastructure concerns.
 package planner
 
 import (

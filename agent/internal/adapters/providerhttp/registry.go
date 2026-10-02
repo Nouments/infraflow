@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/protocol"
 )
 

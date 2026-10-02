@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/application"
 )
@@ -23,7 +23,7 @@ func TestAgentAPIRegistersAndUpdatesHeartbeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, nil, agents, events)
+	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, nil, agents, events, application.Dependencies{})
 	token := strings.Repeat("a", security.MinAgentTokenBytes)
 	handler, err := NewHandler(service, token)
 	if err != nil {

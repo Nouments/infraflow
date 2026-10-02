@@ -78,11 +78,11 @@ InfraFlow doit permettre :
 - [x] générer les artefacts intermédiaires génériques (inventaire et topologie uniquement) ;
 - [x] générer un socle Ansible générique (inventaire/playbook, sans exécution) ;
 - [x] générer un socle de templates Terraform générique (état déclaré/topologie, sans provider ni apply) ;
-- [ ] générer les fichiers DHCP ;
-- [ ] générer les fichiers DNS ;
-- [ ] générer les fichiers PXE/iPXE ;
+- [x] générer les fichiers DHCP génériques à partir du réseau bootstrap ;
+- [x] générer les fichiers DNS génériques à partir des adresses de management ;
+- [x] générer les fichiers PXE/iPXE génériques ;
 - [ ] générer les fichiers de provisioning constructeur ;
-- [ ] générer les scripts de bootstrap ;
+- [x] générer les scripts de bootstrap génériques (sans image ni exécution) ;
 - [x] générer les inventaires génériques ;
 - [ ] exécuter le provisioning ;
 - [ ] suivre chaque étape ;
@@ -94,7 +94,7 @@ InfraFlow doit permettre :
 - [ ] continuer localement hors connexion ;
 - [ ] synchroniser l’état lorsque la connexion revient ;
 - [x] produire une topologie déclarative à partir des liens fournis ;
-- [ ] fournir une TUI pour l’agent ;
+- [x] fournir une TUI Linux minimale pour l’agent (jobs, agents, session API) ;
 - [x] fournir une API/backend minimale pour le catalogue d’artefacts, les rapports d’état des agents, l’enregistrement/heartbeat des agents et les jobs de planification ;
 - [ ] fournir une interface web ;
 - [ ] exposer des événements temps réel ;
@@ -109,10 +109,11 @@ d’artefacts statiques. Elles ne préjugent pas du mode d’exécution du site.
 
 Dans l’architecture cible, l’agent pourra fournir localement des services de
 bootstrap isolés, notamment DHCP, DNS, TFTP, HTTP et iPXE, selon les capacités
-et la configuration du site. Ces services devront être contrôlés, limités au
-workspace ou au répertoire d’artefacts autorisé, journalisés et testés avant
-d’être déclarés supportés. Ils ne sont pas encore implémentés dans le code
-actuel et restent donc décochés dans cette liste.
+et la configuration du site. Le provider génère désormais les contrats
+statiques DHCP/DNS/TFTP/PXE/iPXE, mais ces services ne sont pas démarrés par le
+provider. Ils devront être contrôlés, limités au workspace ou au répertoire
+d’artefacts autorisé, journalisés et testés avant d’être déclarés supportés
+côté agent.
 
 ------------------------------------------------------------------------
 
@@ -449,12 +450,12 @@ Un événement reçu deux fois ne doit pas provoquer deux déploiements.
 
 ``` text
 internal/
-├── domain/
-├── application/
-├── ports/
-├── adapters/
-├── infrastructure/
-└── delivery/
+├── domain/                         # objets et règles métier
+├── application/                    # cas d’utilisation et planification
+├── ports/                          # contrats possédés par les cas d’utilisation
+├── adapters/                       # YAML, génération et planification concrète
+├── infrastructure/                # détails runtime futurs
+└── delivery/                       # entrées/sorties futures du core
 ```
 
 ### domain
@@ -563,7 +564,7 @@ infraflow/
 ├── provider/
 │   ├── cmd/
 │   ├── internal/application/
-│   ├── internal/adapters/{filesystem,generation}/
+│   ├── internal/adapters/{config,filesystem,generation}/
 │   └── internal/delivery/{cli,grpcapi}/
 ├── agent/
 │   ├── cmd/
@@ -572,12 +573,11 @@ infraflow/
 │   ├── internal/adapters/{filesystem,processor,providergrpc}/
 │   └── internal/delivery/cli/
 ├── internal/
-│   ├── config/
+│   ├── adapters/{config,generation,planning}/
+│   ├── application/{planner,reconcile,scheduler}/
 │   ├── domain/
-│   ├── generator/
-│   ├── planner/
-│   ├── safefs/
-│   └── security/
+│   ├── infrastructure/{safefs,security}/
+│   └── ports/
 ├── pkg/
 │   └── protocol/infraflow/v1/
 ├── api/proto/infraflow/v1/
@@ -1716,6 +1716,13 @@ GET    /api/v1/agents
 GET    /api/v1/agents/{id}
 
 GET    /api/v1/events
+
+POST   /api/v1/auth/login
+POST   /api/v1/auth/logout
+GET    /api/v1/auth/me
+GET    /api/v1/users
+POST   /api/v1/users
+PATCH  /api/v1/users/{id}
 ```
 
 ------------------------------------------------------------------------
@@ -1897,6 +1904,13 @@ authentication
 rotation
 revocation
 ```
+
+Le provider implémente également une authentification humaine locale pour son
+API backend : comptes stockés dans SQLite, mots de passe hachés avec bcrypt,
+sessions opaques à expiration, et rôles `admin`/`user`. Le premier mot de passe
+administrateur est généré par le backend lors de l’initialisation d’une base
+vide, puis rendu récupérable uniquement par un script shell local protégé.
+Cette authentification ne remplace pas le token machine réservé aux agents.
 
 ------------------------------------------------------------------------
 
@@ -3326,7 +3340,7 @@ Next recommended task:
 - [ ] daemon ;
 - [ ] local queue ;
 - [ ] local executor ;
-- [ ] TUI ;
+- [x] TUI Linux minimale ;
 - [ ] offline mode ;
 - [ ] sync.
 
@@ -3415,7 +3429,7 @@ Ne pas commencer par tous les constructeurs.
 - [x] local state ;
 - [ ] local queue ;
 - [ ] executor ;
-- [ ] TUI.
+- [x] TUI Linux minimale.
 
 ## Phase 5 — Backend
 
@@ -3433,11 +3447,14 @@ provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 ## Phase 6 — Bootstrap services
 
-- [ ] DHCP ;
-- [ ] DNS ;
-- [ ] TFTP ;
+- [x] génération d’artefacts DHCP statiques côté provider ;
+- [x] génération d’artefacts DNS statiques côté provider ;
+- [x] génération d’artefacts TFTP statiques côté provider ;
+- [x] génération d’artefacts PXE/iPXE statiques côté provider ;
+- [ ] service DHCP agent ;
+- [ ] service DNS agent ;
+- [ ] service TFTP agent ;
 - [ ] HTTP ;
-- [ ] iPXE ;
 - [ ] artifact server.
 
 ## Phase 7 — Ansible
@@ -3743,18 +3760,19 @@ sites:
 - [ ] Jinja/Tera-style templates
 - [x] socle Ansible générique
 - [x] socle Terraform data-only générique
+- [x] artefacts bootstrap DHCP/DNS/TFTP/PXE/iPXE statiques
 - [ ] modules Terraform fournisseur
-- [ ] DHCP
-- [ ] DNS
-- [ ] TFTP
-- [ ] PXE
+- [ ] services DHCP agent
+- [ ] services DNS agent
+- [ ] services TFTP agent
+- [ ] services PXE/iPXE agent
 - [ ] iPXE
 - [ ] Vendor configs
 
 ## Agent
 
 - [ ] daemon
-- [ ] TUI
+- [x] TUI Linux minimale
 - [ ] queue
 - [x] local state
 - [ ] executor
@@ -3968,7 +3986,7 @@ Critères :
 - [ ] plan lisible ;
 - [ ] artefacts déterministes ;
 - [ ] agent démarre ;
-- [ ] TUI affiche l’état ;
+- [x] TUI affiche l’état des jobs et agents ;
 - [ ] DHCP fonctionne en laboratoire ;
 - [ ] bootstrap fonctionne sur au moins un équipement ;
 - [ ] configuration Ansible générée ;

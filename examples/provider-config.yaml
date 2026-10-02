@@ -1,11 +1,18 @@
 listen_address: 127.0.0.1:8443
 api_listen_address: 127.0.0.1:8080
 artifact_directory: ./provider-data
+database_path: ./provider-data/.infraflow-users.sqlite3
 token_env: INFRAFLOW_AGENT_TOKEN
+admin_username: admin
+admin_credential_file: ./provider-data/.infraflow-admin-password
+admin_credential_script: ./provider-data/get-admin-password.sh
+session_ttl_minutes: 480
 chunk_size: 65536
 tls:
   certificate_file: ""
   key_file: ""
 
 # For remote or cloud deployments, listen on the appropriate interface and
-# configure both TLS files. Never expose the token in this file.
+# configure both TLS files. Never expose tokens or administrator passwords in
+# this file. On a new database, the provider generates the administrator
+# password and writes a local protected retrieval script.

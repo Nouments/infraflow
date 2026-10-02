@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -19,12 +20,17 @@ const (
 )
 
 type Config struct {
-	ListenAddress     string    `yaml:"listen_address"`
-	APIListenAddress  string    `yaml:"api_listen_address,omitempty"`
-	ArtifactDirectory string    `yaml:"artifact_directory"`
-	TokenEnv          string    `yaml:"token_env"`
-	ChunkSize         int       `yaml:"chunk_size"`
-	TLS               TLSConfig `yaml:"tls"`
+	ListenAddress         string    `yaml:"listen_address"`
+	APIListenAddress      string    `yaml:"api_listen_address,omitempty"`
+	ArtifactDirectory     string    `yaml:"artifact_directory"`
+	DatabasePath          string    `yaml:"database_path,omitempty"`
+	TokenEnv              string    `yaml:"token_env"`
+	AdminUsername         string    `yaml:"admin_username,omitempty"`
+	AdminCredentialFile   string    `yaml:"admin_credential_file,omitempty"`
+	AdminCredentialScript string    `yaml:"admin_credential_script,omitempty"`
+	SessionTTLMinutes     int       `yaml:"session_ttl_minutes,omitempty"`
+	ChunkSize             int       `yaml:"chunk_size"`
+	TLS                   TLSConfig `yaml:"tls"`
 }
 
 type TLSConfig struct {
@@ -58,6 +64,21 @@ func Load(path string) (Config, error) {
 	if config.ChunkSize == 0 {
 		config.ChunkSize = defaultChunk
 	}
+	if config.DatabasePath == "" {
+		config.DatabasePath = filepath.Join(config.ArtifactDirectory, ".infraflow-users.sqlite3")
+	}
+	if config.AdminUsername == "" {
+		config.AdminUsername = "admin"
+	}
+	if config.AdminCredentialFile == "" {
+		config.AdminCredentialFile = filepath.Join(config.ArtifactDirectory, ".infraflow-admin-password")
+	}
+	if config.AdminCredentialScript == "" {
+		config.AdminCredentialScript = filepath.Join(config.ArtifactDirectory, "get-admin-password.sh")
+	}
+	if config.SessionTTLMinutes == 0 {
+		config.SessionTTLMinutes = 480
+	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -70,6 +91,18 @@ func (config Config) Validate() error {
 	}
 	if strings.TrimSpace(config.TokenEnv) == "" {
 		return fmt.Errorf("token_env must name the environment variable holding the token")
+	}
+	if strings.TrimSpace(config.DatabasePath) == "" {
+		return fmt.Errorf("database_path must be set")
+	}
+	if strings.TrimSpace(config.AdminUsername) == "" {
+		return fmt.Errorf("admin_username must be set")
+	}
+	if strings.TrimSpace(config.AdminCredentialFile) == "" || strings.TrimSpace(config.AdminCredentialScript) == "" {
+		return fmt.Errorf("admin credential file and script paths must be set")
+	}
+	if config.SessionTTLMinutes < 5 || config.SessionTTLMinutes > 1440 {
+		return fmt.Errorf("session_ttl_minutes must be between 5 and 1440")
 	}
 	host, portText, err := net.SplitHostPort(config.ListenAddress)
 	if err != nil || host == "" {
@@ -100,8 +133,8 @@ func (config Config) Validate() error {
 			return fmt.Errorf("api_listen_address contains an invalid port")
 		}
 		apiIP := net.ParseIP(apiHost)
-		if !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback()) {
-			return fmt.Errorf("api_listen_address must be loopback-only until HTTPS is configured")
+		if !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback()) && !certificateSet {
+			return fmt.Errorf("api_listen_address requires TLS certificate and key for non-loopback addresses")
 		}
 	}
 	if config.ChunkSize < 1 || config.ChunkSize > maxChunk {

@@ -1,13 +1,14 @@
 package generator
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"infraflow/internal/config"
+	"infraflow/internal/adapters/config"
 )
 
 func TestGenerateIsDeterministic(t *testing.T) {
@@ -332,5 +333,96 @@ func TestGenerateTerraformEscapesUserStrings(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"${dangerous_expression}"`) {
 		t.Fatalf("user expression was not escaped as a string: %s", data)
+	}
+}
+
+func TestGenerateBootstrapCreatesPoolsReservationsDNSAndPXE(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: agence-01
+    bootstrap:
+      network: 192.168.100.0/29
+      gateway: 192.168.100.1
+    services:
+      dhcp: true
+      dns: true
+      tftp: true
+      pxe: true
+    devices:
+      - name: R1
+        management:
+          ipv4: 192.168.100.2
+        identity:
+          macs: ["00:11:22:33:44:55"]
+      - name: SW1
+        management:
+          ipv4: 192.168.100.3
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputDirectory := t.TempDir()
+	artifacts, err := GenerateBootstrap(infrastructure, outputDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 6 {
+		t.Fatalf("expected six bootstrap artifacts, got %d: %#v", len(artifacts), artifacts)
+	}
+	if _, err := os.Stat(filepath.Join(outputDirectory, "agence-01", "manifest.json")); err != nil {
+		t.Fatalf("bootstrap manifest missing: %v", err)
+	}
+	catalog, err := Catalog(outputDirectory)
+	if err != nil || len(catalog) != 6 {
+		t.Fatalf("bootstrap artifacts were not cataloged: %d, %v", len(catalog), err)
+	}
+	var dhcp bootstrapDHCP
+	data, err := os.ReadFile(filepath.Join(outputDirectory, "agence-01", "bootstrap", "dhcp", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &dhcp); err != nil {
+		t.Fatal(err)
+	}
+	if len(dhcp.Reservations) != 1 || dhcp.Reservations[0].IP != "192.168.100.2" || dhcp.Reservations[0].MAC != "00:11:22:33:44:55" {
+		t.Fatalf("unexpected DHCP reservations: %#v", dhcp.Reservations)
+	}
+	// The /29 has .0 network, .1 gateway, .2/.3 devices, and .4-.6 usable.
+	if len(dhcp.Pools) != 1 || dhcp.Pools[0].Start != "192.168.100.4" || dhcp.Pools[0].End != "192.168.100.6" {
+		t.Fatalf("unexpected DHCP pools: %#v", dhcp.Pools)
+	}
+	var dns bootstrapDNS
+	data, err = os.ReadFile(filepath.Join(outputDirectory, "agence-01", "bootstrap", "dns", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &dns); err != nil {
+		t.Fatal(err)
+	}
+	if dns.Zone != "agence-01.infraflow.local" || len(dns.Records) != 2 || dns.Records[0].Type != "A" || len(dns.ReverseRecords) != 2 {
+		t.Fatalf("unexpected DNS configuration: %#v", dns)
+	}
+	tftp, err := os.ReadFile(filepath.Join(outputDirectory, "agence-01", "bootstrap", "tftp", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tftp), `"read_only": true`) || strings.Contains(string(tftp), "password") {
+		t.Fatalf("unsafe TFTP configuration: %s", tftp)
+	}
+	ipxe, err := os.ReadFile(filepath.Join(outputDirectory, "agence-01", "bootstrap", "pxe", "ipxe", "bootstrap.ipxe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ipxe), "next-server") || !strings.Contains(string(ipxe), "agence-01") {
+		t.Fatalf("unexpected iPXE script: %s", ipxe)
+	}
+}
+
+func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
+	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "bootstrap network") {
+		t.Fatalf("expected bootstrap network error, got %v", err)
 	}
 }

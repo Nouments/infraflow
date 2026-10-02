@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	configadapter "infraflow/internal/adapters/config"
+	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
@@ -125,7 +127,7 @@ func (repository *memoryReports) List() []protocol.AgentReport {
 }
 
 func TestServiceValidatesPlansAndGenerates(t *testing.T) {
-	service := NewService(memoryArtifacts{}, &memoryReports{}, fakeGenerator{})
+	service := NewService(memoryArtifacts{}, &memoryReports{}, fakeGenerator{}, testDependencies())
 	input := []byte("sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n")
 	if _, err := service.Validate(input); err != nil {
 		t.Fatal(err)
@@ -143,7 +145,7 @@ func TestServiceValidatesPlansAndGenerates(t *testing.T) {
 func TestServiceSubmitsOnlyCurrentArtifactResults(t *testing.T) {
 	artifact := protocol.Artifact{Type: "inventory", Path: "lab/inventory.json", InputHash: "input", OutputHash: "output"}
 	repository := &memoryReports{}
-	service := NewService(memoryArtifacts{items: []protocol.Artifact{artifact}}, repository, fakeGenerator{})
+	service := NewService(memoryArtifacts{items: []protocol.Artifact{artifact}}, repository, fakeGenerator{}, testDependencies())
 	report := protocol.AgentReport{
 		AgentID: "agent-01", ReportedAt: time.Now().UTC(),
 		Artifacts: []protocol.ArtifactResult{{Path: artifact.Path, OutputHash: artifact.OutputHash, Status: protocol.StatusCompleted}},
@@ -164,7 +166,7 @@ func TestServiceSubmitsOnlyCurrentArtifactResults(t *testing.T) {
 
 func TestServiceCreatesAndManagesPlanningJobsWithoutExecutingTasks(t *testing.T) {
 	jobs := &memoryJobs{}
-	service := NewServiceWithJobs(nil, nil, nil, jobs)
+	service := NewServiceWithJobs(nil, nil, nil, jobs, testDependencies())
 	input := []byte("sites:\n  - name: lab\n    devices:\n      - name: R1\n")
 	job, err := service.CreateJob(input)
 	if err != nil {
@@ -188,7 +190,7 @@ func TestServiceCreatesAndManagesPlanningJobsWithoutExecutingTasks(t *testing.T)
 
 func TestServiceBindsAgentIdentityAndUpdatesHeartbeats(t *testing.T) {
 	agents := &memoryAgents{}
-	service := NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents)
+	service := NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, testDependencies())
 	agent, err := service.RegisterAgent(AgentRegistration{ID: "agent-01", SiteID: "site-01", Version: "0.1.0", Capabilities: []string{"inventory"}})
 	if err != nil || agent.Status != domain.AgentStatusOnline {
 		t.Fatalf("agent was not registered: %#v, %v", agent, err)
@@ -203,4 +205,8 @@ func TestServiceBindsAgentIdentityAndUpdatesHeartbeats(t *testing.T) {
 	if _, err := service.RegisterAgent(AgentRegistration{ID: agent.ID, SiteID: "other-site"}); !errors.Is(err, ErrAgentConflict) {
 		t.Fatalf("expected registration identity conflict, got %v", err)
 	}
+}
+
+func testDependencies() Dependencies {
+	return Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
 }

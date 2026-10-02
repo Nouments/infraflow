@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"infraflow/internal/config"
+	"infraflow/internal/adapters/config"
 	"infraflow/pkg/protocol"
 )
 

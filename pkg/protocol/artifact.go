@@ -76,6 +76,18 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "outputs.tf"
 	case "terraform_tfvars_example":
 		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "terraform.tfvars.example"
+	case "bootstrap_dhcp":
+		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "dhcp" && parts[3] == "config.json"
+	case "bootstrap_dns":
+		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "dns" && parts[3] == "config.json"
+	case "bootstrap_tftp":
+		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "tftp" && parts[3] == "config.json"
+	case "bootstrap_pxe":
+		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "pxe" && parts[3] == "metadata.json"
+	case "bootstrap_ipxe_script":
+		return len(parts) == 5 && parts[1] == "bootstrap" && parts[2] == "pxe" && parts[3] == "ipxe" && parts[4] == "bootstrap.ipxe"
+	case "bootstrap_ipxe_menu":
+		return len(parts) == 5 && parts[1] == "bootstrap" && parts[2] == "pxe" && parts[3] == "ipxe" && parts[4] == "menu.ipxe"
 	default:
 		return false
 	}

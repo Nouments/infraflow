@@ -8,33 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"infraflow/agent/internal/ports"
 	"infraflow/pkg/protocol"
 )
 
-type Provider interface {
-	Catalog(context.Context) ([]protocol.Artifact, error)
-	Download(context.Context, protocol.Artifact, io.Writer) error
-	Report(context.Context, protocol.AgentReport) error
-}
-
-type StateStore interface {
-	SaveArtifact(path, expectedHash string, source io.Reader) error
-	OpenArtifact(path string) (io.ReadCloser, error)
-	SaveReport(protocol.AgentReport) error
-}
-
-type ArtifactProcessor interface {
-	Process(protocol.Artifact, io.Reader) protocol.ArtifactResult
-}
-
 type Runner struct {
 	agentID   string
-	provider  Provider
-	state     StateStore
-	processor ArtifactProcessor
+	provider  ports.Provider
+	state     ports.StateStore
+	processor ports.ArtifactProcessor
 }
 
-func NewRunner(agentID string, provider Provider, state StateStore, processor ArtifactProcessor) (*Runner, error) {
+func NewRunner(agentID string, provider ports.Provider, state ports.StateStore, processor ports.ArtifactProcessor) (*Runner, error) {
 	if !protocol.ValidSiteName(agentID) || len(agentID) > 128 {
 		return nil, fmt.Errorf("invalid agent id")
 	}

@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 )

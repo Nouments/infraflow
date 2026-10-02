@@ -32,5 +32,12 @@ go.work.sum
 # .vscode/
 
 # Local build and generated artifacts
-/bin/
+bin/
 /generated/
+/provider-data/
+
+# Local authentication databases and SQLite journal files
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal

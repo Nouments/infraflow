@@ -7,9 +7,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
-	"infraflow/internal/security"
+	configadapter "infraflow/internal/adapters/config"
+	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
+	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 )
 
@@ -19,7 +23,7 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewServiceWithJobs(nil, nil, nil, jobs)
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
 	token := strings.Repeat("j", security.MinAgentTokenBytes)
 	handler, err := NewHandler(service, token)
 	if err != nil {
@@ -71,7 +75,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewServiceWithJobs(nil, nil, nil, jobs)
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
 	token := strings.Repeat("j", security.MinAgentTokenBytes)
 	handler, err := NewHandler(service, token)
 	if err != nil {
@@ -116,4 +120,111 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("missing job returned %d: %s", response.Code, response.Body.String())
 	}
+}
+
+func TestUserAuthenticationAndRoles(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := sqlite.New(root + "/users.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer users.Close()
+	authenticator, err := application.NewAuthenticator(users, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.EnsureBootstrap(t.Context(), "admin", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	agentToken := strings.Repeat("a", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, agentToken, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"admin","password":"correct horse battery staple"}`, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("administrator login returned %d: %s", login.Code, login.Body.String())
+	}
+	var adminSession struct {
+		Token string `json:"token"`
+		User  struct {
+			Role string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &adminSession); err != nil || adminSession.Token == "" || adminSession.User.Role != "admin" {
+		t.Fatalf("invalid administrator session: %#v, %v", adminSession, err)
+	}
+	created := authRequest(t, handler, http.MethodPost, "/api/v1/users", `{"username":"operator","password":"operator password 123","role":"user"}`, adminSession.Token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("operator creation returned %d: %s", created.Code, created.Body.String())
+	}
+	var operator struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &operator); err != nil || operator.ID == "" {
+		t.Fatalf("invalid operator response: %#v, %v", operator, err)
+	}
+	operatorLogin := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"operator","password":"operator password 123"}`, "")
+	if operatorLogin.Code != http.StatusOK {
+		t.Fatalf("operator login returned %d: %s", operatorLogin.Code, operatorLogin.Body.String())
+	}
+	var operatorSession struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(operatorLogin.Body.Bytes(), &operatorSession); err != nil || operatorSession.Token == "" {
+		t.Fatalf("invalid operator session: %#v, %v", operatorSession, err)
+	}
+	job := authRequest(t, handler, http.MethodPost, "/api/v1/jobs", `{"input":"sites:\n  - name: lab\n"}`, operatorSession.Token)
+	if job.Code != http.StatusCreated {
+		t.Fatalf("operator job creation returned %d: %s", job.Code, job.Body.String())
+	}
+	usersResponse := authRequest(t, handler, http.MethodGet, "/api/v1/users", "", operatorSession.Token)
+	if usersResponse.Code != http.StatusForbidden {
+		t.Fatalf("operator user listing returned %d: %s", usersResponse.Code, usersResponse.Body.String())
+	}
+	lastAdmin := authRequest(t, handler, http.MethodPatch, "/api/v1/users/"+operator.ID, `{"role":"admin","disabled":true}`, adminSession.Token)
+	if lastAdmin.Code != http.StatusOK {
+		t.Fatalf("operator update returned %d: %s", lastAdmin.Code, lastAdmin.Body.String())
+	}
+	adminList := authRequest(t, handler, http.MethodGet, "/api/v1/users", "", adminSession.Token)
+	if adminList.Code != http.StatusOK {
+		t.Fatalf("administrator user listing returned %d: %s", adminList.Code, adminList.Body.String())
+	}
+	selfDisable := authRequest(t, handler, http.MethodPatch, "/api/v1/users/"+extractUserID(t, adminSession.Token, handler), `{"disabled":true}`, adminSession.Token)
+	if selfDisable.Code != http.StatusConflict {
+		t.Fatalf("last administrator disable returned %d: %s", selfDisable.Code, selfDisable.Body.String())
+	}
+}
+
+func authRequest(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func extractUserID(t *testing.T, token string, handler http.Handler) string {
+	t.Helper()
+	response := authRequest(t, handler, http.MethodGet, "/api/v1/auth/me", "", token)
+	if response.Code != http.StatusOK {
+		t.Fatalf("current user lookup returned %d: %s", response.Code, response.Body.String())
+	}
+	var user struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &user); err != nil || user.ID == "" {
+		t.Fatalf("invalid current user response: %#v, %v", user, err)
+	}
+	return user.ID
 }

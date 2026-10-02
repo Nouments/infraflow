@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"infraflow/internal/security"
+	"infraflow/internal/infrastructure/security"
 )
 
 func TestClientRegistersAndSendsHeartbeatWithBearerToken(t *testing.T) {

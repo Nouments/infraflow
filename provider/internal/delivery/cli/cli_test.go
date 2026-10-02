@@ -14,6 +14,8 @@ import (
 
 const inputYAML = `sites:
   - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
     devices:
       - name: R1
         vendor: cisco
@@ -64,6 +66,15 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(terraformOutput, "lab", "terraform", "locals.tf")); err != nil {
 		t.Fatalf("Terraform locals missing: %v", err)
+	}
+	bootstrapOutput := filepath.Join(t.TempDir(), "bootstrap")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-bootstrap", "-f", inputPath, "-out", bootstrapOutput}, &stdout, &stderr); code != 0 {
+		t.Fatalf("generate-bootstrap failed: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(bootstrapOutput, "lab", "bootstrap", "dhcp", "config.json")); err != nil {
+		t.Fatalf("DHCP bootstrap configuration missing: %v", err)
 	}
 }
 

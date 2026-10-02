@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"infraflow/internal/config"
 	"infraflow/internal/domain"
-	"infraflow/internal/planner"
+	"infraflow/internal/ports"
 	"infraflow/pkg/protocol"
 )
 
@@ -24,47 +23,6 @@ var ErrAgentNotFound = errors.New("agent not found")
 var ErrAgentConflict = errors.New("agent identity conflict")
 var ErrJobNotFound = errors.New("job not found")
 var ErrJobConflict = errors.New("job state does not allow this operation")
-
-type ArtifactRepository interface {
-	Catalog() ([]protocol.Artifact, error)
-	Open(path string) (io.ReadCloser, protocol.Artifact, error)
-}
-
-type ReportRepository interface {
-	Append(protocol.AgentReport) (bool, error)
-	List() []protocol.AgentReport
-}
-
-type ArtifactGenerator interface {
-	Generate(domain.Infrastructure, string) ([]protocol.Artifact, error)
-}
-
-type AnsibleArtifactGenerator interface {
-	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
-}
-
-type TerraformArtifactGenerator interface {
-	GenerateTerraform(domain.Infrastructure, string) ([]protocol.Artifact, error)
-}
-
-type JobRepository interface {
-	Create(domain.Job) error
-	Get(string) (domain.Job, error)
-	List() ([]domain.Job, error)
-	Update(domain.Job) error
-}
-
-type AgentRepository interface {
-	Register(domain.Agent) (bool, error)
-	Get(string) (domain.Agent, error)
-	List() ([]domain.Agent, error)
-	Update(domain.Agent) error
-}
-
-type EventRepository interface {
-	Append(domain.Event) (domain.Event, bool, error)
-	List() []domain.Event
-}
 
 type AgentRegistration struct {
 	ID           string
@@ -80,33 +38,43 @@ type AgentHeartbeat struct {
 	QueueDepth   int
 }
 
+type Dependencies struct {
+	Parser      ports.InfrastructureParser
+	PlanBuilder ports.PlanBuilder
+}
+
 type Service struct {
-	artifacts ArtifactRepository
-	reports   ReportRepository
-	generator ArtifactGenerator
-	jobs      JobRepository
-	agents    AgentRepository
-	events    EventRepository
+	artifacts   ports.ArtifactRepository
+	reports     ports.ReportRepository
+	generator   ports.ArtifactGenerator
+	jobs        ports.JobRepository
+	agents      ports.AgentRepository
+	events      ports.EventRepository
+	parser      ports.InfrastructureParser
+	planBuilder ports.PlanBuilder
 }
 
-func NewService(artifacts ArtifactRepository, reports ReportRepository, generator ArtifactGenerator) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator}
+func NewService(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, dependencies Dependencies) *Service {
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
 }
 
-func NewServiceWithJobs(artifacts ArtifactRepository, reports ReportRepository, generator ArtifactGenerator, jobs JobRepository) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs}
+func NewServiceWithJobs(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, dependencies Dependencies) *Service {
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
 }
 
-func NewServiceWithJobsAndAgents(artifacts ArtifactRepository, reports ReportRepository, generator ArtifactGenerator, jobs JobRepository, agents AgentRepository) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents}
+func NewServiceWithJobsAndAgents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, dependencies Dependencies) *Service {
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
 }
 
-func NewServiceWithJobsAgentsEvents(artifacts ArtifactRepository, reports ReportRepository, generator ArtifactGenerator, jobs JobRepository, agents AgentRepository, events EventRepository) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events}
+func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, events ports.EventRepository, dependencies Dependencies) *Service {
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
 }
 
 func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {
-	return config.Parse(input)
+	if service.parser == nil {
+		return domain.Infrastructure{}, fmt.Errorf("infrastructure parser is not configured")
+	}
+	return service.parser.Parse(input)
 }
 
 func (service *Service) Plan(input []byte) (domain.Plan, error) {
@@ -114,7 +82,10 @@ func (service *Service) Plan(input []byte) (domain.Plan, error) {
 	if err != nil {
 		return domain.Plan{}, err
 	}
-	return planner.Build(infrastructure), nil
+	if service.planBuilder == nil {
+		return domain.Plan{}, fmt.Errorf("plan builder is not configured")
+	}
+	return service.planBuilder.Build(infrastructure), nil
 }
 
 func (service *Service) Generate(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
@@ -133,7 +104,7 @@ func (service *Service) GenerateAnsible(input []byte, outputDirectory string) ([
 	if err != nil {
 		return nil, err
 	}
-	generator, ok := service.generator.(AnsibleArtifactGenerator)
+	generator, ok := service.generator.(ports.AnsibleArtifactGenerator)
 	if !ok {
 		return nil, fmt.Errorf("Ansible artifact generator is not configured")
 	}
@@ -145,11 +116,23 @@ func (service *Service) GenerateTerraform(input []byte, outputDirectory string) 
 	if err != nil {
 		return nil, err
 	}
-	generator, ok := service.generator.(TerraformArtifactGenerator)
+	generator, ok := service.generator.(ports.TerraformArtifactGenerator)
 	if !ok {
 		return nil, fmt.Errorf("Terraform artifact generator is not configured")
 	}
 	return generator.GenerateTerraform(infrastructure, outputDirectory)
+}
+
+func (service *Service) GenerateBootstrap(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	generator, ok := service.generator.(ports.BootstrapArtifactGenerator)
+	if !ok {
+		return nil, fmt.Errorf("bootstrap artifact generator is not configured")
+	}
+	return generator.GenerateBootstrap(infrastructure, outputDirectory)
 }
 
 func (service *Service) CreateJob(input []byte) (domain.Job, error) {
@@ -160,7 +143,10 @@ func (service *Service) CreateJob(input []byte) (domain.Job, error) {
 	if err != nil {
 		return domain.Job{}, fmt.Errorf("%w: %v", ErrInvalidJobInput, err)
 	}
-	plan := planner.Build(infrastructure)
+	if service.planBuilder == nil {
+		return domain.Job{}, fmt.Errorf("plan builder is not configured")
+	}
+	plan := service.planBuilder.Build(infrastructure)
 	id, err := newJobID()
 	if err != nil {
 		return domain.Job{}, fmt.Errorf("create job id: %w", err)

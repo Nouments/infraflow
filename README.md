@@ -26,11 +26,23 @@ go run ./provider/cmd plan -f examples/infra.yaml
 go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-output
 go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
+go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
 ```
 
 `validate` is read-only. `plan` only describes deterministic work. `generate` writes local provider artifacts; it does not contact infrastructure.
 
-The provider can also persist validated planning jobs and expose them through its authenticated loopback HTTP API when `api_listen_address` is set in the provider configuration. Job creation validates and plans only; it does not provision devices.
+The provider can also persist validated planning jobs and expose them through its authenticated HTTP API when `api_listen_address` is set in the provider configuration. Plain HTTP is loopback-only; a remote API requires the configured TLS certificate/key pair. Job creation validates and plans only; it does not provision devices.
+
+The provider HTTP API has two separate authentication domains. Agents continue
+to use the configured machine bearer token. Platform users use SQLite-backed
+accounts with bcrypt password hashes, expiring opaque sessions, and `admin` or
+`user` roles. Administrators manage accounts under `/api/v1/users`; regular
+users can create and inspect planning jobs but cannot manage agents, events, or
+users. On first startup, the backend generates the administrator password and
+writes a protected local shell retrieval script.
+
+The Linux TUI connects directly to the provider API with an editable
+`https://server:port` address. It is a terminal client, not a web dashboard.
 
 The agent does not currently run DHCP, DNS, TFTP, HTTP, or iPXE services. These are planned local bootstrap services, distinct from generating static configuration files, and will be added only with isolated adapters, fixtures, tests, and observable results.
 
@@ -56,10 +68,10 @@ agent/               Agent config, application, adapters, delivery, and executab
 pkg/protocol/        Shared artifact and state contract
 api/proto/           Versioned gRPC protocol source
 internal/domain/     Core infrastructure and plan types
-internal/config/     YAML loading and validation
-internal/planner/    Deterministic dependency planning
-internal/reconcile/  Side-effect-free desired/observed drift comparison
-internal/generator/  Deterministic artifact generation and catalog validation
+internal/ports/      Application-owned repository and service contracts
+internal/adapters/   YAML, planning, generation, and shared adapters
+internal/application/  Planning, scheduling, reconciliation, and use cases
+internal/infrastructure/  Filesystem safety and security helpers
 examples/            Sample infrastructure declarations
 ARCHITECTURE.md      Service boundaries and safety rules
 ```
@@ -88,6 +100,9 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Side-effect-free desired/observed reconciliation with deterministic drift paths and state hashes
 - [x] Generic Ansible inventory and inspection playbook generation (without execution)
 - [x] Generic data-only Terraform configuration generation (without provider or apply)
+- [x] Generic DHCP/DNS/TFTP/PXE/iPXE bootstrap artifact generation (without agent execution)
+- [x] Provider SQLite user accounts, bcrypt passwords, expiring sessions, and admin/user authorization
+- [x] Linux TUI client for authenticated planning jobs and agent state
 - [ ] Agent bootstrap services, device provisioning adapters, execution job API, and web UI
 
 Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.
