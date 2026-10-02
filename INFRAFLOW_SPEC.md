@@ -3241,40 +3241,40 @@ Next recommended task:
 
 ## Agent 1 — Architecture
 
-- [ ] définir les interfaces ;
-- [ ] définir le domaine ;
-- [ ] valider Clean Architecture ;
-- [ ] vérifier dépendances ;
-- [ ] éviter couplage.
+- [x] définir les interfaces ;
+- [x] définir le domaine ;
+- [x] valider Clean Architecture ;
+- [x] vérifier dépendances ;
+- [x] éviter couplage.
 
 ## Agent 2 — Parser/schema
 
-- [ ] YAML ;
+- [x] YAML ;
 - [ ] JSON schema ;
-- [ ] validation ;
-- [ ] normalization ;
-- [ ] diagnostics.
+- [x] validation ;
+- [x] normalization des liens supportés ;
+- [x] diagnostics.
 
 ## Agent 3 — Planner
 
 - [ ] graph ;
-- [ ] DAG ;
+- [x] DAG ;
 - [ ] BFS ;
 - [ ] DFS ;
-- [ ] dependencies ;
-- [ ] retry.
+- [x] dependencies ;
+- [x] retry.
 
 ## Agent 4 — Generator
 
-- [ ] templates ;
-- [ ] artifact metadata ;
-- [ ] deterministic generation ;
+- [x] templates ;
+- [x] artifact metadata ;
+- [x] deterministic generation ;
 - [ ] golden tests.
 
 ## Agent 5 — Ansible
 
-- [ ] inventory ;
-- [ ] playbooks ;
+- [x] inventory ;
+- [x] playbooks ;
 - [ ] network modules ;
 - [ ] runner ;
 - [ ] result parser.
@@ -3346,12 +3346,12 @@ Next recommended task:
 
 ## Agent 13 — Backend
 
-- [ ] REST API ;
+- [x] REST API ;
 - [ ] WebSocket/SSE ;
-- [ ] auth ;
-- [ ] RBAC ;
-- [ ] audit ;
-- [ ] jobs.
+- [x] auth ;
+- [x] RBAC ;
+- [x] audit ;
+- [x] jobs de planification ;
 
 ## Agent 14 — Web UI
 
@@ -3366,19 +3366,19 @@ Next recommended task:
 
 - [ ] secrets ;
 - [ ] mTLS ;
-- [ ] authorization ;
+- [x] authorization ;
 - [ ] command execution ;
 - [ ] template security ;
-- [ ] audit ;
+- [x] audit ;
 - [ ] fuzzing.
 
 ## Agent 16 — QA
 
-- [ ] unit ;
+- [x] unit ;
 - [ ] integration ;
 - [ ] e2e ;
 - [ ] offline ;
-- [ ] race;
+- [x] race;
 - [ ] golden tests ;
 - [ ] compatibility matrix.
 
@@ -3404,7 +3404,7 @@ Ne pas commencer par tous les constructeurs.
 - [ ] schema ;
 - [x] parser ;
 - [x] validation ;
-- [ ] normalization ;
+- [x] normalization des liens supportés ;
 - [x] examples.
 
 ## Phase 2 — Planner
@@ -3418,7 +3418,7 @@ Ne pas commencer par tous les constructeurs.
 
 ## Phase 3 — Generator
 
-- [ ] template engine ;
+- [x] template engine ;
 - [x] artifacts ;
 - [x] deterministic rendering ;
 - [ ] golden tests.
@@ -3531,11 +3531,11 @@ provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 ## Phase 15 — Security hardening
 
-- [ ] authentication ;
+- [x] authentication ;
 - [ ] mTLS ;
-- [ ] RBAC ;
+- [x] RBAC ;
 - [ ] secret store ;
-- [ ] audit ;
+- [x] audit ;
 - [ ] command policy ;
 - [ ] fuzzing.
 
@@ -3543,11 +3543,11 @@ provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 - [ ] performance ;
 - [ ] memory profiling ;
-- [ ] race testing ;
+- [x] race testing ;
 - [ ] upgrade strategy ;
 - [ ] backup ;
 - [ ] disaster recovery ;
-- [ ] documentation.
+- [x] documentation de l’implémentation actuelle.
 
 ------------------------------------------------------------------------
 
