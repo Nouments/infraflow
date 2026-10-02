@@ -47,6 +47,24 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputPath, "lab", "manifest.json")); err != nil {
 		t.Fatalf("provider manifest missing: %v", err)
 	}
+	ansibleOutput := filepath.Join(t.TempDir(), "ansible")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-ansible", "-f", inputPath, "-out", ansibleOutput}, &stdout, &stderr); code != 0 {
+		t.Fatalf("generate-ansible failed: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(ansibleOutput, "lab", "ansible", "inventory.yml")); err != nil {
+		t.Fatalf("Ansible inventory missing: %v", err)
+	}
+	terraformOutput := filepath.Join(t.TempDir(), "terraform")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-terraform", "-f", inputPath, "-out", terraformOutput}, &stdout, &stderr); code != 0 {
+		t.Fatalf("generate-terraform failed: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(terraformOutput, "lab", "terraform", "locals.tf")); err != nil {
+		t.Fatalf("Terraform locals missing: %v", err)
+	}
 }
 
 func TestServeRejectsWeakToken(t *testing.T) {

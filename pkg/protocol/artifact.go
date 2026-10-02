@@ -50,14 +50,32 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 		return false
 	}
 	parts := strings.Split(value, "/")
-	if len(parts) != 2 || parts[0] != site {
+	if len(parts) < 2 || parts[0] != site {
 		return false
 	}
 	switch artifact.Type {
 	case "inventory":
-		return parts[1] == "inventory.json"
+		return len(parts) == 2 && parts[1] == "inventory.json"
 	case "topology":
-		return parts[1] == "topology.json"
+		return len(parts) == 2 && parts[1] == "topology.json"
+	case "ansible_inventory":
+		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "inventory.yml"
+	case "ansible_playbook":
+		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "site.yml"
+	case "terraform_versions":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "versions.tf"
+	case "terraform_providers":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "providers.tf"
+	case "terraform_variables":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "variables.tf"
+	case "terraform_locals":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "locals.tf"
+	case "terraform_main":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "main.tf"
+	case "terraform_outputs":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "outputs.tf"
+	case "terraform_tfvars_example":
+		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "terraform.tfvars.example"
 	default:
 		return false
 	}

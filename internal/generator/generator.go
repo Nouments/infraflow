@@ -63,6 +63,348 @@ type pendingFile struct {
 	data []byte
 }
 
+type ansibleInventory struct {
+	All ansibleInventoryAll `json:"all"`
+}
+
+type ansibleInventoryAll struct {
+	Children ansibleInventoryChildren `json:"children"`
+}
+
+type ansibleInventoryChildren struct {
+	Network ansibleGroup `json:"network"`
+}
+
+type ansibleGroup struct {
+	Hosts map[string]ansibleHost `json:"hosts"`
+}
+
+type ansibleHost struct {
+	AnsibleHost     string `json:"ansible_host,omitempty"`
+	InfraflowVendor string `json:"infraflow_vendor,omitempty"`
+	InfraflowFamily string `json:"infraflow_family,omitempty"`
+	InfraflowModel  string `json:"infraflow_model,omitempty"`
+	InfraflowRole   string `json:"infraflow_role,omitempty"`
+}
+
+type ansiblePlay struct {
+	Name        string            `json:"name"`
+	Hosts       string            `json:"hosts"`
+	GatherFacts bool              `json:"gather_facts"`
+	Tasks       []ansiblePlayTask `json:"tasks"`
+}
+
+type ansiblePlayTask struct {
+	Name  string           `json:"name"`
+	Debug ansibleDebugTask `json:"ansible.builtin.debug"`
+}
+
+type ansibleDebugTask struct {
+	Msg string `json:"msg"`
+}
+
+type terraformPendingFile struct {
+	path string
+	data []byte
+}
+
+type terraformExpression string
+
+// GenerateTerraform emits a data-only Terraform configuration. It represents
+// the validated desired state and topology without selecting a provider or
+// applying any infrastructure changes.
+func GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+
+	canonical := canonicalize(infrastructure)
+	canonicalInput, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized input: %w", err)
+	}
+	inputHash := protocol.SHA256(canonicalInput)
+	files := make([]terraformPendingFile, 0, len(canonical.Sites)*8)
+	artifacts := make([]Artifact, 0, len(canonical.Sites)*8)
+	for _, site := range canonical.Sites {
+		localBytes, err := marshalTerraform(terraformLocals(site, inputHash))
+		if err != nil {
+			return nil, err
+		}
+		contents := map[string][]byte{
+			"versions.tf":  []byte("terraform {\n  required_version = \">= 1.4.0\"\n}\n"),
+			"providers.tf": []byte("# This generated configuration intentionally has no external provider.\n"),
+			"variables.tf": []byte(terraformVariables),
+			"locals.tf":    localBytes,
+			"main.tf":      []byte(terraformMain),
+			"outputs.tf":   []byte(terraformOutputs),
+			"terraform.tfvars.example": []byte("# Copy this file to terraform.tfvars only when a local override is needed.\n" +
+				"environment = \"lab\"\n"),
+		}
+
+		fileNames := []string{"versions.tf", "providers.tf", "variables.tf", "locals.tf", "main.tf", "outputs.tf", "terraform.tfvars.example"}
+		for _, fileName := range fileNames {
+			data := contents[fileName]
+			relativePath := filepath.ToSlash(filepath.Join(site.Name, "terraform", fileName))
+			artifact := Artifact{Type: terraformArtifactType(fileName), Path: relativePath, InputHash: inputHash, OutputHash: protocol.SHA256(data)}
+			artifacts = append(artifacts, artifact)
+			files = append(files, terraformPendingFile{path: relativePath, data: data})
+		}
+	}
+
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	for _, file := range files {
+		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+			return nil, fmt.Errorf("write Terraform artifact %q: %w", file.path, err)
+		}
+	}
+	return artifacts, nil
+}
+
+const terraformVariables = `variable "environment" {
+  type        = string
+  description = "Logical environment label for this generated declaration."
+  default     = "generated"
+
+  validation {
+    condition     = trimspace(var.environment) != ""
+    error_message = "environment must not be empty."
+  }
+}
+`
+
+const terraformMain = `# This configuration is intentionally data-only.
+# It does not declare provider resources and does not provision devices.
+locals {
+  site_names = sort(keys(local.infrastructure.sites))
+}
+`
+
+const terraformOutputs = `output "infraflow_input_hash" {
+  description = "SHA-256 of the normalized InfraFlow input."
+  value       = local.infrastructure.input_hash
+}
+
+output "infraflow_site_names" {
+  description = "Sites present in the normalized InfraFlow input."
+  value       = local.site_names
+}
+
+output "infraflow_declaration" {
+  description = "The normalized desired state represented as Terraform data."
+  value       = local.infrastructure
+}
+`
+
+func terraformArtifactType(fileName string) string {
+	switch fileName {
+	case "versions.tf":
+		return "terraform_versions"
+	case "providers.tf":
+		return "terraform_providers"
+	case "variables.tf":
+		return "terraform_variables"
+	case "locals.tf":
+		return "terraform_locals"
+	case "main.tf":
+		return "terraform_main"
+	case "outputs.tf":
+		return "terraform_outputs"
+	case "terraform.tfvars.example":
+		return "terraform_tfvars_example"
+	default:
+		return ""
+	}
+}
+
+func terraformLocals(site domain.Site, inputHash string) map[string]any {
+	devices := make([]any, 0, len(site.Devices))
+	for _, device := range site.Devices {
+		devices = append(devices, map[string]any{
+			"id": device.ID, "name": device.Name, "role": device.Role, "vendor": device.Vendor,
+			"family": device.Family, "model": device.Model,
+			"identity":     map[string]any{"serial": device.Identity.Serial, "macs": append([]string(nil), device.Identity.MACs...)},
+			"management":   map[string]any{"ipv4": device.Management.IPv4},
+			"provisioning": map[string]any{"method": device.Provisioning.Method},
+		})
+	}
+	links := make([]any, 0, len(site.Links))
+	for _, link := range site.Links {
+		links = append(links, map[string]any{
+			"id": link.ID, "a": link.A, "b": link.B, "network": link.Network,
+		})
+	}
+	services := make(map[string]any, len(site.Services))
+	for name, enabled := range site.Services {
+		services[name] = enabled
+	}
+	sites := map[string]any{
+		site.Name: map[string]any{
+			"id": site.ID, "name": site.Name, "mode": site.Mode,
+			"bootstrap": map[string]any{"network": site.Bootstrap.Network, "gateway": site.Bootstrap.Gateway},
+			"services":  services, "devices": devices, "links": links,
+		},
+	}
+	return map[string]any{
+		"input_hash": inputHash, "environment": terraformExpression("var.environment"), "sites": sites,
+	}
+}
+
+func marshalTerraform(locals map[string]any) ([]byte, error) {
+	value, err := hclValue(locals, 2)
+	if err != nil {
+		return nil, fmt.Errorf("encode Terraform locals: %w", err)
+	}
+	return []byte("locals {\n  infrastructure = " + value + "\n}\n"), nil
+}
+
+func hclValue(value any, indent int) (string, error) {
+	indentText := strings.Repeat(" ", indent)
+	switch typed := value.(type) {
+	case terraformExpression:
+		return string(typed), nil
+	case string:
+		encoded, err := json.Marshal(typed)
+		return string(encoded), err
+	case bool:
+		if typed {
+			return "true", nil
+		}
+		return "false", nil
+	case nil:
+		return "null", nil
+	case []string:
+		items := make([]any, len(typed))
+		for index := range typed {
+			items[index] = typed[index]
+		}
+		return hclValue(items, indent)
+	case []any:
+		if len(typed) == 0 {
+			return "[]", nil
+		}
+		var builder strings.Builder
+		builder.WriteString("[\n")
+		for index, item := range typed {
+			encoded, err := hclValue(item, indent+2)
+			if err != nil {
+				return "", err
+			}
+			builder.WriteString(strings.Repeat(" ", indent+2))
+			builder.WriteString(encoded)
+			if index+1 < len(typed) {
+				builder.WriteString(",")
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString(indentText)
+		builder.WriteString("]")
+		return builder.String(), nil
+	case map[string]any:
+		if len(typed) == 0 {
+			return "{}", nil
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		var builder strings.Builder
+		builder.WriteString("{\n")
+		for _, key := range keys {
+			encoded, err := hclValue(typed[key], indent+2)
+			if err != nil {
+				return "", err
+			}
+			keyJSON, err := json.Marshal(key)
+			if err != nil {
+				return "", err
+			}
+			builder.WriteString(strings.Repeat(" ", indent+2))
+			builder.Write(keyJSON)
+			builder.WriteString(" = ")
+			builder.WriteString(encoded)
+			builder.WriteString("\n")
+		}
+		builder.WriteString(indentText)
+		builder.WriteString("}")
+		return builder.String(), nil
+	default:
+		return "", fmt.Errorf("unsupported Terraform value %T", value)
+	}
+}
+
+// GenerateAnsible emits a generic, read-only Ansible inventory and inspection
+// playbook. It does not select vendor modules or execute Ansible.
+func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	canonical := canonicalize(infrastructure)
+	canonicalInput, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized input: %w", err)
+	}
+	inputHash := protocol.SHA256(canonicalInput)
+	files := make([]pendingFile, 0, len(canonical.Sites)*2)
+	artifacts := make([]Artifact, 0, len(canonical.Sites)*2)
+	for _, site := range canonical.Sites {
+		hosts := make(map[string]ansibleHost, len(site.Devices))
+		for _, device := range site.Devices {
+			host := ansibleHost{
+				AnsibleHost: device.Management.IPv4, InfraflowVendor: device.Vendor,
+				InfraflowFamily: device.Family, InfraflowModel: device.Model, InfraflowRole: device.Role,
+			}
+			hosts[device.Name] = host
+		}
+		inventoryBytes, err := marshal(ansibleInventory{All: ansibleInventoryAll{Children: ansibleInventoryChildren{Network: ansibleGroup{Hosts: hosts}}}})
+		if err != nil {
+			return nil, err
+		}
+		playbookBytes, err := marshal([]ansiblePlay{{
+			Name: "Inspect declared InfraFlow devices", Hosts: "network", GatherFacts: false,
+			Tasks: []ansiblePlayTask{{
+				Name:  "Display declared device metadata",
+				Debug: ansibleDebugTask{Msg: "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"},
+			}},
+		}})
+		if err != nil {
+			return nil, err
+		}
+		inventoryPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "inventory.yml"))
+		playbookPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "site.yml"))
+		inventoryArtifact := Artifact{Type: "ansible_inventory", Path: inventoryPath, InputHash: inputHash, OutputHash: protocol.SHA256(inventoryBytes)}
+		playbookArtifact := Artifact{Type: "ansible_playbook", Path: playbookPath, InputHash: inputHash, OutputHash: protocol.SHA256(playbookBytes)}
+		artifacts = append(artifacts, inventoryArtifact, playbookArtifact)
+		files = append(files, pendingFile{path: inventoryPath, data: inventoryBytes}, pendingFile{path: playbookPath, data: playbookBytes})
+	}
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	for _, file := range files {
+		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+			return nil, fmt.Errorf("write Ansible artifact %q: %w", file.path, err)
+		}
+	}
+	return artifacts, nil
+}
+
 func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems

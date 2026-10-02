@@ -76,8 +76,8 @@ InfraFlow doit permettre :
 - [x] calculer un plan de déploiement générique ;
 - [x] afficher ce plan avant exécution ;
 - [x] générer les artefacts intermédiaires génériques (inventaire et topologie uniquement) ;
-- [ ] générer les configurations Ansible ;
-- [ ] générer les modules/templates Terraform nécessaires ;
+- [x] générer un socle Ansible générique (inventaire/playbook, sans exécution) ;
+- [x] générer un socle de templates Terraform générique (état déclaré/topologie, sans provider ni apply) ;
 - [ ] générer les fichiers DHCP ;
 - [ ] générer les fichiers DNS ;
 - [ ] générer les fichiers PXE/iPXE ;
@@ -86,7 +86,7 @@ InfraFlow doit permettre :
 - [x] générer les inventaires génériques ;
 - [ ] exécuter le provisioning ;
 - [ ] suivre chaque étape ;
-- [ ] journaliser chaque opération ;
+- [x] journaliser les opérations actuellement supportées (jobs, agents et rapports) ;
 - [x] conserver les rapports d’état des artefacts génériques traités ;
 - [ ] gérer les retries (le retry d’un job de planification est disponible ; les retries d’exécution et de provisioning ne le sont pas) ;
 - [ ] gérer les dépendances ;
@@ -3268,7 +3268,8 @@ Next recommended task:
 ## Agent 6 — Terraform
 
 - [ ] runner ;
-- [ ] generated modules ;
+- [x] template de représentation Terraform générique ;
+- [ ] modules Terraform fournisseur ;
 - [ ] validation ;
 - [ ] plan/apply policy ;
 - [ ] state handling.
@@ -3421,7 +3422,7 @@ Ne pas commencer par tous les constructeurs.
 - [x] API minimale (catalogue, rapports et jobs de planification) ;
 - [x] enregistrement authentifié des agents, état persistant et heartbeat ;
 - [ ] jobs d’exécution et de provisioning ;
-- [ ] events ;
+- [x] journal d’événements append-only et audit des opérations supportées ;
 - [x] agent registration ;
 - [ ] sync.
 
@@ -3441,8 +3442,8 @@ provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 ## Phase 7 — Ansible
 
-- [ ] inventory generator ;
-- [ ] playbook generator ;
+- [x] inventory generator ;
+- [x] playbook generator ;
 - [ ] runner ;
 - [ ] network configuration ;
 - [ ] verification.
@@ -3709,39 +3710,40 @@ sites:
 ## Foundation
 
 - [ ] Clean Architecture
-- [ ] Domain model
+- [x] Domain model
 - [ ] Interfaces
-- [ ] Config
+- [x] Config
 - [ ] Logging
-- [ ] Errors
-- [ ] Context
+- [x] Errors
+- [x] Context
 - [ ] CI
 
 ## Configuration
 
-- [ ] YAML parser
+- [x] YAML parser
 - [ ] Schema
-- [ ] Validation
+- [x] Validation
 - [ ] IPAM
 - [ ] Capability matrix
 
 ## Orchestration
 
 - [ ] Graph
-- [ ] DAG
+- [x] DAG
 - [ ] BFS
 - [ ] DFS
-- [ ] Scheduler
-- [ ] Retry
-- [ ] Lock
-- [ ] Timeout
-- [ ] Cancellation
+- [x] Scheduler
+- [x] Retry
+- [x] Lock
+- [x] Timeout
+- [x] Cancellation
 
 ## Generation
 
 - [ ] Jinja/Tera-style templates
-- [ ] Ansible
-- [ ] Terraform
+- [x] socle Ansible générique
+- [x] socle Terraform data-only générique
+- [ ] modules Terraform fournisseur
 - [ ] DHCP
 - [ ] DNS
 - [ ] TFTP
@@ -3754,7 +3756,7 @@ sites:
 - [ ] daemon
 - [ ] TUI
 - [ ] queue
-- [ ] local state
+- [x] local state
 - [ ] executor
 - [ ] artifact cache
 - [ ] offline mode
@@ -3762,13 +3764,13 @@ sites:
 
 ## Backend
 
-- [ ] REST
-- [ ] gRPC
+- [x] REST
+- [x] gRPC
 - [ ] WebSocket/SSE
-- [ ] authentication
+- [x] authentication
 - [ ] RBAC
-- [ ] audit
-- [ ] jobs
+- [x] audit partiel
+- [x] planning jobs
 
 ## Network
 

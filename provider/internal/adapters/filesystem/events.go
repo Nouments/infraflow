@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -49,7 +50,7 @@ func NewEventStore(root string) (*EventStore, error) {
 		return nil, fmt.Errorf("event store exceeds %d bytes", maxEventStoreBytes)
 	}
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 64<<10)
+	scanner.Buffer(make([]byte, 4096), 128<<10)
 	var previous string
 	var expectedSequence uint64 = 1
 	for scanner.Scan() {
@@ -58,6 +59,10 @@ func NewEventStore(root string) (*EventStore, error) {
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&event); err != nil {
 			return nil, fmt.Errorf("decode event: %w", err)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			return nil, fmt.Errorf("event contains trailing JSON")
 		}
 		if event.Sequence != expectedSequence || event.PreviousHash != previous {
 			return nil, fmt.Errorf("event sequence or previous hash is invalid")

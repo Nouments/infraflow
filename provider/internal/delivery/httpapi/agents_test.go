@@ -19,7 +19,11 @@ func TestAgentAPIRegistersAndUpdatesHeartbeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents)
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, nil, agents, events)
 	token := strings.Repeat("a", security.MinAgentTokenBytes)
 	handler, err := NewHandler(service, token)
 	if err != nil {
@@ -48,6 +52,14 @@ func TestAgentAPIRegistersAndUpdatesHeartbeats(t *testing.T) {
 	response = agentRequest(t, handler, http.MethodPost, "/api/v1/agents/agent-01/heartbeat", `{"site_id":"other-site","queue_depth":2}`, token)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("site rebinding returned %d: %s", response.Code, response.Body.String())
+	}
+	response = agentRequest(t, handler, http.MethodGet, "/api/v1/events?limit=1", "", token)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "agent.registered") && !strings.Contains(response.Body.String(), "agent.heartbeat") {
+		t.Fatalf("event list returned %d: %s", response.Code, response.Body.String())
+	}
+	response = agentRequest(t, handler, http.MethodGet, "/api/v1/events?limit=0", "", token)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid event limit returned %d: %s", response.Code, response.Body.String())
 	}
 }
 

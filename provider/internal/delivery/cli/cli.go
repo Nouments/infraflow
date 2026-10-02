@@ -34,7 +34,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "serve" {
 		return runServe(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" {
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-ansible" && command != "generate-terraform" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -43,12 +43,12 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
-	outputPath := flags.String("out", "", "artifact output directory (generate only)")
+	outputPath := flags.String("out", "", "artifact output directory (generate commands)")
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *inputPath == "" || command == "generate" && *outputPath == "" {
-		fmt.Fprintln(stderr, "infraflow-provider: command requires -f; generate also requires -out")
+	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-ansible" || command == "generate-terraform") && *outputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: command requires -f; generate commands also require -out")
 		return 2
 	}
 	input, err := os.ReadFile(*inputPath)
@@ -83,6 +83,24 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		}
 	case "generate":
 		artifacts, err := service.Generate(input, *outputPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 1
+		}
+		for _, artifact := range artifacts {
+			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	case "generate-ansible":
+		artifacts, err := service.GenerateAnsible(input, *outputPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 1
+		}
+		for _, artifact := range artifacts {
+			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	case "generate-terraform":
+		artifacts, err := service.GenerateTerraform(input, *outputPath)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 			return 1
@@ -198,7 +216,9 @@ func printUsage(writer io.Writer) {
 Usage:
   infraflow-provider validate -f <infra.yaml>
   infraflow-provider plan -f <infra.yaml>
-  infraflow-provider generate -f <infra.yaml> -out <directory>
+	infraflow-provider generate -f <infra.yaml> -out <directory>
+	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
+	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider serve -config <provider.yaml>
 
 Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. When api_listen_address is configured, the loopback HTTP API manages persisted planning jobs. Remote gRPC addresses require configured TLS certificate and key files.`)

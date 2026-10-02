@@ -23,6 +23,7 @@ The provider core keeps domain types independent of YAML, HTTP, a database, Ansi
 - Agent streams are confined to the explicitly selected local state directory and hash-checked before atomic commit.
 - The generic scheduler validates task graphs, dependencies, retries, timeouts, cancellation, concurrency, and resource locks, but is not connected to a provisioning endpoint yet.
 - Desired and observed state comparison is isolated in the reconciliation core; it reports drift and hashes without changing either state.
+- Supported jobs, agent registration/heartbeat, and agent reports are recorded in a private append-only hash-chained event store.
 - No device provisioning adapter, execution endpoint, or local DHCP/DNS/TFTP bootstrap service is enabled in this initial slice.
 - Unknown provider capabilities remain unknown and are never treated as supported.
 

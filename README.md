@@ -24,6 +24,8 @@ go test ./...
 go run ./provider/cmd validate -f examples/infra.yaml
 go run ./provider/cmd plan -f examples/infra.yaml
 go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
+go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-output
+go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
 ```
 
 `validate` is read-only. `plan` only describes deterministic work. `generate` writes local provider artifacts; it does not contact infrastructure.
@@ -84,6 +86,8 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Provider gRPC artifact streaming/state API, planning-job HTTP API, authenticated agent registration/heartbeat, and independent configured agent client
 - [x] Generic dependency-aware scheduler primitives (retry, timeout, cancellation, concurrency, and locks)
 - [x] Side-effect-free desired/observed reconciliation with deterministic drift paths and state hashes
+- [x] Generic Ansible inventory and inspection playbook generation (without execution)
+- [x] Generic data-only Terraform configuration generation (without provider or apply)
 - [ ] Agent bootstrap services, device provisioning adapters, execution job API, and web UI
 
 Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.

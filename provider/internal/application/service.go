@@ -39,6 +39,14 @@ type ArtifactGenerator interface {
 	Generate(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+type AnsibleArtifactGenerator interface {
+	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
+}
+
+type TerraformArtifactGenerator interface {
+	GenerateTerraform(domain.Infrastructure, string) ([]protocol.Artifact, error)
+}
+
 type JobRepository interface {
 	Create(domain.Job) error
 	Get(string) (domain.Job, error)
@@ -118,6 +126,30 @@ func (service *Service) Generate(input []byte, outputDirectory string) ([]protoc
 		return nil, fmt.Errorf("artifact generator is not configured")
 	}
 	return service.generator.Generate(infrastructure, outputDirectory)
+}
+
+func (service *Service) GenerateAnsible(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	generator, ok := service.generator.(AnsibleArtifactGenerator)
+	if !ok {
+		return nil, fmt.Errorf("Ansible artifact generator is not configured")
+	}
+	return generator.GenerateAnsible(infrastructure, outputDirectory)
+}
+
+func (service *Service) GenerateTerraform(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	generator, ok := service.generator.(TerraformArtifactGenerator)
+	if !ok {
+		return nil, fmt.Errorf("Terraform artifact generator is not configured")
+	}
+	return generator.GenerateTerraform(infrastructure, outputDirectory)
 }
 
 func (service *Service) CreateJob(input []byte) (domain.Job, error) {
