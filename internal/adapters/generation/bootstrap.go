@@ -223,9 +223,10 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 	reserved := make(map[uint32]struct{})
 	if site.Bootstrap.Gateway != "" {
 		gateway := net.ParseIP(site.Bootstrap.Gateway).To4()
-		if gateway != nil {
-			reserved[ipToUint32(gateway)] = struct{}{}
+		if gateway == nil || ipToUint32(gateway) < first || ipToUint32(gateway) > last {
+			return bootstrapDHCP{}, fmt.Errorf("site %q: bootstrap gateway %s is not a usable DHCP host address", site.Name, site.Bootstrap.Gateway)
 		}
+		reserved[ipToUint32(gateway)] = struct{}{}
 	}
 	reservations := make([]bootstrapReservation, 0)
 	seenDeviceIPs := make(map[uint32]string)
@@ -238,6 +239,12 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 			continue
 		}
 		value := ipToUint32(ip)
+		if value < first || value > last {
+			return bootstrapDHCP{}, fmt.Errorf("site %q, device %q: management address %s is not a usable DHCP host address", site.Name, device.Name, device.Management.IPv4)
+		}
+		if site.Bootstrap.Gateway != "" && ipToUint32(net.ParseIP(site.Bootstrap.Gateway).To4()) == value {
+			return bootstrapDHCP{}, fmt.Errorf("site %q, device %q: management address %s conflicts with the bootstrap gateway", site.Name, device.Name, device.Management.IPv4)
+		}
 		if previous, exists := seenDeviceIPs[value]; exists && previous != device.Name {
 			return bootstrapDHCP{}, fmt.Errorf("site %q: devices %q and %q share management address %s", site.Name, previous, device.Name, device.Management.IPv4)
 		}
@@ -281,14 +288,17 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 	for _, address := range reservedValues {
 		reservedAddresses = append(reservedAddresses, uintToIP(address).String())
 	}
+	options := bootstrapDHCPOptions{DNS: []string{}, NextServerSource: "agent_runtime", IPXEScript: "pxe/ipxe/bootstrap.ipxe"}
+	if bootstrapServiceEnabled(site, "tftp") {
+		options.BootMode = "ipxe"
+		options.BootFilename = "undionly.kpxe"
+		options.TFTPDirectory = "tftp"
+	}
 	return bootstrapDHCP{
 		Version: 1, Service: "dhcp", Enabled: bootstrapServiceEnabled(site, "dhcp"), Site: site.Name,
 		Network: site.Bootstrap.Network, Gateway: site.Bootstrap.Gateway, Pools: pools,
 		ReservedAddresses: reservedAddresses, Reservations: reservations,
-		Options: bootstrapDHCPOptions{
-			DNS: []string{}, NextServer: "", NextServerSource: "agent_runtime", BootMode: "ipxe",
-			BootFilename: "undionly.kpxe", TFTPDirectory: "tftp", IPXEScript: "pxe/ipxe/bootstrap.ipxe",
-		},
+		Options: options,
 	}, nil
 }
 
@@ -347,13 +357,13 @@ func bootstrapPXEEnabled(site domain.Site) bool {
 	if enabled, exists := site.Services["ipxe"]; exists {
 		return enabled
 	}
-	return true
+	return false
 }
 
 func bootstrapServiceEnabled(site domain.Site, service string) bool {
 	enabled, exists := site.Services[service]
 	if !exists {
-		return true
+		return false
 	}
 	return enabled
 }

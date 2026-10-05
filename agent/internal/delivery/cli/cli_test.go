@@ -71,6 +71,62 @@ func TestAgentCLIHasNoProviderImplementationCommand(t *testing.T) {
 	}
 }
 
+func TestServeDHCPRequiresExplicitNetworkBinding(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"serve-dhcp", "-config", "dhcp.json"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "requires -config, -interface, and -listen") {
+		t.Fatalf("serve-dhcp accepted missing network binding: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestServeDHCPRejectsDisabledConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "dhcp.json")
+	data := []byte(`{"version":1,"service":"dhcp","enabled":false,"site":"lab","network":"192.168.50.0/24","gateway":"192.168.50.1","pools":[{"start":"192.168.50.20","end":"192.168.50.30"}],"reserved_addresses":["192.168.50.1"],"reservations":[],"options":{"dns_servers":[],"next_server":"","next_server_source":"agent_runtime","boot_mode":"ipxe","boot_filename":"undionly.kpxe","tftp_directory":"tftp","ipxe_script":"pxe/ipxe/bootstrap.ipxe"}}`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"serve-dhcp", "-config", configPath, "-interface", "lo", "-listen", "127.0.0.1"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "service is disabled") {
+		t.Fatalf("serve-dhcp accepted a disabled service: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestBootstrapFileServersRequireExplicitBindings(t *testing.T) {
+	for _, command := range []string{"serve-bootstrap", "serve-tftp"} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		if code := Run([]string{command}, &stdout, &stderr); code != 2 {
+			t.Errorf("%s accepted missing interface binding: code=%d stderr=%q", command, code, stderr.String())
+		}
+	}
+}
+
+func TestServeTFTPRejectsDisabledConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "tftp.json")
+	data := []byte(`{"version":1,"service":"tftp","enabled":false,"site":"lab","root_directory":"tftp","read_only":true,"allowed_files":[{"path":"undionly.kpxe","source":"agent_runtime"}]}`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"serve-tftp", "-config", configPath, "-root", t.TempDir(), "-interface", "lo", "-listen", "127.0.0.1"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "service is disabled") {
+		t.Fatalf("serve-tftp accepted disabled service: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestToolCommandsRequireExplicitSiteAndDirectory(t *testing.T) {
+	for _, command := range []string{"execute-ansible", "validate-terraform"} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		if code := Run([]string{command}, &stdout, &stderr); code != 2 {
+			t.Errorf("%s accepted missing state directory and site: code=%d stderr=%q", command, code, stderr.String())
+		}
+	}
+}
+
 type fakeAgentProvider struct {
 	infrav1.UnimplementedAgentProviderServer
 	token    string

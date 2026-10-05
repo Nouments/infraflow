@@ -82,6 +82,13 @@ func (Generic) Process(artifact protocol.Artifact, data io.Reader) protocol.Arti
 		}
 		result.Status = protocol.StatusCompleted
 		result.Message = "topology imported into local agent state"
+	case "ansible_inventory", "ansible_playbook",
+		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
+		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
+		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",
+		"bootstrap_ipxe_script", "bootstrap_ipxe_menu":
+		result.Status = protocol.StatusCompleted
+		result.Message = "verified artifact staged; tool execution or bootstrap service startup remains explicit"
 	default:
 		result.Status = protocol.StatusBlocked
 		result.Message = "agent has no executor for this artifact type"

@@ -1,17 +1,83 @@
 # InfraFlow Agent
 
-The agent is an independent service with its own YAML deployment configuration. It authenticates to the provider over gRPC, streams only manifest-published artifacts to disk with hash verification, processes supported inventory/topology state, and reports results. It does not currently generate provider files, provision devices, or run DHCP, DNS, TFTP, HTTP, or iPXE bootstrap services.
+The agent is an independent service with its own YAML deployment configuration. It authenticates to the provider over gRPC, streams only manifest-published artifacts to disk with hash verification, processes supported inventory/topology state, and reports results. It does not generate provider files or provision devices. Experimental DHCPv4 and read-only TFTP/HTTP bootstrap servers can be started separately from provider-generated configs; DNS service and vendor-specific provisioning are not active agent capabilities.
 
 Those bootstrap services are planned as local, isolated agent capabilities. The
 provider can now generate static DHCP/DNS/TFTP/PXE/iPXE contracts, but the agent
-does not apply or run them yet. Each service remains unsupported until it has an
-adapter, restricted workspace behavior, fixtures, automated tests, and an
-observable result.
+does not apply or run most of them yet. DHCPv4 is experimental: leases are
+held in memory, so restarting forgets allocations, and the server has not been
+validated on an isolated physical network or with vendor-specific clients. Do
+not run it on a production or shared LAN. Its command requires an explicit
+interface and IPv4 address assigned to that interface; UDP port 67 usually
+requires root or Linux `CAP_NET_BIND_SERVICE`.
 
 ```sh
 INFRAFLOW_AGENT_TOKEN='<same secret configured on provider>' \
   go run ./agent/cmd run -config examples/agent-config.yaml
 ```
+
+To run DHCP on an isolated lab segment, explicitly enable it in the site config
+(`services.dhcp: true`), generate bootstrap artifacts, then start the agent
+command explicitly:
+
+```sh
+go run ./agent/cmd serve-dhcp \
+  -config generated/lab/bootstrap/dhcp/config.json \
+  -interface eth1 \
+  -listen 192.168.100.1
+```
+
+The service rejects disabled configs, invalid or overlapping pools, and listen
+addresses outside the configured network or inside an assignable pool. Stop it
+with `Ctrl+C` or `SIGTERM`. Use a disposable isolated network until persistent
+leases and lab validation are implemented.
+
+Enable `services.tftp: true` to opt in to TFTP in the generated config. The
+generated DHCP contract advertises the TFTP server in option 66, the
+configured boot filename (currently `undionly.kpxe`) in option 67, and the
+agent address as `next-server`. The agent does not bundle iPXE firmware files;
+place approved `undionly.kpxe` and/or `ipxe.efi` files in the configured
+`tftp/` runtime directory. TFTP is unauthenticated and read-only, so bind it
+only to the isolated provisioning interface:
+
+```sh
+go run ./agent/cmd serve-tftp \
+  -config /var/lib/infraflow-agent/lab/bootstrap/tftp/config.json \
+  -root /var/lib/infraflow-agent/lab/bootstrap \
+  -interface eth1 \
+  -listen 192.168.100.1
+```
+
+The generated iPXE script downloads published scripts over HTTP. Serve only
+the verified bootstrap artifact paths on the isolated interface:
+
+```sh
+go run ./agent/cmd serve-bootstrap \
+  -directory /var/lib/infraflow-agent \
+  -interface eth1 \
+  -listen 192.168.100.1
+```
+
+The agent can run its current read-only Ansible inspection and validate the
+current data-only Terraform declaration. The Ansible runner accepts only the
+generated debug task and forces check mode. Terraform rejects provider,
+resource, module, and data blocks, then runs `init -backend=false` and
+`validate`; it does not plan or apply infrastructure.
+
+```sh
+go run ./agent/cmd execute-ansible \
+  -directory /var/lib/infraflow-agent \
+  -site lab
+
+go run ./agent/cmd validate-terraform \
+  -directory /var/lib/infraflow-agent \
+  -site lab
+```
+
+Both commands require the corresponding provider-generated artifacts to have
+been downloaded by `agent run`. They time out and stage only the expected
+files in a temporary workspace. Install `ansible-playbook` and `terraform` on
+the agent host to use them.
 
 The Linux TUI is a separate human client of the provider HTTP API:
 

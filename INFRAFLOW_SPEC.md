@@ -813,6 +813,26 @@ dhcp:
 Ne jamais supposer qu’un équipement utilisera automatiquement les mêmes
 options DHCP qu’un autre constructeur.
 
+### État d’implémentation
+
+Le provider génère actuellement un contrat JSON statique: pool calculé à
+partir des hôtes utilisables non réservés, réservations par MAC, gateway et
+paramètres génériques de boot. Une gateway ou une réservation correspondant à
+l’adresse réseau ou broadcast est rejetée. Le contrat est maintenant
+consommé par un serveur DHCP agent expérimental. Celui-ci est lancé uniquement
+par commande explicite, lié à une interface/IP choisie et utilise des leases
+en mémoire avec une limite. Le DHCP est désactivé par défaut et exige
+`services.dhcp: true`. Il implémente les réservations MAC et les échanges
+DISCOVER/OFFER, REQUEST/ACK/NAK, RELEASE et DECLINE. Les leases persistantes,
+le contrôle de conflits sur le réseau, les client identifiers en configuration,
+options conditionnelles, vendor/user class, durées configurables et audit
+restent à implémenter. Les options 66 (TFTP server name), 67 (boot filename)
+et le champ BOOTP next-server sont émis selon le contrat générique; aucune
+règle Cisco AutoInstall/ZTP ni option constructeur n’est fournie.
+L’absence de fixtures matérielles, de validation sur réseau isolé et
+d’intégration système signifie qu’aucune compatibilité DHCP constructeur ni
+aptitude production n’est déclarée.
+
 ------------------------------------------------------------------------
 
 # 15. DNS
@@ -3275,28 +3295,32 @@ Next recommended task:
 
 - [x] inventory ;
 - [x] playbooks ;
+- [x] runner d’inspection en check mode (playbook debug allowlisté seulement) ;
 - [ ] network modules ;
-- [ ] runner ;
 - [ ] result parser.
 
 ## Agent 6 — Terraform
 
-- [ ] runner ;
+- [x] runner `init -backend=false`/`validate` pour la déclaration data-only ;
 - [x] template de représentation Terraform générique ;
 - [ ] modules Terraform fournisseur ;
-- [ ] validation ;
+- [x] validation HCL et rejet des blocs provider/resource/module/data ;
 - [ ] plan/apply policy ;
 - [ ] state handling.
 
 ## Agent 7 — DHCP/DNS/PXE
 
-- [ ] DHCP abstraction ;
-- [ ] reservations ;
-- [ ] DNS ;
-- [ ] TFTP ;
-- [ ] HTTP ;
-- [ ] iPXE ;
-- [ ] fixtures.
+- [x] génération DHCP statique (pool et réservations MAC) ;
+- [x] génération DNS statique (A/PTR) ;
+- [x] génération des métadonnées TFTP/PXE et scripts iPXE génériques ;
+- [x] serveur DHCPv4 agent expérimental, commande opt-in et leases mémoire ;
+- [x] serveur TFTP lecture seule borné à l’allowlist générée ;
+- [x] serveur HTTP bootstrap limité aux artefacts bootstrap publiés ;
+- [ ] leases persistantes, audit et options avancées DHCP ;
+- [ ] validation DHCP en laboratoire isolé ;
+- [ ] serveur DNS agent ;
+- [ ] firmware iPXE et validation sur clients PXE réels ;
+- [x] tests unitaires et transfert TFTP/HTTP en boucle locale.
 
 ## Agent 8 — Cisco
 
@@ -3451,17 +3475,17 @@ provisionner un équipement. Les cases d’exécution restent donc décochées.
 - [x] génération d’artefacts DNS statiques côté provider ;
 - [x] génération d’artefacts TFTP statiques côté provider ;
 - [x] génération d’artefacts PXE/iPXE statiques côté provider ;
-- [ ] service DHCP agent ;
+- [x] service TFTP read-only avec fichiers runtime allowlistés ;
+- [x] service DHCPv4 expérimental avec interface/IP explicites ;
+- [x] serveur HTTP bootstrap lié à une IP d’interface et restreint aux artefacts vérifiés ;
 - [ ] service DNS agent ;
-- [ ] service TFTP agent ;
-- [ ] HTTP ;
-- [ ] artifact server.
+- [x] serveur HTTP read-only d’artefacts vérifiés côté agent.
 
 ## Phase 7 — Ansible
 
 - [x] inventory generator ;
 - [x] playbook generator ;
-- [ ] runner ;
+- [x] runner agent restreint au debug généré et au mode check ;
 - [ ] network configuration ;
 - [ ] verification.
 

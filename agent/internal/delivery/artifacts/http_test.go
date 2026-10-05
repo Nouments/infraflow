@@ -24,7 +24,8 @@ func (store memoryStore) OpenArtifact(path string) (io.ReadCloser, error) {
 
 func TestHandlerServesVerifiedArtifactsReadOnly(t *testing.T) {
 	handler, err := NewHandler(memoryStore{files: map[string][]byte{
-		"lab/bootstrap/dns/config.json": []byte("{\"ok\":true}\n"),
+		"lab/bootstrap/dns/config.json":    []byte("{\"ok\":true}\n"),
+		"lab/bootstrap/pxe/ipxe/menu.ipxe": []byte("#!ipxe\necho ready\n"),
 	}}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +36,12 @@ func TestHandlerServesVerifiedArtifactsReadOnly(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.String() != "{\"ok\":true}\n" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("unexpected artifact response: %d %q %#v", response.Code, response.Body.String(), response.Header())
 	}
+	request = httptest.NewRequest(http.MethodGet, "/infraflow/lab/bootstrap/pxe/ipxe/menu.ipxe", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "#!ipxe\necho ready\n" {
+		t.Fatalf("iPXE bootstrap path did not serve its published artifact: %d %q", response.Code, response.Body.String())
+	}
 
 	request = httptest.NewRequest(http.MethodPost, "/artifacts/lab/bootstrap/dns/config.json", nil)
 	responseRecorder := httptest.NewRecorder()
@@ -42,7 +49,7 @@ func TestHandlerServesVerifiedArtifactsReadOnly(t *testing.T) {
 	if responseRecorder.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST returned %d", responseRecorder.Code)
 	}
-	for _, path := range []string{"/artifacts/../secret", "/artifacts/lab/.infraflow-agent-state.json", "/other"} {
+	for _, path := range []string{"/artifacts/../secret", "/artifacts/lab/.infraflow-agent-state.json", "/infraflow/../secret", "/infraflow/lab/unknown.bin", "/other"} {
 		request = httptest.NewRequest(http.MethodGet, path, nil)
 		responseRecorder = httptest.NewRecorder()
 		handler.ServeHTTP(responseRecorder, request)
@@ -71,6 +78,29 @@ func TestHandlerRequiresTokenWhenConfigured(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("valid token returned %d", response.Code)
+	}
+}
+
+func TestBootstrapHandlerOnlyServesBootstrapArtifacts(t *testing.T) {
+	handler, err := NewBootstrapHandler(memoryStore{files: map[string][]byte{
+		"lab/bootstrap/pxe/ipxe/menu.ipxe": []byte("#!ipxe\n"),
+		"lab/inventory.json":               []byte("{}\n"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		path string
+		code int
+	}{
+		{path: "/infraflow/lab/bootstrap/pxe/ipxe/menu.ipxe", code: http.StatusOK},
+		{path: "/infraflow/lab/inventory.json", code: http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != test.code {
+			t.Errorf("GET %s returned %d, want %d", test.path, response.Code, test.code)
+		}
 	}
 }
 

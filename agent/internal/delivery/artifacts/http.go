@@ -13,6 +13,7 @@ import (
 )
 
 const artifactPrefix = "/artifacts/"
+const bootstrapPrefix = "/infraflow/"
 
 const maxServedArtifactBytes = int64(8 << 30)
 
@@ -23,8 +24,9 @@ type Store interface {
 }
 
 type Handler struct {
-	store Store
-	token []byte
+	store         Store
+	token         []byte
+	bootstrapOnly bool
 }
 
 func NewHandler(store Store, token string) (*Handler, error) {
@@ -35,6 +37,15 @@ func NewHandler(store Store, token string) (*Handler, error) {
 		return nil, fmt.Errorf("artifact token must be at least %d bytes", security.MinAgentTokenBytes)
 	}
 	return &Handler{store: store, token: []byte(token)}, nil
+}
+
+func NewBootstrapHandler(store Store) (*Handler, error) {
+	handler, err := NewHandler(store, "")
+	if err != nil {
+		return nil, err
+	}
+	handler.bootstrapOnly = true
+	return handler, nil
 }
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -53,7 +64,13 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if !strings.HasPrefix(request.URL.Path, artifactPrefix) {
+	var relativePath string
+	switch {
+	case strings.HasPrefix(request.URL.Path, artifactPrefix):
+		relativePath = strings.TrimPrefix(request.URL.Path, artifactPrefix)
+	case strings.HasPrefix(request.URL.Path, bootstrapPrefix):
+		relativePath = strings.TrimPrefix(request.URL.Path, bootstrapPrefix)
+	default:
 		http.NotFound(writer, request)
 		return
 	}
@@ -63,9 +80,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 
-	relativePath := strings.TrimPrefix(request.URL.Path, artifactPrefix)
 	artifact, ok := artifactForPath(relativePath)
-	if !ok {
+	if !ok || (handler.bootstrapOnly && !strings.Contains(relativePath, "/bootstrap/")) {
 		http.NotFound(writer, request)
 		return
 	}

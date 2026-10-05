@@ -390,6 +390,9 @@ func TestGenerateBootstrapCreatesPoolsReservationsDNSAndPXE(t *testing.T) {
 	if len(dhcp.Pools) != 1 || dhcp.Pools[0].Start != "192.168.100.4" || dhcp.Pools[0].End != "192.168.100.6" {
 		t.Fatalf("unexpected DHCP pools: %#v", dhcp.Pools)
 	}
+	if dhcp.Options.BootFilename != "undionly.kpxe" || dhcp.Options.TFTPDirectory != "tftp" {
+		t.Fatalf("TFTP-enabled DHCP config omitted boot options 66/67: %#v", dhcp.Options)
+	}
 	var dns bootstrapDNS
 	data, err = os.ReadFile(filepath.Join(outputDirectory, "agence-01", "bootstrap", "dns", "config.json"))
 	if err != nil {
@@ -424,5 +427,95 @@ func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
 	}
 	if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "bootstrap network") {
 		t.Fatalf("expected bootstrap network error, got %v", err)
+	}
+}
+
+func TestGenerateBootstrapDisablesServicesWithoutExplicitOptIn(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputDirectory := t.TempDir()
+	if _, err := GenerateBootstrap(infrastructure, outputDirectory); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputDirectory, "lab", "bootstrap", "dhcp", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dhcp bootstrapDHCP
+	if err := json.Unmarshal(data, &dhcp); err != nil {
+		t.Fatal(err)
+	}
+	if dhcp.Enabled || dhcp.Options.BootFilename != "" || dhcp.Options.TFTPDirectory != "" {
+		t.Fatalf("DHCP/TFTP boot must remain disabled without explicit service opt-in: %#v", dhcp)
+	}
+}
+
+func TestGenerateBootstrapRejectsNetworkAndBroadcastReservations(t *testing.T) {
+	for _, address := range []string{"192.168.100.0", "192.168.100.7"} {
+		t.Run(address, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/29
+    devices:
+      - name: invalid-host
+        management:
+          ipv4: ` + address + `
+        identity:
+          macs: ["00:11:22:33:44:55"]
+`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "usable DHCP host address") {
+				t.Fatalf("expected invalid DHCP host address error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateBootstrapRejectsNetworkAndBroadcastGateways(t *testing.T) {
+	for _, address := range []string{"192.168.100.0", "192.168.100.7"} {
+		t.Run(address, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/29
+      gateway: ` + address + `
+`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "usable DHCP host address") {
+				t.Fatalf("expected invalid DHCP gateway error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateBootstrapRejectsDeviceAddressMatchingGateway(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+      gateway: 192.168.100.1
+    devices:
+      - name: gateway-device
+        management:
+          ipv4: 192.168.100.1
+        identity:
+          macs: ["00:11:22:33:44:55"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "conflicts with the bootstrap gateway") {
+		t.Fatalf("expected gateway reservation conflict, got %v", err)
 	}
 }

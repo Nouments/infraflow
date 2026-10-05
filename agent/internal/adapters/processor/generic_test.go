@@ -23,6 +23,21 @@ func TestGenericProcessesSupportedArtifacts(t *testing.T) {
 	}
 }
 
+func TestGenericStagesToolAndBootstrapArtifactsWithoutExecutingThem(t *testing.T) {
+	processor := Generic{}
+	for _, artifact := range []protocol.Artifact{
+		{Type: "ansible_playbook", Path: "lab/ansible/site.yml"},
+		{Type: "terraform_main", Path: "lab/terraform/main.tf"},
+		{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"},
+		{Type: "bootstrap_tftp", Path: "lab/bootstrap/tftp/config.json"},
+	} {
+		result := processor.Process(artifact, strings.NewReader("verified bytes"))
+		if result.Status != protocol.StatusCompleted || !strings.Contains(result.Message, "remains explicit") {
+			t.Errorf("artifact %s was not staged with explicit-execution status: %#v", artifact.Type, result)
+		}
+	}
+}
+
 func TestGenericRejectsInvalidArtifactsAndBlocksUnknownTypes(t *testing.T) {
 	processor := Generic{}
 	invalidTopology := processor.Process(protocol.Artifact{Type: "topology", Path: "lab/topology.json"}, strings.NewReader(`{"site":"lab","nodes":[],"edges":[{"a":{"device":"missing"},"b":{"device":"missing"}}]}`))
