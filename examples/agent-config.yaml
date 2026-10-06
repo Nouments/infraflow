@@ -13,9 +13,9 @@ provider:
   tls:
     enabled: false
 
-# For remote or cloud deployments, use the provider's DNS/IP and enable TLS:
+# For remote or cloud deployments, use the actual provider DNS/IP and enable TLS:
 # provider:
-#   address: provider.example.com:8443
+#   address: 203.0.113.10:8443
 #   token_env: INFRAFLOW_AGENT_TOKEN
 #   tls:
 #     enabled: true

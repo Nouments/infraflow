@@ -24,18 +24,15 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
-	token := strings.Repeat("j", security.MinAgentTokenBytes)
-	handler, err := NewHandler(service, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentToken := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 
 	body, err := json.Marshal(createJobRequest{Input: "sites:\n  - name: lab\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Authorization", "Bearer "+userToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
@@ -60,7 +57,7 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 		{http.MethodPost, "/api/v1/jobs/" + created.ID + "/retry", http.StatusOK},
 	} {
 		request := httptest.NewRequest(test.method, test.path, nil)
-		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Authorization", "Bearer "+userToken)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.code {
@@ -76,14 +73,11 @@ func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
-	token := strings.Repeat("p", security.MinAgentTokenBytes)
-	handler, err := NewHandler(service, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentToken := strings.Repeat("p", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/preview", strings.NewReader(`{"input":"sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n"}`))
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Authorization", "Bearer "+userToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -108,6 +102,41 @@ func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
 	}
 }
 
+func TestAgentTokenIsForbiddenFromUserPlanningRoutes(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("a", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/jobs", ""},
+		{http.MethodPost, "/api/v1/jobs", `{"input":"sites:\n  - name: lab\n"}`},
+		{http.MethodGet, "/api/v1/jobs/job-missing", ""},
+		{http.MethodPost, "/api/v1/jobs/job-missing/cancel", ""},
+		{http.MethodPost, "/api/v1/jobs/job-missing/retry", ""},
+		{http.MethodPost, "/api/v1/plan/preview", `{"input":"sites:\n  - name: lab\n"}`},
+	} {
+		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Errorf("agent token %s %s returned %d, want %d: %s", test.method, test.path, response.Code, http.StatusForbidden, response.Body.String())
+		}
+	}
+}
+
 func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	root := t.TempDir()
 	jobs, err := filesystem.NewJobStore(root)
@@ -115,11 +144,8 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
-	token := strings.Repeat("j", security.MinAgentTokenBytes)
-	handler, err := NewHandler(service, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentToken := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 
 	unauthorized := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 	response := httptest.NewRecorder()
@@ -128,8 +154,8 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 		t.Fatalf("missing token returned %d", response.Code)
 	}
 	duplicateAuth := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
-	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+userToken)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, duplicateAuth)
 	if response.Code != http.StatusUnauthorized {
@@ -137,7 +163,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	malformed := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites: []"} {}`))
-	malformed.Header.Set("Authorization", "Bearer "+token)
+	malformed.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, malformed)
 	if response.Code != http.StatusBadRequest {
@@ -145,7 +171,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	invalidInput := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites:\n  - unknown: true\n"}`))
-	invalidInput.Header.Set("Authorization", "Bearer "+token)
+	invalidInput.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, invalidInput)
 	if response.Code != http.StatusBadRequest {
@@ -153,7 +179,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	missing := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-missing", nil)
-	missing.Header.Set("Authorization", "Bearer "+token)
+	missing.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, missing)
 	if response.Code != http.StatusNotFound {
@@ -239,6 +265,31 @@ func TestUserAuthenticationAndRoles(t *testing.T) {
 	if selfDisable.Code != http.StatusConflict {
 		t.Fatalf("last administrator disable returned %d: %s", selfDisable.Code, selfDisable.Body.String())
 	}
+}
+
+func newUserSessionHandler(t *testing.T, root, agentToken string, service *application.Service) (http.Handler, string) {
+	t.Helper()
+	users, err := sqlite.New(root + "/users.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = users.Close() })
+	authenticator, err := application.NewAuthenticator(users, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.EnsureBootstrap(t.Context(), "admin", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := authenticator.Login(t.Context(), "admin", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, agentToken, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler, session.Token
 }
 
 func authRequest(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {

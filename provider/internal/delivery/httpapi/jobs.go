@@ -139,6 +139,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if request.URL.Path == "/api/v1/plan/preview" {
+		if identity.agent {
+			writeError(writer, http.StatusForbidden, "user session required")
+			return
+		}
 		if request.Method != http.MethodPost {
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -162,6 +166,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 
 	const jobsPath = "/api/v1/jobs"
 	if request.URL.Path == jobsPath {
+		if identity.agent {
+			writeError(writer, http.StatusForbidden, "user session required")
+			return
+		}
 		switch request.Method {
 		case http.MethodGet:
 			handler.listJobs(writer)
@@ -215,6 +223,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	prefix := jobsPath + "/"
 	if !strings.HasPrefix(request.URL.Path, prefix) {
 		writeError(writer, http.StatusNotFound, "route not found")
+		return
+	}
+	if identity.agent {
+		writeError(writer, http.StatusForbidden, "user session required")
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(request.URL.Path, prefix), "/")

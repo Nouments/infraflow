@@ -38,7 +38,7 @@ func TestClientRegistersAndSendsHeartbeatWithBearerToken(t *testing.T) {
 
 func TestClientRejectsUnsafeAddressesAndInvalidResponses(t *testing.T) {
 	token := strings.Repeat("t", security.MinAgentTokenBytes)
-	for _, address := range []string{"http://example.com", "http://127.0.0.1:8080/path", "http://user@127.0.0.1:8080"} {
+	for _, address := range []string{"http://203.0.113.10", "http://127.0.0.1:8080/path", "http://user@127.0.0.1:8080"} {
 		if _, err := New(address, token); err == nil {
 			t.Fatalf("expected unsafe address %q to be rejected", address)
 		}

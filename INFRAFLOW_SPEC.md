@@ -3970,7 +3970,7 @@ Références de départ :
   https://developer.hashicorp.com/terraform/plugin/framework
 - Terraform provider design :
   https://developer.hashicorp.com/terraform/plugin/best-practices/hashicorp-provider-design-principles
-- Proxmox documentation : https://pve.proxmox.com/pve-docs/
+- Proxmox documentation : https://pve.proxmox.com/pve-docs/chapter-pve.html
 - iPXE documentation : https://ipxe.org/docs
 
 ------------------------------------------------------------------------
