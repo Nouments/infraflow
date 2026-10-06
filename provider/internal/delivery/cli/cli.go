@@ -2,12 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"infraflow/provider/internal/application"
 	"infraflow/provider/internal/delivery/grpcapi"
 	"infraflow/provider/internal/delivery/httpapi"
+	"infraflow/provider/internal/delivery/web"
 	credentialstore "infraflow/provider/internal/infrastructure/credentials"
 
 	"google.golang.org/grpc/credentials"
@@ -38,7 +40,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "serve" {
 		return runServe(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" {
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -51,7 +53,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-ansible" || command == "generate-terraform" || command == "generate-bootstrap") && *outputPath == "" {
+	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-all" || command == "generate-ansible" || command == "generate-terraform" || command == "generate-bootstrap") && *outputPath == "" {
 		fmt.Fprintln(stderr, "infraflow-provider: command requires -f; generate commands also require -out")
 		return 2
 	}
@@ -94,6 +96,15 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		}
 		for _, artifact := range artifacts {
 			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	case "generate-all":
+		artifacts, err := service.GenerateAll(input, *outputPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 1
+		}
+		for _, artifact := range artifacts {
+			fmt.Fprintf(stdout, "generated and published %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
 		}
 	case "generate-ansible":
 		artifacts, err := service.GenerateAnsible(input, *outputPath)
@@ -204,7 +215,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "InfraFlow administrator credentials written to %s; retrieve with %s\n", settings.AdminCredentialFile, settings.AdminCredentialScript)
 		}
 	}
-	var apiServer *http.Server
+	var webApp interface {
+		Listener(net.Listener) error
+		ShutdownWithContext(context.Context) error
+	}
 	var apiListener net.Listener
 	if settings.APIListenAddress != "" {
 		handler, err := httpapi.NewHandler(service, os.Getenv(settings.TokenEnv), authenticator)
@@ -217,34 +231,34 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
 			return 1
 		}
-		apiServer = &http.Server{
-			Handler:           handler,
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       15 * time.Second,
-			WriteTimeout:      15 * time.Second,
-			IdleTimeout:       60 * time.Second,
+		webApp = web.NewApp(handler, settings.WebUIEnabled)
+		if settings.TLS.CertificateFile != "" {
+			certificate, err := tls.LoadX509KeyPair(settings.TLS.CertificateFile, settings.TLS.KeyFile)
+			if err != nil {
+				_ = apiListener.Close()
+				fmt.Fprintf(stderr, "infraflow-provider: load API TLS certificate: %v\n", err)
+				return 2
+			}
+			apiListener = tls.NewListener(apiListener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
 		}
 		go func() {
-			var serveErr error
-			if settings.TLS.CertificateFile != "" {
-				serveErr = apiServer.ServeTLS(apiListener, settings.TLS.CertificateFile, settings.TLS.KeyFile)
-			} else {
-				serveErr = apiServer.Serve(apiListener)
-			}
-			if err := serveErr; err != nil && err != http.ErrServerClosed {
+			if err := webApp.Listener(apiListener); err != nil && !errors.Is(err, net.ErrClosed) {
 				fmt.Fprintf(stderr, "infraflow-provider: API serve: %v\n", err)
 			}
 		}()
 		defer func() {
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = apiServer.Shutdown(shutdownContext)
+			_ = webApp.ShutdownWithContext(shutdownContext)
 		}()
 		apiScheme := "http"
 		if settings.TLS.CertificateFile != "" {
 			apiScheme = "https"
 		}
 		fmt.Fprintf(stdout, "InfraFlow provider %s API listening on %s\n", apiScheme, settings.APIListenAddress)
+		if settings.WebUIEnabled {
+			fmt.Fprintf(stdout, "InfraFlow web console available at %s://%s/\n", apiScheme, settings.APIListenAddress)
+		}
 	}
 	listener, err := net.Listen("tcp", settings.ListenAddress)
 	if err != nil {
@@ -269,10 +283,11 @@ Usage:
   infraflow-provider validate -f <infra.yaml>
   infraflow-provider plan -f <infra.yaml>
 	infraflow-provider generate -f <infra.yaml> -out <directory>
+	infraflow-provider generate-all -f <infra.yaml> -out <directory>
 	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
 	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. When api_listen_address is configured, the HTTP API manages persisted planning jobs; remote API addresses require configured TLS certificate and key files. The Linux TUI connects directly to this API.`)
+Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
 }

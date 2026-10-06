@@ -35,6 +35,7 @@ go.work.sum
 bin/
 /generated/
 /provider-data/
+/agent-data/
 
 # Local authentication databases and SQLite journal files
 *.sqlite

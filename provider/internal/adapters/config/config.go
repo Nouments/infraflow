@@ -22,6 +22,7 @@ const (
 type Config struct {
 	ListenAddress         string    `yaml:"listen_address"`
 	APIListenAddress      string    `yaml:"api_listen_address,omitempty"`
+	WebUIEnabled          bool      `yaml:"web_ui_enabled,omitempty"`
 	ArtifactDirectory     string    `yaml:"artifact_directory"`
 	DatabasePath          string    `yaml:"database_path,omitempty"`
 	TokenEnv              string    `yaml:"token_env"`
@@ -136,6 +137,9 @@ func (config Config) Validate() error {
 		if !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback()) && !certificateSet {
 			return fmt.Errorf("api_listen_address requires TLS certificate and key for non-loopback addresses")
 		}
+	}
+	if config.WebUIEnabled && config.APIListenAddress == "" {
+		return fmt.Errorf("web_ui_enabled requires api_listen_address")
 	}
 	if config.ChunkSize < 1 || config.ChunkSize > maxChunk {
 		return fmt.Errorf("chunk_size must be between 1 and %d bytes", maxChunk)

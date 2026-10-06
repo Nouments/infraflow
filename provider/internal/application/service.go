@@ -99,6 +99,18 @@ func (service *Service) Generate(input []byte, outputDirectory string) ([]protoc
 	return service.generator.Generate(infrastructure, outputDirectory)
 }
 
+func (service *Service) GenerateAll(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	generator, ok := service.generator.(ports.AllArtifactGenerator)
+	if !ok {
+		return nil, fmt.Errorf("complete artifact generator is not configured")
+	}
+	return generator.GenerateAll(infrastructure, outputDirectory)
+}
+
 func (service *Service) GenerateAnsible(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {

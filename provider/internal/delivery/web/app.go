@@ -1,9 +1,9 @@
 package web
-package web
 
 import (
 	"embed"
 	"net/http"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
@@ -15,9 +15,9 @@ var assets embed.FS
 func NewApp(api http.Handler, enabled bool) *fiber.App {
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: true,
-		ReadTimeout:           15_000_000_000,
-		WriteTimeout:          15_000_000_000,
-		IdleTimeout:           60_000_000_000,
+		ReadTimeout:           15 * time.Second,
+		WriteTimeout:          15 * time.Second,
+		IdleTimeout:           60 * time.Second,
 		BodyLimit:             2 << 20,
 	})
 	app.Use(func(ctx *fiber.Ctx) error {

@@ -32,6 +32,10 @@ type ArtifactGenerator interface {
 	Generate(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+type AllArtifactGenerator interface {
+	GenerateAll(domain.Infrastructure, string) ([]protocol.Artifact, error)
+}
+
 type AnsibleArtifactGenerator interface {
 	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }

@@ -1,5 +1,6 @@
 listen_address: 127.0.0.1:8443
 api_listen_address: 127.0.0.1:8080
+web_ui_enabled: true
 artifact_directory: ./provider-data
 database_path: ./provider-data/.infraflow-users.sqlite3
 token_env: INFRAFLOW_AGENT_TOKEN

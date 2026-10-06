@@ -12,14 +12,43 @@ import (
 
 type memoryStore struct {
 	files map[string][]byte
+	err   error
 }
 
 func (store memoryStore) OpenArtifact(path string) (io.ReadCloser, error) {
+	if store.err != nil {
+		return nil, store.err
+	}
 	data, ok := store.files[path]
 	if !ok {
 		return nil, os.ErrNotExist
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+type sizedFile struct {
+	size int64
+	pos  int64
+}
+
+func (file *sizedFile) Read([]byte) (int, error) { return 0, io.EOF }
+func (file *sizedFile) Close() error             { return nil }
+func (file *sizedFile) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekEnd:
+		file.pos = file.size + offset
+	case io.SeekStart:
+		file.pos = offset
+	case io.SeekCurrent:
+		file.pos += offset
+	}
+	return file.pos, nil
+}
+
+type sizedStore struct{ size int64 }
+
+func (store sizedStore) OpenArtifact(string) (io.ReadCloser, error) {
+	return &sizedFile{size: store.size}, nil
 }
 
 func TestHandlerServesVerifiedArtifactsReadOnly(t *testing.T) {
@@ -114,5 +143,60 @@ func TestHandlerHealthEndpointIsMinimal(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Body.String() != "ok\n" {
 		t.Fatalf("unexpected health response: %d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestHandlerHeadMissingArtifactAndOversizedArtifact(t *testing.T) {
+	handler, err := NewHandler(sizedStore{size: 2}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodHead, "/artifacts/lab/inventory.json", nil))
+	if response.Code != http.StatusOK || response.Body.Len() != 0 || response.Header().Get("Content-Length") != "2" {
+		t.Fatalf("unexpected HEAD response: %d body=%q headers=%v", response.Code, response.Body.String(), response.Header())
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/artifacts/lab/inventory.json", nil))
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("unexpected JSON response: %d headers=%v", response.Code, response.Header())
+	}
+
+	missingHandler, err := NewHandler(memoryStore{err: os.ErrNotExist}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	missingHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/artifacts/lab/inventory.json", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing artifact returned %d", response.Code)
+	}
+
+	largeHandler, err := NewHandler(sizedStore{size: maxServedArtifactBytes + 1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	largeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodHead, "/artifacts/lab/inventory.json", nil))
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized artifact returned %d", response.Code)
+	}
+}
+
+func TestHandlerRejectsInvalidConfigurationAndHealthMethod(t *testing.T) {
+	if _, err := NewHandler(nil, ""); err == nil {
+		t.Fatal("nil store was accepted")
+	}
+	if _, err := NewHandler(memoryStore{files: map[string][]byte{}}, "short"); err == nil {
+		t.Fatal("short bearer token was accepted")
+	}
+	handler, err := NewHandler(memoryStore{files: map[string][]byte{}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST health returned %d", response.Code)
 	}
 }

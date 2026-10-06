@@ -3,6 +3,7 @@ package generator
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -480,6 +481,155 @@ func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]A
 		}
 	}
 	return allArtifacts, nil
+}
+
+func GenerateAll(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, fmt.Errorf("output directory must be a real directory")
+	}
+	staging, err := os.MkdirTemp("", "infraflow-generate-all-")
+	if err != nil {
+		return nil, fmt.Errorf("create generation staging directory: %w", err)
+	}
+	defer os.RemoveAll(staging)
+	var artifacts []Artifact
+	for _, generate := range []func(domain.Infrastructure, string) ([]Artifact, error){
+		Generate,
+		GenerateAnsible,
+		GenerateTerraform,
+		GenerateBootstrap,
+	} {
+		generated, err := generate(infrastructure, staging)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, generated...)
+	}
+	pending := make([]pendingFile, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		file, err := safefs.OpenReadOnly(staging, artifact.Path)
+		if err != nil {
+			return nil, fmt.Errorf("open staged artifact %q: %w", artifact.Path, err)
+		}
+		data, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read staged artifact %q: %w", artifact.Path, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close staged artifact %q: %w", artifact.Path, closeErr)
+		}
+		if protocol.SHA256(data) != artifact.OutputHash {
+			return nil, fmt.Errorf("staged artifact %q failed its output hash", artifact.Path)
+		}
+		pending = append(pending, pendingFile{path: artifact.Path, data: data})
+	}
+	if err := removeSiteManifests(root, infrastructure); err != nil {
+		return nil, err
+	}
+	for _, file := range pending {
+		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+			return nil, fmt.Errorf("publish artifact %q: %w", file.path, err)
+		}
+	}
+	if err := writeCombinedManifests(outputDirectory, artifacts); err != nil {
+		return nil, err
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return artifacts, nil
+}
+
+func removeSiteManifests(root string, infrastructure domain.Infrastructure) error {
+	for _, site := range infrastructure.Sites {
+		siteDirectory := filepath.Join(root, site.Name)
+		info, err := os.Lstat(siteDirectory)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect site directory %q: %w", site.Name, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("site output %q must be a real directory", site.Name)
+		}
+		manifest := filepath.Join(siteDirectory, "manifest.json")
+		manifestInfo, err := os.Lstat(manifest)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect site manifest %q: %w", site.Name, err)
+		}
+		if !manifestInfo.Mode().IsRegular() {
+			return fmt.Errorf("site manifest %q must be a regular file", site.Name)
+		}
+		if err := os.Remove(manifest); err != nil {
+			return fmt.Errorf("remove stale site manifest %q: %w", site.Name, err)
+		}
+	}
+	return nil
+}
+
+func writeCombinedManifests(outputDirectory string, artifacts []Artifact) error {
+	bySite := make(map[string][]Artifact)
+	inputHashes := make(map[string]string)
+	seenPaths := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		site, _, found := strings.Cut(artifact.Path, "/")
+		if !found || !protocol.ValidSiteName(site) || !protocol.ValidArtifactPath(site, artifact) || !protocol.IsSHA256(artifact.InputHash) || !protocol.IsSHA256(artifact.OutputHash) {
+			return fmt.Errorf("cannot publish invalid generated artifact %q", artifact.Path)
+		}
+		if _, exists := seenPaths[artifact.Path]; exists {
+			return fmt.Errorf("cannot publish duplicate generated artifact %q", artifact.Path)
+		}
+		seenPaths[artifact.Path] = struct{}{}
+		if inputHash, exists := inputHashes[site]; exists && inputHash != artifact.InputHash {
+			return fmt.Errorf("generated artifacts for site %q have inconsistent input hashes", site)
+		}
+		inputHashes[site] = artifact.InputHash
+		bySite[site] = append(bySite[site], artifact)
+	}
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	sites := make([]string, 0, len(bySite))
+	for site := range bySite {
+		sites = append(sites, site)
+	}
+	sort.Strings(sites)
+	for _, site := range sites {
+		siteArtifacts := bySite[site]
+		sort.Slice(siteArtifacts, func(i, j int) bool { return siteArtifacts[i].Path < siteArtifacts[j].Path })
+		manifest, err := marshal(Manifest{
+			GeneratorVersion: Version,
+			TemplateVersion:  TemplateVersion,
+			InputHash:        inputHashes[site],
+			Artifacts:        siteArtifacts,
+		})
+		if err != nil {
+			return fmt.Errorf("encode combined manifest for %q: %w", site, err)
+		}
+		manifestPath := filepath.ToSlash(filepath.Join(site, "manifest.json"))
+		if err := safefs.AtomicWrite(root, manifestPath, manifest, 0o644); err != nil {
+			return fmt.Errorf("publish combined manifest for %q: %w", site, err)
+		}
+	}
+	return nil
 }
 
 func canonicalize(infrastructure domain.Infrastructure) domain.Infrastructure {

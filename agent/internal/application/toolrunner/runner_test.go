@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	coreconfig "infraflow/internal/adapters/config"
+	coregeneration "infraflow/internal/adapters/generation"
 )
 
 const testInventory = "all:\n  children:\n    network:\n      hosts:\n        R1:\n          ansible_host: 192.0.2.10\n          infraflow_vendor: cisco\n          infraflow_model: ios-xe\n          infraflow_role: router\n"
@@ -102,6 +105,51 @@ func TestRunTerraformRejectsProvisioningBlocksBeforeRunningTool(t *testing.T) {
 	}
 	if _, err := RunTerraform(t.Context(), stateDirectory, "lab", time.Second); err == nil || !strings.Contains(err.Error(), "could provision") {
 		t.Fatalf("Terraform provisioning block was not rejected: %v", err)
+	}
+}
+
+func TestToolRunnersAcceptProviderGeneratedArtifactsWithFakeBinaries(t *testing.T) {
+	infrastructure, err := coreconfig.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+        management:
+          ipv4: 192.0.2.10
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := t.TempDir()
+	if _, err := coregeneration.GenerateAnsible(infrastructure, generated); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coregeneration.GenerateTerraform(infrastructure, generated); err != nil {
+		t.Fatal(err)
+	}
+	stateDirectory := t.TempDir()
+	for _, artifact := range []string{
+		"lab/ansible/inventory.yml", "lab/ansible/site.yml",
+		"lab/terraform/versions.tf", "lab/terraform/providers.tf", "lab/terraform/variables.tf",
+		"lab/terraform/locals.tf", "lab/terraform/main.tf", "lab/terraform/outputs.tf",
+	} {
+		data, err := os.ReadFile(filepath.Join(generated, filepath.FromSlash(artifact)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeArtifact(t, stateDirectory, artifact, string(data))
+	}
+	installFakeTool(t, "ansible-playbook", "printf '%s\\n' \"$*\"\n")
+	ansibleResult, err := RunAnsible(t.Context(), stateDirectory, "lab", time.Second)
+	if err != nil || !strings.Contains(ansibleResult.Output, "--check") {
+		t.Fatalf("generated Ansible artifacts failed read-only execution: %#v, %v", ansibleResult, err)
+	}
+	installFakeTool(t, "terraform", "printf '%s\\n' \"$*\"\n")
+	terraformResult, err := RunTerraform(t.Context(), stateDirectory, "lab", time.Second)
+	if err != nil || len(terraformResult.Steps) != 2 || !strings.Contains(terraformResult.Output, "validate") {
+		t.Fatalf("generated Terraform artifacts failed fake init/validate: %#v, %v", terraformResult, err)
 	}
 }
 

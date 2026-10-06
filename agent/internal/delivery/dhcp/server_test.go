@@ -1,8 +1,14 @@
 package dhcp
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -209,6 +215,129 @@ func TestValidateRejectsInvalidNextServer(t *testing.T) {
 	config.Options.NextServer = "not-an-ip"
 	if err := config.Validate(); err == nil {
 		t.Fatal("expected invalid next-server address to fail")
+	}
+}
+
+func TestLoadConfigAcceptsGeneratedJSONAndRejectsMalformedInputs(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "dhcp.json")
+	data, err := json.Marshal(validConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(filename)
+	if err != nil || loaded.Site != "lab" {
+		t.Fatalf("generated DHCP config did not load: %#v, %v", loaded, err)
+	}
+	for _, invalid := range [][]byte{
+		[]byte("{"),
+		append(append([]byte(nil), data...), []byte(" {}")...),
+		[]byte(`{"version":1,"service":"dhcp","site":"lab","network":"192.168.50.0/24","pools":[],"reservations":[],"unknown":true}`),
+	} {
+		if err := os.WriteFile(filename, invalid, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadConfig(filename); err == nil {
+			t.Errorf("invalid DHCP configuration %q was accepted", invalid)
+		}
+	}
+	if err := os.WriteFile(filename, bytes.Repeat([]byte("x"), maxConfigBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(filename); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized DHCP config was not rejected: %v", err)
+	}
+}
+
+func TestServeRejectsInvalidRuntimeBindings(t *testing.T) {
+	server, err := NewServer(validConfig(), net.ParseIP("192.168.50.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		ctx       context.Context
+		iface     string
+		port      int
+		wantError string
+	}{
+		{name: "nil context", ctx: nil, iface: "lo", port: 67, wantError: "context"},
+		{name: "missing interface", ctx: context.Background(), iface: "", port: 67, wantError: "required"},
+		{name: "invalid port", ctx: context.Background(), iface: "lo", port: 0, wantError: "required"},
+		{name: "unknown interface", ctx: context.Background(), iface: "infraflow-missing0", port: 67, wantError: "find DHCP interface"},
+		{name: "listen address absent", ctx: context.Background(), iface: "lo", port: 67, wantError: "not assigned"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := server.Serve(test.ctx, test.iface, test.port)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("expected %q error, got %v", test.wantError, err)
+			}
+		})
+	}
+}
+
+func TestHandleReleaseDeclineAndExpiredLease(t *testing.T) {
+	config := validConfig()
+	config.Pools = []Pool{{Start: "192.168.50.20", End: "192.168.50.21"}}
+	server, err := NewServer(config, net.ParseIP("192.168.50.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac, _ := net.ParseMAC("00:11:22:33:44:66")
+	clientID := "mac:" + strings.ToLower(mac.String())
+	peer := &net.UDPAddr{IP: net.IPv4bcast, Port: 68}
+	conn := &packetConn{}
+
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeDiscover, mac))
+	offer := decodeResponse(t, conn.written)
+	requestedIP := offer.YourIPAddr
+	conn.written = nil
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeRequest, mac,
+		dhcpv4.WithOption(dhcpv4.OptRequestedIPAddress(requestedIP)),
+		dhcpv4.WithOption(dhcpv4.OptServerIdentifier(net.ParseIP("192.168.50.2"))),
+	))
+	if response := decodeResponse(t, conn.written); response.MessageType() != dhcpv4.MessageTypeAck {
+		t.Fatalf("dynamic request was not acknowledged: %s", response.Summary())
+	}
+	conn.written = nil
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeRelease, mac, dhcpv4.WithClientIP(requestedIP)))
+	if _, exists := server.leasesByID[clientID]; exists {
+		t.Fatal("RELEASE did not free the client lease")
+	}
+
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeDiscover, mac))
+	declinedIP := decodeResponse(t, conn.written).YourIPAddr
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeRequest, mac,
+		dhcpv4.WithOption(dhcpv4.OptRequestedIPAddress(declinedIP)),
+		dhcpv4.WithOption(dhcpv4.OptServerIdentifier(net.ParseIP("192.168.50.2"))),
+	))
+	server.Handle(conn, peer, makePacket(t, dhcpv4.MessageTypeDecline, mac,
+		dhcpv4.WithOption(dhcpv4.OptRequestedIPAddress(declinedIP)),
+	))
+	if _, exists := server.declined[declinedIP.String()]; !exists {
+		t.Fatal("DECLINE did not quarantine the address")
+	}
+
+	server.leasesByID[clientID] = lease{ip: net.ParseIP("192.168.50.21").To4(), expires: time.Now().Add(-time.Second)}
+	server.leaseOwners["192.168.50.21"] = clientID
+	server.declined["192.168.50.22"] = time.Now().Add(-time.Second)
+	server.expire(time.Now())
+	if _, exists := server.leasesByID[clientID]; exists || server.leaseOwners["192.168.50.21"] != "" {
+		t.Fatal("expired lease retained its IP ownership")
+	}
+	if _, exists := server.declined["192.168.50.22"]; exists {
+		t.Fatal("expired decline quarantine was not removed")
+	}
+}
+
+func TestClientIdentifierTakesPrecedenceOverHardwareAddress(t *testing.T) {
+	request := makePacket(t, dhcpv4.MessageTypeDiscover, net.HardwareAddr{0, 1, 2, 3, 4, 5},
+		dhcpv4.WithOption(dhcpv4.OptClientIdentifier([]byte{1, 2, 3, 4})),
+	)
+	if got := clientKey(request); got != "id:\x01\x02\x03\x04" {
+		t.Fatalf("client identifier was not used as lease key: %q", got)
 	}
 }
 

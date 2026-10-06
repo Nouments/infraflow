@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/domain"
 )
 
@@ -78,6 +80,42 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	}
 }
 
+func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
+	input := `sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+      gateway: 192.168.100.1
+    services:
+      dhcp: true
+      tftp: true
+      pxe: true
+    devices:
+      - name: R1
+        vendor: cisco
+        model: ios-xe
+        management:
+          ipv4: 192.168.100.10
+`
+	inputPath := writeInput(t, input)
+	outputPath := filepath.Join(t.TempDir(), "published")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"generate-all", "-f", inputPath, "-out", outputPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("generate-all failed: %s", stderr.String())
+	}
+	catalog, err := coregeneration.Catalog(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 17 {
+		t.Fatalf("expected 17 complete artifacts in agent catalog, got %d", len(catalog))
+	}
+	if !strings.Contains(stdout.String(), "generated and published lab/ansible/site.yml") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
+		t.Fatalf("generate-all did not report tool artifacts as published: %s", stdout.String())
+	}
+}
+
 func TestServeRejectsWeakToken(t *testing.T) {
 	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", "weak")
 	var stdout bytes.Buffer
@@ -120,6 +158,72 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 	code := Run([]string{"validate", "-f", inputPath}, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stderr.String(), "unsupported") {
 		t.Fatalf("expected invalid input error, got %d and %q", code, stderr.String())
+	}
+}
+
+func TestProviderCLIUsageAndMissingArguments(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run(nil, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "Usage:") {
+		t.Fatalf("empty invocation did not print usage: code=%d stderr=%q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "generate-all") {
+		t.Fatalf("help did not list generate-all: code=%d stdout=%q", code, stdout.String())
+	}
+	for _, command := range []string{"validate", "plan", "generate-all", "serve"} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run([]string{command}, &stdout, &stderr); code != 2 {
+			t.Errorf("%s accepted missing arguments: code=%d stderr=%q", command, code, stderr.String())
+		}
+	}
+}
+
+func TestServeReportsInvalidConfigAndTLSCertificate(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"serve", "-config", filepath.Join(t.TempDir(), "missing.yaml")}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "open provider config") {
+		t.Fatalf("missing provider config returned %d: %q", code, stderr.String())
+	}
+	artifactDirectory := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "provider.yaml")
+	contents := "listen_address: localhost:8443\n" +
+		"artifact_directory: " + strconv.Quote(artifactDirectory) + "\n" +
+		"token_env: INFRAFLOW_TEST_AGENT_TOKEN\n" +
+		"tls:\n  certificate_file: invalid.crt\n  key_file: invalid.key\n"
+	if err := os.WriteFile(configPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", strings.Repeat("x", 32))
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "load TLS certificate") {
+		t.Fatalf("invalid TLS certificate returned %d: %q", code, stderr.String())
+	}
+}
+
+func TestServeReportsOccupiedAPIListener(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	artifactDirectory := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "provider.yaml")
+	contents := "listen_address: 127.0.0.1:8444\n" +
+		"api_listen_address: " + occupied.Addr().String() + "\n" +
+		"artifact_directory: " + strconv.Quote(artifactDirectory) + "\n" +
+		"token_env: INFRAFLOW_TEST_AGENT_TOKEN\n"
+	if err := os.WriteFile(configPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", strings.Repeat("x", 32))
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "API listen") {
+		t.Fatalf("occupied API address returned %d: %q", code, stderr.String())
 	}
 }
 

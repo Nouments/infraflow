@@ -27,9 +27,10 @@ go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-output
 go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
 go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
+go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 ```
 
-`validate` is read-only. `plan` only describes deterministic work. `generate` writes local provider artifacts; it does not contact infrastructure.
+`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the complete agent catalog (inventory, topology, Ansible, Terraform, DHCP/DNS/TFTP/PXE/iPXE) with one combined manifest; it does not contact infrastructure or apply a plan.
 
 The provider can also persist validated planning jobs and expose them through its authenticated HTTP API when `api_listen_address` is set in the provider configuration. Plain HTTP is loopback-only; a remote API requires the configured TLS certificate/key pair. Job creation validates and plans only; it does not provision devices.
 
@@ -42,9 +43,11 @@ users. On first startup, the backend generates the administrator password and
 writes a protected local shell retrieval script.
 
 The Linux TUI connects directly to the provider API with an editable
-`https://server:port` address. It is a terminal client, not a web dashboard.
+`https://server:port` address. A provider web console is also available when
+`web_ui_enabled: true` is configured with `api_listen_address`; it shares the
+same SQLite-backed sessions and RBAC instead of creating separate credentials.
 
-The agent does not currently run DHCP, DNS, TFTP, HTTP, or iPXE services. These are planned local bootstrap services, distinct from generating static configuration files, and will be added only with isolated adapters, fixtures, tests, and observable results.
+The agent has experimental, explicit-start DHCPv4, read-only TFTP, and bootstrap HTTP services. They bind to a selected interface, use provider-generated allowlists/configuration, and require an isolated provisioning network. DHCP leases remain in memory and firmware images are not bundled. DNS service and vendor-specific ZTP/AutoInstall are not implemented.
 
 To serve generated files to an agent, set a strong token through a secret manager or environment variable. The provider uses gRPC streaming; plaintext is restricted to loopback. Remote deployments require TLS.
 
@@ -103,6 +106,8 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Generic DHCP/DNS/TFTP/PXE/iPXE bootstrap artifact generation (without agent execution)
 - [x] Provider SQLite user accounts, bcrypt passwords, expiring sessions, and admin/user authorization
 - [x] Linux TUI client for authenticated planning jobs and agent state
-- [ ] Agent bootstrap services, device provisioning adapters, execution job API, and web UI
+- [x] Provider Fiber web console for planning jobs, agents, audit events, and admin user access
+- [x] Experimental agent DHCP/TFTP/bootstrap HTTP services and fake end-to-end artifact transfer/report test
+- [ ] Device provisioning adapters, execution job API, and remaining bootstrap services
 
 Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.

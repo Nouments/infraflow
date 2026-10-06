@@ -12,6 +12,10 @@ func (Generator) Generate(infrastructure domain.Infrastructure, outputDirectory 
 	return coregeneration.Generate(infrastructure, outputDirectory)
 }
 
+func (Generator) GenerateAll(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
+	return coregeneration.GenerateAll(infrastructure, outputDirectory)
+}
+
 func (Generator) GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
 	return coregeneration.GenerateAnsible(infrastructure, outputDirectory)
 }

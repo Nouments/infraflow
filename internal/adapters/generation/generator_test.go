@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"infraflow/internal/adapters/config"
+	"infraflow/pkg/protocol"
 )
 
 func TestGenerateIsDeterministic(t *testing.T) {
@@ -177,6 +178,53 @@ func TestGenerateSupportsMultipleSites(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(outputDirectory, relativePath)); err != nil {
 			t.Errorf("missing site artifact %s: %v", relativePath, err)
+		}
+	}
+}
+
+func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+      gateway: 192.168.100.1
+    services:
+      dhcp: true
+      tftp: true
+      pxe: true
+    devices:
+      - name: R1
+        vendor: cisco
+        model: ios-xe
+        management:
+          ipv4: 192.168.100.10
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	artifacts, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != len(artifacts) || len(catalog) != 17 {
+		t.Fatalf("combined manifest published %d of %d generated artifacts", len(catalog), len(artifacts))
+	}
+	seenTypes := make(map[string]bool)
+	for _, artifact := range catalog {
+		seenTypes[artifact.Type] = true
+		data, published, err := ReadArtifact(root, artifact.Path)
+		if err != nil || published.OutputHash != protocol.SHA256(data) {
+			t.Fatalf("catalog artifact %s failed its hash check: %v", artifact.Path, err)
+		}
+	}
+	for _, artifactType := range []string{"inventory", "topology", "ansible_inventory", "ansible_playbook", "terraform_locals", "bootstrap_dhcp", "bootstrap_tftp", "bootstrap_ipxe_script"} {
+		if !seenTypes[artifactType] {
+			t.Errorf("combined manifest omitted %s", artifactType)
 		}
 	}
 }

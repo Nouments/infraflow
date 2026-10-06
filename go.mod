@@ -3,7 +3,11 @@ module infraflow
 go 1.25.0
 
 require (
+	github.com/gofiber/fiber/v2 v2.52.15
+	github.com/hashicorp/hcl/v2 v2.25.0
+	github.com/insomniacslk/dhcp v0.0.0-20260901064844-234b97448fae
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/pin/tftp/v3 v3.2.0
 	golang.org/x/crypto v0.54.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.11
@@ -15,10 +19,7 @@ require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
-	github.com/gofiber/fiber/v2 v2.52.15 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hashicorp/hcl/v2 v2.25.0 // indirect
-	github.com/insomniacslk/dhcp v0.0.0-20260901064844-234b97448fae // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -26,7 +27,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
-	github.com/pin/tftp/v3 v3.2.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

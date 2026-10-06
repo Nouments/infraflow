@@ -96,7 +96,7 @@ InfraFlow doit permettre :
 - [x] produire une topologie déclarative à partir des liens fournis ;
 - [x] fournir une TUI Linux minimale pour l’agent (jobs, agents, session API) ;
 - [x] fournir une API/backend minimale pour le catalogue d’artefacts, les rapports d’état des agents, l’enregistrement/heartbeat des agents et les jobs de planification ;
-- [ ] fournir une interface web ;
+- [x] fournir une première interface web Fiber pour les jobs, agents, audits et accès admin (topologie/devices/state restent à faire) ;
 - [ ] exposer des événements temps réel ;
 - [ ] intégrer des tests unitaires, intégration et end-to-end ;
 - [ ] permettre à plusieurs agents de travailler parallèlement sans
@@ -3289,6 +3289,7 @@ Next recommended task:
 - [x] templates ;
 - [x] artifact metadata ;
 - [x] deterministic generation ;
+- [x] combined provider manifest for all generated artifact types ;
 - [ ] golden tests.
 
 ## Agent 5 — Ansible
@@ -3379,9 +3380,12 @@ Next recommended task:
 
 ## Agent 14 — Web UI
 
-- [ ] dashboard ;
+- [x] dashboard/jobs overview ;
 - [ ] topology ;
-- [ ] jobs ;
+- [x] jobs ;
+- [x] agents ;
+- [x] audit events ;
+- [x] administrator user access ;
 - [ ] devices ;
 - [ ] logs ;
 - [ ] desired/observed.
@@ -3973,6 +3977,12 @@ Références de départ :
 
 # 112. Première milestone concrète
 
+État du test synthétique: validation/plan, publication du manifest complet,
+téléchargement gRPC hash-vérifié par l’agent et rapport des artefacts ont été
+exécutés avec le YAML d’exemple. Aucun binaire Ansible/Terraform, firmware PXE
+ou image disque n’est disponible dans cet environnement; ce test ne valide ni
+un boot matériel ni une configuration d’équipement.
+
 La première milestone réellement démontrable doit être :
 
 ``` text
@@ -4005,16 +4015,17 @@ La première milestone réellement démontrable doit être :
 
 Critères :
 
-- [ ] YAML accepté ;
-- [ ] YAML invalide rejeté ;
-- [ ] plan lisible ;
-- [ ] artefacts déterministes ;
-- [ ] agent démarre ;
+- [x] YAML accepté ;
+- [x] YAML invalide rejeté ;
+- [x] plan lisible ;
+- [x] artefacts déterministes ;
+- [x] agent démarre ;
 - [x] TUI affiche l’état des jobs et agents ;
+- [x] artefacts complets transférés et rapportés par l’agent en test synthétique ;
 - [ ] DHCP fonctionne en laboratoire ;
 - [ ] bootstrap fonctionne sur au moins un équipement ;
-- [ ] configuration Ansible générée ;
-- [ ] résultat enregistré ;
+- [x] configuration Ansible/Terraform générique générée et publiée au catalogue ;
+- [x] résultat de traitement des artefacts enregistré côté provider ;
 - [ ] état observé affiché ;
 - [ ] test offline réussi.
 

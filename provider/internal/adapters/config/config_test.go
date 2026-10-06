@@ -29,11 +29,23 @@ tls:
 	}
 	api := writeProviderConfig(t, `listen_address: 127.0.0.1:8443
 api_listen_address: localhost:8080
+web_ui_enabled: true
 artifact_directory: ./provider-data
 token_env: INFRAFLOW_AGENT_TOKEN
 `)
-	if config, err := Load(api); err != nil || config.APIListenAddress != "localhost:8080" {
+	if config, err := Load(api); err != nil || config.APIListenAddress != "localhost:8080" || !config.WebUIEnabled {
 		t.Fatalf("unexpected API config: %#v, %v", config, err)
+	}
+}
+
+func TestWebUIRequiresAPIListener(t *testing.T) {
+	path := writeProviderConfig(t, `listen_address: 127.0.0.1:8443
+web_ui_enabled: true
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "requires api_listen_address") {
+		t.Fatalf("expected web UI to require API listener, got %v", err)
 	}
 }
 

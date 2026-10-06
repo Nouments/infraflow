@@ -2,10 +2,13 @@ package tftpserver
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,5 +108,103 @@ func TestNewServerRequiresEnabledServiceAndRealRoot(t *testing.T) {
 	config.Enabled = true
 	if _, err := NewServer(config, t.TempDir()); err == nil {
 		t.Fatal("expected missing TFTP root to be rejected")
+	}
+}
+
+func TestLoadConfigValidatesOneStrictDocument(t *testing.T) {
+	config := validTFTPConfig()
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(t.TempDir(), "tftp.json")
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(filename)
+	if err != nil || loaded.Site != config.Site {
+		t.Fatalf("valid TFTP config did not load: %#v, %v", loaded, err)
+	}
+	if err := os.WriteFile(filename, append(data, []byte(` {}`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(filename); err == nil {
+		t.Fatal("expected trailing JSON document to be rejected")
+	}
+	if err := os.WriteFile(filename, []byte(`{"version":1,"service":"tftp","enabled":true,"site":"lab","root_directory":"tftp","read_only":true,"allowed_files":[],"unsafe":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(filename); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected unknown config field rejection, got %v", err)
+	}
+}
+
+func TestTFTPServeRejectsInvalidRuntimeBindings(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "tftp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(validTFTPConfig(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		ctx       context.Context
+		iface     string
+		address   string
+		port      int
+		wantError string
+	}{
+		{name: "nil context", ctx: nil, iface: "lo", address: "127.0.0.1", port: 69, wantError: "context"},
+		{name: "missing interface", ctx: context.Background(), iface: "", address: "127.0.0.1", port: 69, wantError: "required"},
+		{name: "invalid port", ctx: context.Background(), iface: "lo", address: "127.0.0.1", port: 0, wantError: "required"},
+		{name: "invalid address", ctx: context.Background(), iface: "lo", address: "not-an-ip", port: 69, wantError: "IPv4"},
+		{name: "unknown interface", ctx: context.Background(), iface: "infraflow-missing0", address: "127.0.0.1", port: 69, wantError: "find TFTP interface"},
+		{name: "address not assigned", ctx: context.Background(), iface: "lo", address: "192.0.2.22", port: 69, wantError: "not assigned"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := server.Serve(test.ctx, test.iface, test.address, test.port)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("expected %q error, got %v", test.wantError, err)
+			}
+		})
+	}
+}
+
+func TestTFTPReadFileRejectsUnsafeMissingAndSymlinkFiles(t *testing.T) {
+	bootstrapDirectory := t.TempDir()
+	root := filepath.Join(bootstrapDirectory, "tftp")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(validTFTPConfig(), bootstrapDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"../secret", "unlisted.bin", "undionly.kpxe"} {
+		var transfer bytes.Buffer
+		if err := server.readFile(filename, &transfer); err == nil {
+			t.Errorf("unsafe, unlisted, or missing file %q was accepted", filename)
+		}
+	}
+	outside := filepath.Join(bootstrapDirectory, "outside.bin")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "undionly.kpxe")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	var transfer bytes.Buffer
+	if err := server.readFile("undionly.kpxe", &transfer); err == nil {
+		t.Fatal("TFTP followed a symlink out of its root")
+	}
+}
+
+func validTFTPConfig() Config {
+	return Config{
+		Version: 1, Service: "tftp", Enabled: true, Site: "lab",
+		RootDirectory: "tftp", ReadOnly: true,
+		AllowedFiles: []FileRule{{Path: "undionly.kpxe", Source: "agent_runtime"}},
 	}
 }
