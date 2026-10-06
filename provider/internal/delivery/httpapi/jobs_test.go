@@ -69,6 +69,45 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 	}
 }
 
+func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("p", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/preview", strings.NewReader(`{"input":"sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("preview returned %d: %s", response.Code, response.Body.String())
+	}
+	var preview previewPlanResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Infrastructure.Sites) != 1 || preview.Infrastructure.Sites[0].Name != "lab" {
+		t.Fatalf("preview did not return normalized configuration: %#v", preview.Infrastructure)
+	}
+	if preview.Plan.Status != "blocked" || len(preview.Plan.Tasks) != 3 || preview.Plan.Tasks[2].Status != "blocked" {
+		t.Fatalf("preview did not report unsupported device provisioning: %#v", preview.Plan)
+	}
+	storedJobs, err := jobs.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(storedJobs); got != 0 {
+		t.Fatalf("preview persisted %d planning jobs", got)
+	}
+}
+
 func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	root := t.TempDir()
 	jobs, err := filesystem.NewJobStore(root)

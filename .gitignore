@@ -36,6 +36,7 @@ bin/
 /generated/
 /provider-data/
 /agent-data/
+/design/InfraFlow.html
 
 # Local authentication databases and SQLite journal files
 *.sqlite

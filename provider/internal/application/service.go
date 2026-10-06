@@ -78,14 +78,19 @@ func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {
 }
 
 func (service *Service) Plan(input []byte) (domain.Plan, error) {
+	_, plan, err := service.Preview(input)
+	return plan, err
+}
+
+func (service *Service) Preview(input []byte) (domain.Infrastructure, domain.Plan, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {
-		return domain.Plan{}, err
+		return domain.Infrastructure{}, domain.Plan{}, err
 	}
 	if service.planBuilder == nil {
-		return domain.Plan{}, fmt.Errorf("plan builder is not configured")
+		return domain.Infrastructure{}, domain.Plan{}, fmt.Errorf("plan builder is not configured")
 	}
-	return service.planBuilder.Build(infrastructure), nil
+	return infrastructure, service.planBuilder.Build(infrastructure), nil
 }
 
 func (service *Service) Generate(input []byte, outputDirectory string) ([]protocol.Artifact, error) {

@@ -60,10 +60,27 @@ HTTP(S) endpoint. When enabled, the Fiber console shares the same listener,
 login endpoint, expiring sessions, and RBAC. User tokens stay in browser-tab
 memory and are not persisted to local storage.
 
-The console currently reviews planning jobs, task states, registered agents,
-audit events, and user accounts. Admins can create users and enable/disable
-accounts; users can create plans. Job cancel/retry actions use the existing API
-state rules. The console never applies plans or provisions devices.
+The console reviews planning jobs, task states, registered agents, audit events,
+and user accounts. Its infrastructure editor can compose sites, devices, and
+links visually or edit the source YAML, then request a read-only server-side
+validation and plan preview. Creating a job persists a plan; it does not apply
+the plan or provision devices. Admins can create users and enable/disable
+accounts, and job cancel/retry actions use the existing API state rules.
+
+The preview endpoint requires the same authentication as the rest of the API
+and does not persist a job:
+
+```sh
+curl -X POST -H "Authorization: Bearer $INFRAFLOW_AGENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"input":"sites:\n  - name: lab\n"}' \
+  http://127.0.0.1:8080/api/v1/plan/preview
+```
+
+Vendor and model values can be represented in the desired state, including
+mixed-vendor sites. They are not evidence of device support: device tasks stay
+blocked until a vendor adapter has documented capabilities, automated tests,
+and an observable lab result.
 
 Human API endpoints:
 

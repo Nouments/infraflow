@@ -57,6 +57,11 @@ type createJobRequest struct {
 	Input string `json:"input"`
 }
 
+type previewPlanResponse struct {
+	Infrastructure domain.Infrastructure `json:"infrastructure"`
+	Plan           domain.Plan           `json:"plan"`
+}
+
 type registerAgentRequest struct {
 	AgentID      string   `json:"agent_id"`
 	SiteID       string   `json:"site_id"`
@@ -131,6 +136,14 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.handleUsers(writer, request, identity.user)
+		return
+	}
+	if request.URL.Path == "/api/v1/plan/preview" {
+		if request.Method != http.MethodPost {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		handler.previewPlan(writer, request)
 		return
 	}
 
@@ -489,6 +502,28 @@ func (handler *Handler) createJob(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	writeJSON(writer, http.StatusCreated, job)
+}
+
+func (handler *Handler) previewPlan(writer http.ResponseWriter, request *http.Request) {
+	var input createJobRequest
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(writer, http.StatusBadRequest, "request body must contain a JSON input string")
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		writeError(writer, http.StatusBadRequest, "request body must contain one JSON object")
+		return
+	}
+	infrastructure, plan, err := handler.service.Preview([]byte(input.Input))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, previewPlanResponse{Infrastructure: infrastructure, Plan: plan})
 }
 
 func (handler *Handler) getJob(writer http.ResponseWriter, id string) {
