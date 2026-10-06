@@ -70,37 +70,50 @@ explicitement déclarées.
 
 InfraFlow doit permettre :
 
-- [ ] créer une infrastructure à partir d’un fichier YAML déclaratif ;
-- [ ] valider le YAML avant toute action ;
-- [ ] détecter les erreurs de schéma avant provisioning ;
-- [ ] calculer un plan de déploiement ;
-- [ ] afficher ce plan avant exécution ;
-- [ ] générer les fichiers intermédiaires ;
-- [ ] générer les configurations Ansible ;
-- [ ] générer les modules/templates Terraform nécessaires ;
-- [ ] générer les fichiers DHCP ;
-- [ ] générer les fichiers DNS ;
-- [ ] générer les fichiers PXE/iPXE ;
+- [x] créer une infrastructure à partir d’un fichier YAML déclaratif (socle de configuration) ;
+- [x] valider le YAML avant toute action ;
+- [x] détecter les erreurs de champs inconnus et les principales erreurs sémantiques ;
+- [x] calculer un plan de déploiement générique ;
+- [x] afficher ce plan avant exécution ;
+- [x] générer les artefacts intermédiaires génériques (inventaire et topologie uniquement) ;
+- [x] générer un socle Ansible générique (inventaire/playbook, sans exécution) ;
+- [x] générer un socle de templates Terraform générique (état déclaré/topologie, sans provider ni apply) ;
+- [x] générer les fichiers DHCP génériques à partir du réseau bootstrap ;
+- [x] générer les fichiers DNS génériques à partir des adresses de management ;
+- [x] générer les fichiers PXE/iPXE génériques ;
 - [ ] générer les fichiers de provisioning constructeur ;
-- [ ] générer les scripts de bootstrap ;
-- [ ] générer les inventaires ;
+- [x] générer les scripts de bootstrap génériques (sans image ni exécution) ;
+- [x] générer les inventaires génériques ;
 - [ ] exécuter le provisioning ;
 - [ ] suivre chaque étape ;
-- [ ] journaliser chaque opération ;
-- [ ] conserver les résultats ;
-- [ ] gérer les retries ;
+- [x] journaliser les opérations actuellement supportées (jobs, agents et rapports) ;
+- [x] conserver les rapports d’état des artefacts génériques traités ;
+- [ ] gérer les retries (le retry d’un job de planification est disponible ; les retries d’exécution et de provisioning ne le sont pas) ;
 - [ ] gérer les dépendances ;
-- [ ] gérer plusieurs sites ;
+- [x] gérer plusieurs sites pour validation, planification et génération générique (sans provisioning) ;
 - [ ] continuer localement hors connexion ;
 - [ ] synchroniser l’état lorsque la connexion revient ;
-- [ ] produire une topologie ;
-- [ ] fournir une TUI pour l’agent ;
-- [ ] fournir une API/backend ;
-- [ ] fournir une interface web ;
+- [x] produire une topologie déclarative à partir des liens fournis ;
+- [x] fournir une TUI Linux minimale pour l’agent (jobs, agents, session API) ;
+- [x] fournir une API/backend minimale pour le catalogue d’artefacts, les rapports d’état des agents, l’enregistrement/heartbeat des agents et les jobs de planification ;
+- [x] fournir une première interface web Fiber pour les jobs, agents, audits et accès admin (topologie/devices/state restent à faire) ;
 - [ ] exposer des événements temps réel ;
 - [ ] intégrer des tests unitaires, intégration et end-to-end ;
 - [ ] permettre à plusieurs agents de travailler parallèlement sans
   modifier anarchiquement les mêmes fichiers.
+
+### Distinction importante pour le bootstrap
+
+Les cases « générer les fichiers DHCP/DNS/PXE/iPXE » décrivent la génération
+d’artefacts statiques. Elles ne préjugent pas du mode d’exécution du site.
+
+Dans l’architecture cible, l’agent pourra fournir localement des services de
+bootstrap isolés, notamment DHCP, DNS, TFTP, HTTP et iPXE, selon les capacités
+et la configuration du site. Le provider génère désormais les contrats
+statiques DHCP/DNS/TFTP/PXE/iPXE, mais ces services ne sont pas démarrés par le
+provider. Ils devront être contrôlés, limités au workspace ou au répertoire
+d’artefacts autorisé, journalisés et testés avant d’être déclarés supportés
+côté agent.
 
 ------------------------------------------------------------------------
 
@@ -437,12 +450,12 @@ Un événement reçu deux fois ne doit pas provoquer deux déploiements.
 
 ``` text
 internal/
-├── domain/
-├── application/
-├── ports/
-├── adapters/
-├── infrastructure/
-└── delivery/
+├── domain/                         # objets et règles métier
+├── application/                    # cas d’utilisation et planification
+├── ports/                          # contrats possédés par les cas d’utilisation
+├── adapters/                       # YAML, génération et planification concrète
+├── infrastructure/                # détails runtime futurs
+└── delivery/                       # entrées/sorties futures du core
 ```
 
 ### domain
@@ -548,72 +561,27 @@ adapters/
 
 ``` text
 infraflow/
-├── cmd/
-│   ├── infraflow-server/
-│   ├── infraflow-agent/
-│   ├── infraflow/
-│   └── infraflow-provider/
-│
+├── provider/
+│   ├── cmd/
+│   ├── internal/application/
+│   ├── internal/adapters/{config,filesystem,generation}/
+│   └── internal/delivery/{cli,grpcapi}/
+├── agent/
+│   ├── cmd/
+│   ├── internal/config/
+│   ├── internal/application/
+│   ├── internal/adapters/{filesystem,processor,providergrpc}/
+│   └── internal/delivery/cli/
 ├── internal/
+│   ├── adapters/{config,generation,planning}/
+│   ├── application/{planner,reconcile,scheduler}/
 │   ├── domain/
-│   ├── application/
-│   ├── ports/
-│   ├── adapters/
-│   ├── orchestrator/
-│   ├── scheduler/
-│   ├── planner/
-│   ├── generator/
-│   ├── state/
-│   ├── events/
-│   ├── security/
-│   ├── inventory/
-│   ├── topology/
-│   ├── sync/
-│   ├── agent/
-│   ├── tui/
-│   └── api/
-│
+│   ├── infrastructure/{safefs,security}/
+│   └── ports/
 ├── pkg/
-│   └── sdk/
-│
-├── api/
-│   ├── openapi/
-│   └── proto/
-│
-├── templates/
-│   ├── ansible/
-│   ├── terraform/
-│   ├── dhcp/
-│   ├── dns/
-│   ├── pxe/
-│   ├── ipxe/
-│   ├── cisco/
-│   ├── mikrotik/
-│   ├── fortinet/
-│   ├── proxmox/
-│   └── linux/
-│
-├── schemas/
-│   ├── infra.schema.json
-│   └── capability.schema.json
-│
-├── fixtures/
-│   ├── cisco/
-│   ├── mikrotik/
-│   ├── fortinet/
-│   ├── proxmox/
-│   └── pxe/
-│
+│   └── protocol/infraflow/v1/
+├── api/proto/infraflow/v1/
 ├── examples/
-├── docs/
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── e2e/
-│   └── fixtures/
-│
-├── scripts/
-├── deployments/
 ├── Makefile
 ├── go.mod
 ├── go.sum
@@ -621,6 +589,8 @@ infraflow/
 ├── ARCHITECTURE.md
 └── INFRAFLOW_SPEC.md
 ```
+
+Le provider et l’agent sont deux binaires indépendants dans le même monorepo. L’agent ne dépend d’aucun package Go du provider : ils communiquent via le contrat gRPC versionné de `api/proto/infraflow/v1`, avec téléchargement d’artefacts en flux et configuration YAML distincte par service.
 
 ------------------------------------------------------------------------
 
@@ -842,6 +812,26 @@ dhcp:
 
 Ne jamais supposer qu’un équipement utilisera automatiquement les mêmes
 options DHCP qu’un autre constructeur.
+
+### État d’implémentation
+
+Le provider génère actuellement un contrat JSON statique: pool calculé à
+partir des hôtes utilisables non réservés, réservations par MAC, gateway et
+paramètres génériques de boot. Une gateway ou une réservation correspondant à
+l’adresse réseau ou broadcast est rejetée. Le contrat est maintenant
+consommé par un serveur DHCP agent expérimental. Celui-ci est lancé uniquement
+par commande explicite, lié à une interface/IP choisie et utilise des leases
+en mémoire avec une limite. Le DHCP est désactivé par défaut et exige
+`services.dhcp: true`. Il implémente les réservations MAC et les échanges
+DISCOVER/OFFER, REQUEST/ACK/NAK, RELEASE et DECLINE. Les leases persistantes,
+le contrôle de conflits sur le réseau, les client identifiers en configuration,
+options conditionnelles, vendor/user class, durées configurables et audit
+restent à implémenter. Les options 66 (TFTP server name), 67 (boot filename)
+et le champ BOOTP next-server sont émis selon le contrat générique; aucune
+règle Cisco AutoInstall/ZTP ni option constructeur n’est fournie.
+L’absence de fixtures matérielles, de validation sur réseau isolé et
+d’intégration système signifie qu’aucune compatibilité DHCP constructeur ni
+aptitude production n’est déclarée.
 
 ------------------------------------------------------------------------
 
@@ -1746,6 +1736,13 @@ GET    /api/v1/agents
 GET    /api/v1/agents/{id}
 
 GET    /api/v1/events
+
+POST   /api/v1/auth/login
+POST   /api/v1/auth/logout
+GET    /api/v1/auth/me
+GET    /api/v1/users
+POST   /api/v1/users
+PATCH  /api/v1/users/{id}
 ```
 
 ------------------------------------------------------------------------
@@ -1927,6 +1924,13 @@ authentication
 rotation
 revocation
 ```
+
+Le provider implémente également une authentification humaine locale pour son
+API backend : comptes stockés dans SQLite, mots de passe hachés avec bcrypt,
+sessions opaques à expiration, et rôles `admin`/`user`. Le premier mot de passe
+administrateur est généré par le backend lors de l’initialisation d’une base
+vide, puis rendu récupérable uniquement par un script shell local protégé.
+Cette authentification ne remplace pas le token machine réservé aux agents.
 
 ------------------------------------------------------------------------
 
@@ -3257,61 +3261,67 @@ Next recommended task:
 
 ## Agent 1 — Architecture
 
-- [ ] définir les interfaces ;
-- [ ] définir le domaine ;
-- [ ] valider Clean Architecture ;
-- [ ] vérifier dépendances ;
-- [ ] éviter couplage.
+- [x] définir les interfaces ;
+- [x] définir le domaine ;
+- [x] valider Clean Architecture ;
+- [x] vérifier dépendances ;
+- [x] éviter couplage.
 
 ## Agent 2 — Parser/schema
 
-- [ ] YAML ;
+- [x] YAML ;
 - [ ] JSON schema ;
-- [ ] validation ;
-- [ ] normalization ;
-- [ ] diagnostics.
+- [x] validation ;
+- [x] normalization des liens supportés ;
+- [x] diagnostics.
 
 ## Agent 3 — Planner
 
 - [ ] graph ;
-- [ ] DAG ;
+- [x] DAG ;
 - [ ] BFS ;
 - [ ] DFS ;
-- [ ] dependencies ;
-- [ ] retry.
+- [x] dependencies ;
+- [x] retry.
 
 ## Agent 4 — Generator
 
-- [ ] templates ;
-- [ ] artifact metadata ;
-- [ ] deterministic generation ;
+- [x] templates ;
+- [x] artifact metadata ;
+- [x] deterministic generation ;
+- [x] combined provider manifest for all generated artifact types ;
 - [ ] golden tests.
 
 ## Agent 5 — Ansible
 
-- [ ] inventory ;
-- [ ] playbooks ;
+- [x] inventory ;
+- [x] playbooks ;
+- [x] runner d’inspection en check mode (playbook debug allowlisté seulement) ;
 - [ ] network modules ;
-- [ ] runner ;
 - [ ] result parser.
 
 ## Agent 6 — Terraform
 
-- [ ] runner ;
-- [ ] generated modules ;
-- [ ] validation ;
+- [x] runner `init -backend=false`/`validate` pour la déclaration data-only ;
+- [x] template de représentation Terraform générique ;
+- [ ] modules Terraform fournisseur ;
+- [x] validation HCL et rejet des blocs provider/resource/module/data ;
 - [ ] plan/apply policy ;
 - [ ] state handling.
 
 ## Agent 7 — DHCP/DNS/PXE
 
-- [ ] DHCP abstraction ;
-- [ ] reservations ;
-- [ ] DNS ;
-- [ ] TFTP ;
-- [ ] HTTP ;
-- [ ] iPXE ;
-- [ ] fixtures.
+- [x] génération DHCP statique (pool et réservations MAC) ;
+- [x] génération DNS statique (A/PTR) ;
+- [x] génération des métadonnées TFTP/PXE et scripts iPXE génériques ;
+- [x] serveur DHCPv4 agent expérimental, commande opt-in et leases mémoire ;
+- [x] serveur TFTP lecture seule borné à l’allowlist générée ;
+- [x] serveur HTTP bootstrap limité aux artefacts bootstrap publiés ;
+- [ ] leases persistantes, audit et options avancées DHCP ;
+- [ ] validation DHCP en laboratoire isolé ;
+- [ ] serveur DNS agent ;
+- [ ] firmware iPXE et validation sur clients PXE réels ;
+- [x] tests unitaires et transfert TFTP/HTTP en boucle locale.
 
 ## Agent 8 — Cisco
 
@@ -3355,24 +3365,27 @@ Next recommended task:
 - [ ] daemon ;
 - [ ] local queue ;
 - [ ] local executor ;
-- [ ] TUI ;
+- [x] TUI Linux minimale ;
 - [ ] offline mode ;
 - [ ] sync.
 
 ## Agent 13 — Backend
 
-- [ ] REST API ;
+- [x] REST API ;
 - [ ] WebSocket/SSE ;
-- [ ] auth ;
-- [ ] RBAC ;
-- [ ] audit ;
-- [ ] jobs.
+- [x] auth ;
+- [x] RBAC ;
+- [x] audit ;
+- [x] jobs de planification ;
 
 ## Agent 14 — Web UI
 
-- [ ] dashboard ;
+- [x] dashboard/jobs overview ;
 - [ ] topology ;
-- [ ] jobs ;
+- [x] jobs ;
+- [x] agents ;
+- [x] audit events ;
+- [x] administrator user access ;
 - [ ] devices ;
 - [ ] logs ;
 - [ ] desired/observed.
@@ -3381,19 +3394,19 @@ Next recommended task:
 
 - [ ] secrets ;
 - [ ] mTLS ;
-- [ ] authorization ;
+- [x] authorization ;
 - [ ] command execution ;
 - [ ] template security ;
-- [ ] audit ;
+- [x] audit ;
 - [ ] fuzzing.
 
 ## Agent 16 — QA
 
-- [ ] unit ;
+- [x] unit ;
 - [ ] integration ;
 - [ ] e2e ;
 - [ ] offline ;
-- [ ] race;
+- [x] race;
 - [ ] golden tests ;
 - [ ] compatibility matrix.
 
@@ -3406,68 +3419,77 @@ Ne pas commencer par tous les constructeurs.
 ## Phase 0 — Foundation
 
 - [ ] repository ;
-- [ ] Go module ;
+- [x] Go module ;
 - [ ] CI ;
 - [ ] lint ;
-- [ ] test framework ;
+- [x] test framework ;
 - [ ] logging ;
-- [ ] config ;
-- [ ] domain model.
+- [x] config ;
+- [x] domain model.
 
 ## Phase 1 — YAML
 
 - [ ] schema ;
-- [ ] parser ;
-- [ ] validation ;
-- [ ] normalization ;
-- [ ] examples.
+- [x] parser ;
+- [x] validation ;
+- [x] normalization des liens supportés ;
+- [x] examples.
 
 ## Phase 2 — Planner
 
 - [ ] graph ;
-- [ ] DAG ;
-- [ ] task model ;
-- [ ] scheduler ;
-- [ ] retry ;
-- [ ] locking.
+- [x] DAG validation ;
+- [x] task model ;
+- [x] scheduler primitives ;
+- [x] retry classification ;
+- [x] locking.
 
 ## Phase 3 — Generator
 
-- [ ] template engine ;
-- [ ] artifacts ;
-- [ ] deterministic rendering ;
+- [x] template engine ;
+- [x] artifacts ;
+- [x] deterministic rendering ;
 - [ ] golden tests.
 
 ## Phase 4 — Agent
 
 - [ ] daemon ;
-- [ ] local state ;
+- [x] local state ;
 - [ ] local queue ;
 - [ ] executor ;
-- [ ] TUI.
+- [x] TUI Linux minimale.
 
 ## Phase 5 — Backend
 
-- [ ] API ;
-- [ ] jobs ;
-- [ ] events ;
-- [ ] agent registration ;
+- [x] API minimale (catalogue, rapports et jobs de planification) ;
+- [x] enregistrement authentifié des agents, état persistant et heartbeat ;
+- [ ] jobs d’exécution et de provisioning ;
+- [x] journal d’événements append-only et audit des opérations supportées ;
+- [x] agent registration ;
 - [ ] sync.
+
+Les primitives génériques du scheduler (DAG, dépendances, concurrence, locks,
+timeouts, cancellation et retries classifiés) sont présentes dans le core, mais
+elles ne sont pas encore exposées par un job d’exécution ni utilisées pour
+provisionner un équipement. Les cases d’exécution restent donc décochées.
 
 ## Phase 6 — Bootstrap services
 
-- [ ] DHCP ;
-- [ ] DNS ;
-- [ ] TFTP ;
-- [ ] HTTP ;
-- [ ] iPXE ;
-- [ ] artifact server.
+- [x] génération d’artefacts DHCP statiques côté provider ;
+- [x] génération d’artefacts DNS statiques côté provider ;
+- [x] génération d’artefacts TFTP statiques côté provider ;
+- [x] génération d’artefacts PXE/iPXE statiques côté provider ;
+- [x] service TFTP read-only avec fichiers runtime allowlistés ;
+- [x] service DHCPv4 expérimental avec interface/IP explicites ;
+- [x] serveur HTTP bootstrap lié à une IP d’interface et restreint aux artefacts vérifiés ;
+- [ ] service DNS agent ;
+- [x] serveur HTTP read-only d’artefacts vérifiés côté agent.
 
 ## Phase 7 — Ansible
 
-- [ ] inventory generator ;
-- [ ] playbook generator ;
-- [ ] runner ;
+- [x] inventory generator ;
+- [x] playbook generator ;
+- [x] runner agent restreint au debug généré et au mode check ;
 - [ ] network configuration ;
 - [ ] verification.
 
@@ -3537,11 +3559,11 @@ Ne pas commencer par tous les constructeurs.
 
 ## Phase 15 — Security hardening
 
-- [ ] authentication ;
+- [x] authentication ;
 - [ ] mTLS ;
-- [ ] RBAC ;
+- [x] RBAC ;
 - [ ] secret store ;
-- [ ] audit ;
+- [x] audit ;
 - [ ] command policy ;
 - [ ] fuzzing.
 
@@ -3549,11 +3571,11 @@ Ne pas commencer par tous les constructeurs.
 
 - [ ] performance ;
 - [ ] memory profiling ;
-- [ ] race testing ;
+- [x] race testing ;
 - [ ] upgrade strategy ;
 - [ ] backup ;
 - [ ] disaster recovery ;
-- [ ] documentation.
+- [x] documentation de l’implémentation actuelle.
 
 ------------------------------------------------------------------------
 
@@ -3733,52 +3755,54 @@ sites:
 ## Foundation
 
 - [ ] Clean Architecture
-- [ ] Domain model
+- [x] Domain model
 - [ ] Interfaces
-- [ ] Config
+- [x] Config
 - [ ] Logging
-- [ ] Errors
-- [ ] Context
+- [x] Errors
+- [x] Context
 - [ ] CI
 
 ## Configuration
 
-- [ ] YAML parser
+- [x] YAML parser
 - [ ] Schema
-- [ ] Validation
+- [x] Validation
 - [ ] IPAM
 - [ ] Capability matrix
 
 ## Orchestration
 
 - [ ] Graph
-- [ ] DAG
+- [x] DAG
 - [ ] BFS
 - [ ] DFS
-- [ ] Scheduler
-- [ ] Retry
-- [ ] Lock
-- [ ] Timeout
-- [ ] Cancellation
+- [x] Scheduler
+- [x] Retry
+- [x] Lock
+- [x] Timeout
+- [x] Cancellation
 
 ## Generation
 
 - [ ] Jinja/Tera-style templates
-- [ ] Ansible
-- [ ] Terraform
-- [ ] DHCP
-- [ ] DNS
-- [ ] TFTP
-- [ ] PXE
+- [x] socle Ansible générique
+- [x] socle Terraform data-only générique
+- [x] artefacts bootstrap DHCP/DNS/TFTP/PXE/iPXE statiques
+- [ ] modules Terraform fournisseur
+- [ ] services DHCP agent
+- [ ] services DNS agent
+- [ ] services TFTP agent
+- [ ] services PXE/iPXE agent
 - [ ] iPXE
 - [ ] Vendor configs
 
 ## Agent
 
 - [ ] daemon
-- [ ] TUI
+- [x] TUI Linux minimale
 - [ ] queue
-- [ ] local state
+- [x] local state
 - [ ] executor
 - [ ] artifact cache
 - [ ] offline mode
@@ -3786,13 +3810,13 @@ sites:
 
 ## Backend
 
-- [ ] REST
-- [ ] gRPC
+- [x] REST
+- [x] gRPC
 - [ ] WebSocket/SSE
-- [ ] authentication
+- [x] authentication
 - [ ] RBAC
-- [ ] audit
-- [ ] jobs
+- [x] audit partiel
+- [x] planning jobs
 
 ## Network
 
@@ -3953,6 +3977,12 @@ Références de départ :
 
 # 112. Première milestone concrète
 
+État du test synthétique: validation/plan, publication du manifest complet,
+téléchargement gRPC hash-vérifié par l’agent et rapport des artefacts ont été
+exécutés avec le YAML d’exemple. Aucun binaire Ansible/Terraform, firmware PXE
+ou image disque n’est disponible dans cet environnement; ce test ne valide ni
+un boot matériel ni une configuration d’équipement.
+
 La première milestone réellement démontrable doit être :
 
 ``` text
@@ -3985,16 +4015,17 @@ La première milestone réellement démontrable doit être :
 
 Critères :
 
-- [ ] YAML accepté ;
-- [ ] YAML invalide rejeté ;
-- [ ] plan lisible ;
-- [ ] artefacts déterministes ;
-- [ ] agent démarre ;
-- [ ] TUI affiche l’état ;
+- [x] YAML accepté ;
+- [x] YAML invalide rejeté ;
+- [x] plan lisible ;
+- [x] artefacts déterministes ;
+- [x] agent démarre ;
+- [x] TUI affiche l’état des jobs et agents ;
+- [x] artefacts complets transférés et rapportés par l’agent en test synthétique ;
 - [ ] DHCP fonctionne en laboratoire ;
 - [ ] bootstrap fonctionne sur au moins un équipement ;
-- [ ] configuration Ansible générée ;
-- [ ] résultat enregistré ;
+- [x] configuration Ansible/Terraform générique générée et publiée au catalogue ;
+- [x] résultat de traitement des artefacts enregistré côté provider ;
 - [ ] état observé affiché ;
 - [ ] test offline réussi.
 

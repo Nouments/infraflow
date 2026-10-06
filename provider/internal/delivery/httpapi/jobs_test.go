@@ -1,0 +1,230 @@
+package httpapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	configadapter "infraflow/internal/adapters/config"
+	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/infrastructure/security"
+	"infraflow/provider/internal/adapters/filesystem"
+	"infraflow/provider/internal/adapters/sqlite"
+	"infraflow/provider/internal/application"
+)
+
+func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := json.Marshal(createJobRequest{Input: "sites:\n  - name: lab\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create returned %d: %s", response.Code, response.Body.String())
+	}
+	var created struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.ID == "" || created.Status != "planned" {
+		t.Fatalf("unexpected create response: %#v, %v", created, err)
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+		code   int
+	}{
+		{http.MethodGet, "/api/v1/jobs", http.StatusOK},
+		{http.MethodGet, "/api/v1/jobs/" + created.ID, http.StatusOK},
+		{http.MethodPost, "/api/v1/jobs/" + created.ID + "/cancel", http.StatusOK},
+		{http.MethodPost, "/api/v1/jobs/" + created.ID + "/retry", http.StatusOK},
+	} {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.code {
+			t.Errorf("%s %s returned %d, want %d: %s", test.method, test.path, response.Code, test.code, response.Body.String())
+		}
+	}
+}
+
+func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unauthorized := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, unauthorized)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token returned %d", response.Code)
+	}
+	duplicateAuth := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, duplicateAuth)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("duplicate token headers returned %d", response.Code)
+	}
+
+	malformed := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites: []"} {}`))
+	malformed.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, malformed)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("trailing JSON returned %d: %s", response.Code, response.Body.String())
+	}
+
+	invalidInput := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites:\n  - unknown: true\n"}`))
+	invalidInput.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, invalidInput)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid input returned %d: %s", response.Code, response.Body.String())
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-missing", nil)
+	missing.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, missing)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing job returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUserAuthenticationAndRoles(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := sqlite.New(root + "/users.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer users.Close()
+	authenticator, err := application.NewAuthenticator(users, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.EnsureBootstrap(t.Context(), "admin", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	agentToken := strings.Repeat("a", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, agentToken, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"admin","password":"correct horse battery staple"}`, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("administrator login returned %d: %s", login.Code, login.Body.String())
+	}
+	var adminSession struct {
+		Token string `json:"token"`
+		User  struct {
+			Role string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &adminSession); err != nil || adminSession.Token == "" || adminSession.User.Role != "admin" {
+		t.Fatalf("invalid administrator session: %#v, %v", adminSession, err)
+	}
+	created := authRequest(t, handler, http.MethodPost, "/api/v1/users", `{"username":"operator","password":"operator password 123","role":"user"}`, adminSession.Token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("operator creation returned %d: %s", created.Code, created.Body.String())
+	}
+	var operator struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &operator); err != nil || operator.ID == "" {
+		t.Fatalf("invalid operator response: %#v, %v", operator, err)
+	}
+	operatorLogin := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"operator","password":"operator password 123"}`, "")
+	if operatorLogin.Code != http.StatusOK {
+		t.Fatalf("operator login returned %d: %s", operatorLogin.Code, operatorLogin.Body.String())
+	}
+	var operatorSession struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(operatorLogin.Body.Bytes(), &operatorSession); err != nil || operatorSession.Token == "" {
+		t.Fatalf("invalid operator session: %#v, %v", operatorSession, err)
+	}
+	job := authRequest(t, handler, http.MethodPost, "/api/v1/jobs", `{"input":"sites:\n  - name: lab\n"}`, operatorSession.Token)
+	if job.Code != http.StatusCreated {
+		t.Fatalf("operator job creation returned %d: %s", job.Code, job.Body.String())
+	}
+	usersResponse := authRequest(t, handler, http.MethodGet, "/api/v1/users", "", operatorSession.Token)
+	if usersResponse.Code != http.StatusForbidden {
+		t.Fatalf("operator user listing returned %d: %s", usersResponse.Code, usersResponse.Body.String())
+	}
+	lastAdmin := authRequest(t, handler, http.MethodPatch, "/api/v1/users/"+operator.ID, `{"role":"admin","disabled":true}`, adminSession.Token)
+	if lastAdmin.Code != http.StatusOK {
+		t.Fatalf("operator update returned %d: %s", lastAdmin.Code, lastAdmin.Body.String())
+	}
+	adminList := authRequest(t, handler, http.MethodGet, "/api/v1/users", "", adminSession.Token)
+	if adminList.Code != http.StatusOK {
+		t.Fatalf("administrator user listing returned %d: %s", adminList.Code, adminList.Body.String())
+	}
+	selfDisable := authRequest(t, handler, http.MethodPatch, "/api/v1/users/"+extractUserID(t, adminSession.Token, handler), `{"disabled":true}`, adminSession.Token)
+	if selfDisable.Code != http.StatusConflict {
+		t.Fatalf("last administrator disable returned %d: %s", selfDisable.Code, selfDisable.Body.String())
+	}
+}
+
+func authRequest(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func extractUserID(t *testing.T, token string, handler http.Handler) string {
+	t.Helper()
+	response := authRequest(t, handler, http.MethodGet, "/api/v1/auth/me", "", token)
+	if response.Code != http.StatusOK {
+		t.Fatalf("current user lookup returned %d: %s", response.Code, response.Body.String())
+	}
+	var user struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &user); err != nil || user.ID == "" {
+		t.Fatalf("invalid current user response: %#v, %v", user, err)
+	}
+	return user.ID
+}

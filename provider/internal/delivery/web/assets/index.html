@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>InfraFlow Control</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <main id="login" class="login-shell">
+      <section class="login-panel">
+        <div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>INFRAFLOW</span></div>
+        <div class="login-copy">
+          <p class="eyebrow">INFRASTRUCTURE CONTROL</p>
+          <h1>Welcome back.</h1>
+          <p class="muted">Sign in to review plans, agents, and site activity.</p>
+        </div>
+        <form id="login-form" class="login-form">
+          <label>Username<input name="username" autocomplete="username" required minlength="3"></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="button button-primary" type="submit">Sign in <span aria-hidden="true">&#8594;</span></button>
+          <p id="login-error" class="form-error" role="alert"></p>
+        </form>
+        <p class="login-foot">Sessions are held in this browser tab only.</p>
+      </section>
+      <aside class="login-aside" aria-label="Infrastructure status illustration">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="diagram-core"><span>IF</span><small>CONTROL<br>PLANE</small></div>
+        <div class="diagram-node node-a"><b></b><span>PLAN</span></div>
+        <div class="diagram-node node-b"><b></b><span>AGENT</span></div>
+        <div class="diagram-node node-c"><b></b><span>STATE</span></div>
+        <div class="aside-caption"><span>DECLARATIVE OPERATIONS</span><span>LOCAL-FIRST · AUDITABLE</span></div>
+      </aside>
+    </main>
+
+    <div id="console" class="console hidden">
+      <aside class="sidebar">
+        <a class="brand-lockup" href="#overview" aria-label="InfraFlow overview"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>INFRAFLOW</span></a>
+        <p class="nav-label">WORKSPACE</p>
+        <nav id="navigation" aria-label="Main navigation">
+          <button class="nav-item active" data-view="overview"><span class="nav-symbol">01</span>Overview</button>
+          <button class="nav-item" data-view="jobs"><span class="nav-symbol">02</span>Plans &amp; jobs</button>
+          <button class="nav-item admin-only" data-view="agents"><span class="nav-symbol">03</span>Agents</button>
+          <button class="nav-item admin-only" data-view="activity"><span class="nav-symbol">04</span>Audit trail</button>
+          <button class="nav-item admin-only" data-view="users"><span class="nav-symbol">05</span>Access</button>
+        </nav>
+        <div class="sidebar-bottom"><span class="connection-dot"></span><span>Provider connected</span><button id="logout" class="text-button">Sign out</button></div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div><p class="eyebrow">CONTROL PLANE <span class="crumb">/</span> <span id="view-label">OVERVIEW</span></p><h1 id="page-title">Infrastructure overview</h1></div>
+          <div class="user-chip"><span id="user-initial" class="avatar">?</span><span><b id="user-name">User</b><small id="user-role">role</small></span></div>
+        </header>
+        <div id="notice" class="notice hidden" role="status"></div>
+
+        <section id="overview-view" class="view">
+          <div class="summary-strip">
+            <article class="summary-item"><span class="summary-label">PLANNING JOBS</span><strong id="stat-jobs">—</strong><small>persisted plans</small></article>
+            <article class="summary-item"><span class="summary-label">BLOCKED TASKS</span><strong id="stat-blocked">—</strong><small>awaiting verified adapters</small></article>
+            <article class="summary-item"><span class="summary-label">REGISTERED AGENTS</span><strong id="stat-agents">—</strong><small id="stat-agent-detail">admin view</small></article>
+            <article class="summary-item"><span class="summary-label">LATEST ACTIVITY</span><strong id="stat-activity">—</strong><small>append-only audit events</small></article>
+          </div>
+          <div class="section-heading"><div><p class="eyebrow">OPERATIONS</p><h2>Recent plans</h2></div><button id="new-plan" class="button button-primary">Create plan <span aria-hidden="true">+</span></button></div>
+          <div class="table-frame"><table><thead><tr><th>JOB</th><th>STATUS</th><th>TASKS</th><th>UPDATED</th></tr></thead><tbody id="overview-jobs"></tbody></table><div id="overview-empty" class="empty-state hidden">No plans yet. Create a plan from a validated infrastructure YAML file.</div></div>
+          <div class="overview-lower"><section class="panel"><div class="panel-heading"><div><p class="eyebrow">SITE CONNECTIVITY</p><h2>Agent map</h2></div><span id="map-count" class="quiet-label">ADMIN VIEW</span></div><div id="agent-map" class="agent-map"></div></section><section class="panel"><div class="panel-heading"><div><p class="eyebrow">TASK READINESS</p><h2>Plan signals</h2></div></div><div id="plan-signals" class="signal-list"></div></section></div>
+        </section>
+
+        <section id="jobs-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">DESIRED STATE</p><h2>Plans &amp; jobs</h2></div><button class="button button-primary" data-action="new-plan">Create plan <span aria-hidden="true">+</span></button></div><div class="table-frame"><table><thead><tr><th>JOB</th><th>STATUS</th><th>SITE</th><th>TASKS</th><th>CREATED</th><th></th></tr></thead><tbody id="jobs-table"></tbody></table><div id="jobs-empty" class="empty-state hidden">No planning jobs have been submitted.</div></div></section>
+        <section id="agents-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">EDGE RUNTIME</p><h2>Registered agents</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div class="table-frame"><table><thead><tr><th>AGENT</th><th>SITE</th><th>STATUS</th><th>VERSION</th><th>QUEUE</th><th>LAST SEEN</th></tr></thead><tbody id="agents-table"></tbody></table><div id="agents-empty" class="empty-state hidden">No agents registered.</div></div></section>
+        <section id="activity-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">APPEND-ONLY</p><h2>Audit trail</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div id="events-list" class="event-list"></div><div id="events-empty" class="empty-state hidden">No events recorded.</div></section>
+        <section id="users-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">ADMINISTRATION</p><h2>Access management</h2></div></div><form id="user-form" class="inline-form"><label>Username<input name="username" required minlength="3" autocomplete="off"></label><label>Temporary password<input name="password" type="password" required minlength="12" autocomplete="new-password"></label><label>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label><button class="button button-primary" type="submit">Add user</button></form><div class="table-frame"><table><thead><tr><th>USER</th><th>ROLE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="users-table"></tbody></table><div id="users-empty" class="empty-state hidden">No users found.</div></div></section>
+      </section>
+    </div>
+
+    <dialog id="plan-dialog" class="plan-dialog"><form id="plan-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">DECLARATIVE INPUT</p><h2>Create planning job</h2></div><button type="button" id="close-dialog" class="close-button" aria-label="Close">&#215;</button></div><label>Infrastructure YAML<textarea name="input" rows="16" spellcheck="false" required placeholder="sites:\n  - name: lab"></textarea></label><p class="dialog-note">Validation and planning only. No infrastructure changes are executed.</p><p id="plan-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel-plan" class="button button-quiet">Cancel</button><button class="button button-primary" type="submit">Build plan</button></div></form></dialog>
+  </body>
+</html>

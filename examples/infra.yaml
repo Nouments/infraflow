@@ -2,6 +2,10 @@ sites:
   - name: lab
     bootstrap:
       network: 192.168.100.0/24
+    services:
+      dhcp: true
+      tftp: true
+      pxe: true
     devices:
       - name: R1
         role: router
