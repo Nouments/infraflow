@@ -23,8 +23,9 @@ func (Parser) Parse(data []byte) (domain.Infrastructure, error) {
 }
 
 type document struct {
-	Sites []domain.Site `yaml:"sites"`
-	Site  *domain.Site  `yaml:"site"`
+	CapabilityRegistry domain.CapabilityRegistry `yaml:"capability_registry"`
+	Sites              []domain.Site             `yaml:"sites"`
+	Site               *domain.Site              `yaml:"site"`
 }
 
 func Parse(data []byte) (domain.Infrastructure, error) {
@@ -50,7 +51,13 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 		return domain.Infrastructure{}, fmt.Errorf("use either 'site' or 'sites', not both")
 	}
 
-	infrastructure := domain.Infrastructure{Sites: input.Sites}
+	infrastructure := domain.Infrastructure{
+		CapabilityRegistry: input.CapabilityRegistry,
+		Sites:              input.Sites,
+	}
+	if err := validateCapabilityRegistry(infrastructure.CapabilityRegistry); err != nil {
+		return domain.Infrastructure{}, err
+	}
 	if input.Site != nil {
 		infrastructure.Sites = []domain.Site{*input.Site}
 	}
@@ -76,6 +83,25 @@ func Read(reader io.Reader) (domain.Infrastructure, error) {
 		return domain.Infrastructure{}, fmt.Errorf("read configuration: %w", err)
 	}
 	return Parse(data)
+}
+
+func validateCapabilityRegistry(registry domain.CapabilityRegistry) error {
+	for key, methods := range registry.Entries {
+		for method, capability := range methods {
+			if capability.State == "" {
+				return fmt.Errorf("unsupported capability state for %s/%s: empty state", key, method)
+			}
+			switch capability.State {
+			case domain.CapabilityImplemented, domain.CapabilityLabVerified, domain.CapabilityExperimental, domain.CapabilityUnverified, domain.CapabilityUnsupported, domain.CapabilityUnknown:
+				if capability.State.IsUsable() && strings.TrimSpace(capability.Evidence) == "" {
+					return fmt.Errorf("unsupported capability state for %s/%s: %s requires evidence", key, method, capability.State)
+				}
+			default:
+				return fmt.Errorf("unsupported capability state for %s/%s: %s", key, method, capability.State)
+			}
+		}
+	}
+	return nil
 }
 
 type ValidationErrors []string

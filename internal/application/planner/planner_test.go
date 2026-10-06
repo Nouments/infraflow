@@ -2,6 +2,7 @@ package planner
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"infraflow/internal/domain"
@@ -31,4 +32,52 @@ func TestBuildPlanWithoutDevicesIsReady(t *testing.T) {
 	if plan.Status != "ready" || len(plan.Tasks) != 2 {
 		t.Fatalf("unexpected plan: %#v", plan)
 	}
+}
+
+func TestBuildPlanMarksUnknownCapabilityRegistryAsBlocked(t *testing.T) {
+	infrastructure := domain.Infrastructure{
+		CapabilityRegistry: domain.CapabilityRegistry{Entries: map[string]map[string]domain.DeviceCapability{
+			"cisco:iosxe:ios-xe": {
+				"netconf": {
+					Method:   "netconf",
+					State:    domain.CapabilityUnverified,
+					Evidence: "no lab execution or verified adapter was recorded",
+				},
+			},
+		}},
+		Sites: []domain.Site{{
+			Name: "site-a",
+			Devices: []domain.Device{{
+				Name:         "R1",
+				Vendor:       "cisco",
+				Model:        "ios-xe",
+				Family:       "iosxe",
+				Role:         "router",
+				Provisioning: domain.Provisioning{Method: "netconf"},
+			}},
+		}},
+	}
+
+	plan := Build(infrastructure)
+	if plan.Status != "blocked" {
+		t.Fatalf("expected blocked plan, got %q", plan.Status)
+	}
+	if len(plan.Tasks) < 3 {
+		t.Fatalf("expected at least inventory/topology + device task, got %#v", plan.Tasks)
+	}
+
+	deviceTask := plan.Tasks[2]
+	if deviceTask.Status != "blocked" {
+		t.Fatalf("expected device task to be blocked, got %#v", deviceTask)
+	}
+	if !contains(deviceTask.Reason, "UNVERIFIED") {
+		t.Fatalf("expected explicit unverified status in reason, got %q", deviceTask.Reason)
+	}
+	if !contains(deviceTask.Reason, "no lab execution") {
+		t.Fatalf("expected evidence source in reason, got %q", deviceTask.Reason)
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

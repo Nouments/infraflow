@@ -1,7 +1,61 @@
 package domain
 
+import "strings"
+
+type CapabilityState string
+
+const (
+	CapabilityImplemented  CapabilityState = "IMPLEMENTED"
+	CapabilityLabVerified  CapabilityState = "LAB-VERIFIED"
+	CapabilityExperimental CapabilityState = "EXPERIMENTAL"
+	CapabilityUnverified   CapabilityState = "UNVERIFIED"
+	CapabilityUnsupported  CapabilityState = "UNSUPPORTED"
+	CapabilityUnknown      CapabilityState = "UNKNOWN"
+)
+
+func (state CapabilityState) IsUsable() bool {
+	return state == CapabilityImplemented || state == CapabilityLabVerified
+}
+
+type DeviceCapability struct {
+	Method     string          `json:"method"`
+	State      CapabilityState `json:"state"`
+	Evidence   string          `json:"evidence,omitempty"`
+	LastSeenAt string          `json:"last_seen_at,omitempty"`
+}
+
+type CapabilityRegistry struct {
+	Entries map[string]map[string]DeviceCapability `json:"entries,omitempty"`
+}
+
+func (r CapabilityRegistry) Resolve(device Device) (CapabilityState, string) {
+	if len(r.Entries) == 0 {
+		return CapabilityUnknown, "capability registry is empty; no verified adapter evidence"
+	}
+
+	method := strings.TrimSpace(device.Provisioning.Method)
+	if method == "" {
+		method = "default"
+	}
+	key := strings.ToLower(strings.TrimSpace(device.Vendor) + ":" + strings.TrimSpace(device.Family) + ":" + strings.TrimSpace(device.Model))
+	if key == ":" || strings.TrimSpace(device.Vendor) == "" || strings.TrimSpace(device.Model) == "" {
+		return CapabilityUnknown, "vendor and model are required for capability lookup"
+	}
+
+	if methods, ok := r.Entries[key]; ok {
+		if cap, ok := methods[method]; ok {
+			return cap.State, cap.Evidence
+		}
+		if cap, ok := methods["*"]; ok {
+			return cap.State, cap.Evidence
+		}
+	}
+	return CapabilityUnknown, "capability registry has no verified entry for vendor/family/model and provisioning method"
+}
+
 type Infrastructure struct {
-	Sites []Site `json:"sites"`
+	CapabilityRegistry CapabilityRegistry `json:"capability_registry,omitempty"`
+	Sites              []Site             `json:"sites"`
 }
 
 type Site struct {

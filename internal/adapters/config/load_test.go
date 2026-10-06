@@ -37,6 +37,49 @@ func TestParseValidInfrastructure(t *testing.T) {
 	}
 }
 
+func TestParseCapabilityRegistryPreservesEvidenceAndStates(t *testing.T) {
+	input := `capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: UNVERIFIED
+        evidence: no lab execution or verified adapter was recorded
+sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+`
+	infrastructure, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := infrastructure.CapabilityRegistry.Entries["cisco:iosxe:ios-xe"]["netconf"]
+	if entry.State != "UNVERIFIED" || entry.Evidence == "" {
+		t.Fatalf("unexpected capability entry: %#v", entry)
+	}
+}
+
+func TestParseCapabilityRegistryRejectsUnknownOrUnprovenStates(t *testing.T) {
+	input := `capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: FABRICATED
+        evidence: not real
+sites:
+  - name: lab
+`
+	_, err := Parse([]byte(input))
+	if err == nil || !strings.Contains(err.Error(), "unsupported capability state") {
+		t.Fatalf("expected unsupported capability state error, got %v", err)
+	}
+}
+
 func TestParseSingleSiteAndEndpointForm(t *testing.T) {
 	input := `site:
   name: lab
