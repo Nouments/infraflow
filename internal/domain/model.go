@@ -44,17 +44,25 @@ func (r CapabilityRegistry) Resolve(device Device) (CapabilityState, string) {
 
 	if methods, ok := r.Entries[key]; ok {
 		if cap, ok := methods[method]; ok {
-			return cap.State, cap.Evidence
+			return resolveCapability(cap)
 		}
 		if cap, ok := methods["*"]; ok {
-			return cap.State, cap.Evidence
+			return resolveCapability(cap)
 		}
 	}
 	return CapabilityUnknown, "capability registry has no verified entry for vendor/family/model and provisioning method"
 }
 
+func resolveCapability(cap DeviceCapability) (CapabilityState, string) {
+	if cap.State.IsUsable() && strings.TrimSpace(cap.Evidence) == "" {
+		return CapabilityUnknown, "usable capability requires recorded evidence of real verification"
+	}
+	return cap.State, cap.Evidence
+}
+
 type Infrastructure struct {
 	CapabilityRegistry CapabilityRegistry `json:"capability_registry,omitempty"`
+	TemplateRegistry   TemplateRegistry   `json:"template_registry,omitempty"`
 	Sites              []Site             `json:"sites"`
 }
 
@@ -95,7 +103,8 @@ type Management struct {
 }
 
 type Provisioning struct {
-	Method string `yaml:"method,omitempty" json:"method,omitempty"`
+	Method          string `yaml:"method,omitempty" json:"method,omitempty"`
+	TemplateVersion string `yaml:"template_version,omitempty" json:"template_version,omitempty"`
 }
 
 type Link struct {

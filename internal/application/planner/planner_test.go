@@ -45,6 +45,17 @@ func TestBuildPlanMarksUnknownCapabilityRegistryAsBlocked(t *testing.T) {
 				},
 			},
 		}},
+		TemplateRegistry: domain.TemplateRegistry{Entries: map[string]domain.ProviderTemplate{
+			"cisco:iosxe:ios-xe:1": {
+				ID:       "cisco:iosxe:ios-xe:1",
+				Vendor:   "cisco",
+				Family:   "iosxe",
+				Model:    "ios-xe",
+				Version:  "1",
+				Hash:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				Evidence: "repository manifest produced by an audited test",
+			},
+		}},
 		Sites: []domain.Site{{
 			Name: "site-a",
 			Devices: []domain.Device{{
@@ -53,7 +64,7 @@ func TestBuildPlanMarksUnknownCapabilityRegistryAsBlocked(t *testing.T) {
 				Model:        "ios-xe",
 				Family:       "iosxe",
 				Role:         "router",
-				Provisioning: domain.Provisioning{Method: "netconf"},
+				Provisioning: domain.Provisioning{Method: "netconf", TemplateVersion: "1"},
 			}},
 		}},
 	}
@@ -75,6 +86,12 @@ func TestBuildPlanMarksUnknownCapabilityRegistryAsBlocked(t *testing.T) {
 	}
 	if !contains(deviceTask.Reason, "no lab execution") {
 		t.Fatalf("expected evidence source in reason, got %q", deviceTask.Reason)
+	}
+	if !contains(deviceTask.Reason, "template cisco:iosxe:ios-xe:1 version 1 is known") {
+		t.Fatalf("expected selected template metadata in reason, got %q", deviceTask.Reason)
+	}
+	if !contains(deviceTask.Reason, "execution remains blocked") {
+		t.Fatalf("expected execution-blocked evidence in reason, got %q", deviceTask.Reason)
 	}
 }
 

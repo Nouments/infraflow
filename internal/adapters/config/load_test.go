@@ -80,6 +80,34 @@ sites:
 	}
 }
 
+func TestParseTemplateRegistryPreservesMetadataAndRejectsIncompleteEntry(t *testing.T) {
+	valid := `template_registry:
+  entries:
+    example:router:1:
+      id: example:router:1
+      vendor: example-vendor
+      family: router
+      model: router-one
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: repository manifest produced by an audited test
+sites:
+  - name: lab
+`
+	infrastructure, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if template := infrastructure.TemplateRegistry.Entries["example:router:1"]; template.Hash == "" {
+		t.Fatalf("template metadata was not preserved: %#v", template)
+	}
+
+	incomplete := strings.Replace(valid, "      evidence: repository manifest produced by an audited test\n", "", 1)
+	if _, err := Parse([]byte(incomplete)); err == nil || !strings.Contains(err.Error(), "provenance evidence") {
+		t.Fatalf("expected incomplete template metadata error, got %v", err)
+	}
+}
+
 func TestParseSingleSiteAndEndpointForm(t *testing.T) {
 	input := `site:
   name: lab

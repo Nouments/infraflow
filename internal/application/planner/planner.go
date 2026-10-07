@@ -16,6 +16,7 @@ func Build(infrastructure domain.Infrastructure) domain.Plan {
 	sort.Slice(sites, func(i, j int) bool { return sites[i].Name < sites[j].Name })
 
 	registry := infrastructure.CapabilityRegistry
+	templateRegistry := infrastructure.TemplateRegistry
 	for _, site := range sites {
 		inventoryID := "inventory/" + site.Name
 		topologyID := "topology/" + site.Name
@@ -40,6 +41,14 @@ func Build(infrastructure domain.Infrastructure) domain.Plan {
 				if strings.TrimSpace(device.Provisioning.Method) != "" {
 					reason = fmt.Sprintf("capability registry reports %s for provisioning method %q on %s/%s/%s; device changes are unavailable. %s",
 						state, device.Provisioning.Method, strings.TrimSpace(device.Vendor), strings.TrimSpace(device.Family), strings.TrimSpace(device.Model), evidence)
+				}
+
+				if template, err := templateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion)); err == nil {
+					templateReason := fmt.Sprintf("template %s version %s is known for %s/%s/%s; hash %s; provenance: %s. execution remains blocked until the capability is LAB-VERIFIED with evidence",
+						template.ID, template.Version, strings.TrimSpace(device.Vendor), strings.TrimSpace(device.Family), strings.TrimSpace(device.Model), template.Hash, template.Evidence)
+					reason = reason + "; " + templateReason
+				} else if strings.TrimSpace(device.Provisioning.TemplateVersion) != "" {
+					reason = reason + "; template resolution failed for " + strings.TrimSpace(device.Vendor) + "/" + strings.TrimSpace(device.Family) + "/" + strings.TrimSpace(device.Model) + " version " + strings.TrimSpace(device.Provisioning.TemplateVersion) + ": " + err.Error()
 				}
 			}
 			plan.Tasks = append(plan.Tasks, domain.Task{

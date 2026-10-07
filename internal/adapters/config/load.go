@@ -24,6 +24,7 @@ func (Parser) Parse(data []byte) (domain.Infrastructure, error) {
 
 type document struct {
 	CapabilityRegistry domain.CapabilityRegistry `yaml:"capability_registry"`
+	TemplateRegistry   domain.TemplateRegistry   `yaml:"template_registry"`
 	Sites              []domain.Site             `yaml:"sites"`
 	Site               *domain.Site              `yaml:"site"`
 }
@@ -53,9 +54,13 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 
 	infrastructure := domain.Infrastructure{
 		CapabilityRegistry: input.CapabilityRegistry,
+		TemplateRegistry:   input.TemplateRegistry,
 		Sites:              input.Sites,
 	}
 	if err := validateCapabilityRegistry(infrastructure.CapabilityRegistry); err != nil {
+		return domain.Infrastructure{}, err
+	}
+	if err := validateTemplateRegistry(infrastructure.TemplateRegistry); err != nil {
 		return domain.Infrastructure{}, err
 	}
 	if input.Site != nil {
@@ -99,6 +104,27 @@ func validateCapabilityRegistry(registry domain.CapabilityRegistry) error {
 			default:
 				return fmt.Errorf("unsupported capability state for %s/%s: %s", key, method, capability.State)
 			}
+		}
+	}
+	return nil
+}
+
+func validateTemplateRegistry(registry domain.TemplateRegistry) error {
+	for id, template := range registry.Entries {
+		if template.ID == "" {
+			return fmt.Errorf("template registry key %q does not contain an id", id)
+		}
+		if template.ID != id {
+			return fmt.Errorf("template registry key %q does not match template id %q", id, template.ID)
+		}
+		if strings.TrimSpace(template.Version) == "" {
+			return fmt.Errorf("template %q requires a version", template.ID)
+		}
+		if strings.TrimSpace(template.Hash) == "" {
+			return fmt.Errorf("template %q requires a hash", template.ID)
+		}
+		if strings.TrimSpace(template.Evidence) == "" {
+			return fmt.Errorf("template %q requires provenance evidence", template.ID)
 		}
 	}
 	return nil
