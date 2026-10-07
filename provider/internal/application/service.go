@@ -38,6 +38,28 @@ type AgentHeartbeat struct {
 	QueueDepth   int
 }
 
+type TemplateInspection struct {
+	Site            string
+	Device          string
+	TemplateID      string
+	TemplateHash    string
+	Capability      string
+	CapabilityState domain.CapabilityState
+	CapabilityMsg   string
+	Blocked         bool
+}
+
+type CapabilitySummary struct {
+	Site            string
+	Device          string
+	TemplateID      string
+	TemplateHash    string
+	Capability      string
+	CapabilityState domain.CapabilityState
+	CapabilityMsg   string
+	Ready           bool
+}
+
 type Dependencies struct {
 	Parser      ports.InfrastructureParser
 	PlanBuilder ports.PlanBuilder
@@ -80,6 +102,87 @@ func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {
 func (service *Service) Plan(input []byte) (domain.Plan, error) {
 	_, plan, err := service.Preview(input)
 	return plan, err
+}
+
+func (service *Service) TemplateInfo(input []byte) ([]TemplateInspection, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]TemplateInspection, 0)
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			inspection := TemplateInspection{Site: site.Name, Device: device.Name}
+			if strings.TrimSpace(device.Model) == "" || strings.TrimSpace(device.Vendor) == "" {
+				inspection.Capability = string(domain.CapabilityUnknown)
+				inspection.CapabilityState = domain.CapabilityUnknown
+				inspection.CapabilityMsg = "vendor and model are required for template inspection"
+				inspection.Blocked = true
+				results = append(results, inspection)
+				continue
+			}
+			state, evidence := infrastructure.CapabilityRegistry.Resolve(device)
+			inspection.Capability = string(state)
+			inspection.CapabilityState = state
+			inspection.CapabilityMsg = evidence
+			if strings.TrimSpace(device.Provisioning.TemplateVersion) == "" {
+				inspection.Blocked = true
+				results = append(results, inspection)
+				continue
+			}
+			template, err := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+			if err != nil {
+				inspection.Blocked = true
+				inspection.CapabilityMsg = inspection.CapabilityMsg + "; template resolution failed: " + err.Error()
+				results = append(results, inspection)
+				continue
+			}
+			inspection.TemplateID = template.ID
+			inspection.TemplateHash = template.Hash
+			inspection.Blocked = !state.IsUsable()
+			results = append(results, inspection)
+		}
+	}
+	return results, nil
+}
+
+func (service *Service) CapabilitySummary(input []byte) ([]CapabilitySummary, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]CapabilitySummary, 0)
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			summary := CapabilitySummary{Site: site.Name, Device: device.Name}
+			if strings.TrimSpace(device.Model) == "" || strings.TrimSpace(device.Vendor) == "" {
+				summary.Capability = string(domain.CapabilityUnknown)
+				summary.CapabilityState = domain.CapabilityUnknown
+				summary.CapabilityMsg = "vendor and model are required for capability summary"
+				results = append(results, summary)
+				continue
+			}
+			state, evidence := infrastructure.CapabilityRegistry.Resolve(device)
+			summary.Capability = string(state)
+			summary.CapabilityState = state
+			summary.CapabilityMsg = evidence
+			if strings.TrimSpace(device.Provisioning.TemplateVersion) == "" {
+				results = append(results, summary)
+				continue
+			}
+			template, err := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+			if err != nil {
+				summary.CapabilityMsg = summary.CapabilityMsg + "; template resolution failed: " + err.Error()
+				results = append(results, summary)
+				continue
+			}
+			summary.TemplateID = template.ID
+			summary.TemplateHash = template.Hash
+			summary.Ready = state.IsUsable() && template.ID != ""
+			results = append(results, summary)
+		}
+	}
+	return results, nil
 }
 
 func (service *Service) Preview(input []byte) (domain.Infrastructure, domain.Plan, error) {

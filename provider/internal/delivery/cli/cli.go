@@ -40,7 +40,13 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "serve" {
 		return runServe(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" {
+	if command == "template-info" {
+		return runTemplateInfo(arguments[1:], stdout, stderr)
+	}
+	if command == "capability-summary" {
+		return runCapabilitySummary(arguments[1:], stdout, stderr)
+	}
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -132,6 +138,84 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		}
 		for _, artifact := range artifacts {
 			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	}
+	return 0
+}
+
+func runTemplateInfo(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("template-info", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: template-info requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	results, err := service.TemplateInfo(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, result := range results {
+		status := "ready"
+		if result.Blocked {
+			status = "blocked"
+		}
+		if result.TemplateID != "" {
+			fmt.Fprintf(stdout, "selected template %s (hash %s) for %s/%s: capability=%s status=%s\n", result.TemplateID, result.TemplateHash, result.Site, result.Device, result.Capability, status)
+		} else {
+			fmt.Fprintf(stdout, "no template selected for %s/%s: capability=%s status=%s\n", result.Site, result.Device, result.Capability, status)
+		}
+		if result.CapabilityMsg != "" {
+			fmt.Fprintf(stdout, "  %s\n", result.CapabilityMsg)
+		}
+	}
+	return 0
+}
+
+func runCapabilitySummary(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("capability-summary", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: capability-summary requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	summaries, err := service.CapabilitySummary(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, item := range summaries {
+		status := "not-ready"
+		if item.Ready {
+			status = "ready"
+		}
+		if item.TemplateID != "" {
+			fmt.Fprintf(stdout, "%s/%s template=%s hash=%s capability=%s status=%s\n", item.Site, item.Device, item.TemplateID, item.TemplateHash, item.Capability, status)
+		} else {
+			fmt.Fprintf(stdout, "%s/%s template=none capability=%s status=%s\n", item.Site, item.Device, item.Capability, status)
+		}
+		if item.CapabilityMsg != "" {
+			fmt.Fprintf(stdout, "  %s\n", item.CapabilityMsg)
 		}
 	}
 	return 0
@@ -287,7 +371,9 @@ Usage:
 	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
 	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
+	infraflow-provider template-info -f <infra.yaml>
+	infraflow-provider capability-summary -f <infra.yaml>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
+Validation is side-effect free. Planning does not execute tasks. Template inspection reports selected metadata and capability state without executing anything. Capability summaries provide an evidence-only readiness snapshot and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
 }

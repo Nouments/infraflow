@@ -116,6 +116,90 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	}
 }
 
+func TestCapabilitySummaryCommandReportsReadyState(t *testing.T) {
+	input := `capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: LAB-VERIFIED
+        evidence: lab test 2026-10-07
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: sandbox validation manifest checked locally
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`
+	inputPath := writeInput(t, input)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"capability-summary", "-f", inputPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("capability-summary failed: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "LAB-VERIFIED") || !strings.Contains(stdout.String(), "ready") || !strings.Contains(stdout.String(), "cisco:iosxe:ios-xe:1") {
+		t.Fatalf("capability-summary did not report readiness: %s", stdout.String())
+	}
+}
+
+func TestTemplateInfoCommandReportsSelectionAndBlocking(t *testing.T) {
+	input := `capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: UNVERIFIED
+        evidence: no lab execution or verified adapter was recorded
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: sandbox validation manifest checked locally
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`
+	inputPath := writeInput(t, input)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"template-info", "-f", inputPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("template-info failed: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "selected template") || !strings.Contains(stdout.String(), "UNVERIFIED") || !strings.Contains(stdout.String(), "blocked") {
+		t.Fatalf("template-info did not report selection and blocking: %s", stdout.String())
+	}
+}
+
 func TestServeRejectsWeakToken(t *testing.T) {
 	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", "weak")
 	var stdout bytes.Buffer

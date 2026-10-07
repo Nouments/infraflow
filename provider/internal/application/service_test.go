@@ -207,6 +207,100 @@ func TestServiceBindsAgentIdentityAndUpdatesHeartbeats(t *testing.T) {
 	}
 }
 
+func TestServiceReportsTemplateSelectionAndCapabilityState(t *testing.T) {
+	service := NewService(nil, nil, nil, testDependencies())
+	input := []byte(`capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: UNVERIFIED
+        evidence: no lab execution or verified adapter was recorded
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: sandbox validation manifest checked locally
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`)
+	results, err := service.TemplateInfo(input)
+	if err != nil {
+		t.Fatalf("template info failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected exactly one template result, got %d: %#v", len(results), results)
+	}
+	if results[0].TemplateID != "cisco:iosxe:ios-xe:1" || results[0].CapabilityState != domain.CapabilityUnverified {
+		t.Fatalf("unexpected template selection result: %#v", results[0])
+	}
+	if !results[0].Blocked {
+		t.Fatal("expected result to be blocked while capability is unverified")
+	}
+}
+
+func TestServiceSummarizesCapabilityAndTemplateReadiness(t *testing.T) {
+	service := NewService(nil, nil, nil, testDependencies())
+	input := []byte(`capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: LAB-VERIFIED
+        evidence: lab test 2026-10-07
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: sandbox validation manifest checked locally
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`)
+	summary, err := service.CapabilitySummary(input)
+	if err != nil {
+		t.Fatalf("capability summary failed: %v", err)
+	}
+	if len(summary) != 1 {
+		t.Fatalf("expected one device summary, got %d: %#v", len(summary), summary)
+	}
+	if summary[0].CapabilityState != domain.CapabilityLabVerified || summary[0].TemplateID != "cisco:iosxe:ios-xe:1" {
+		t.Fatalf("unexpected capability summary: %#v", summary[0])
+	}
+	if summary[0].Ready != true {
+		t.Fatal("expected device to be ready when capability is lab-verified and template known")
+	}
+}
+
 func testDependencies() Dependencies {
 	return Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
 }
