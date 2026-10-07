@@ -94,7 +94,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .nav-item.active .nav-symbol { color: var(--orange); }
 .sidebar-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding: 14px 7px 0; border-top: 1px solid var(--line); color: var(--quiet); font-size: 10px; }
 .sidebar-bottom .text-button { margin-left: auto; }
-.connection-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .workspace { width: min(100%, 1500px); margin: 0 auto; padding: 0 38px 50px; }
 .topbar { min-height: 91px; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 27px; border-bottom: 1px solid var(--line); }
 .topbar .eyebrow { margin-bottom: 5px; }

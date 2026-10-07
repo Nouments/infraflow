@@ -49,6 +49,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "capability-matrix" {
 		return runCapabilityMatrix(arguments[1:], stdout, stderr)
 	}
+	if command == "apply" {
+		return runApply(arguments[1:], stdout, stderr)
+	}
 	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
@@ -257,6 +260,48 @@ func runCapabilityMatrix(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runApply(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	dataDir := flags.String("data-dir", "./provider-data", "persistent state directory")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: apply requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: create data directory: %v\n", err)
+		return 1
+	}
+	jobStore, err := filesystem.NewJobStore(*dataDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize job store: %v\n", err)
+		return 1
+	}
+	eventStore, err := filesystem.NewEventStore(*dataDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize event store: %v\n", err)
+		return 1
+	}
+	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, jobStore, nil, eventStore, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	job, err := service.CreateJob(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "job=%s status=%s plan_status=%s input_hash=%s\n", job.ID, job.Status, job.Plan.Status, job.InputHash)
+	fmt.Fprintln(stdout, "apply creates planning jobs only; no device or agent execution is started")
+	return 0
+}
+
 func runServe(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -410,7 +455,8 @@ Usage:
 	infraflow-provider template-info -f <infra.yaml>
 	infraflow-provider capability-summary -f <infra.yaml>
 	infraflow-provider capability-matrix -f <infra.yaml>
+	infraflow-provider apply -f <infra.yaml> -data-dir <state-directory>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
+Validation is side-effect free. Planning does not execute tasks. Apply persists a planning job and audit event only; it never contacts a device or starts an agent task. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
 }

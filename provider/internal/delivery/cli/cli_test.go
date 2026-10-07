@@ -203,6 +203,36 @@ sites:
 	}
 }
 
+func TestApplyCreatesBlockedPlanningJobAndAuditEvent(t *testing.T) {
+	inputPath := writeInput(t, `sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+`)
+	dataDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"apply", "-f", inputPath, "-data-dir", dataDir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("apply failed: %d, %s", code, stderr.String())
+	}
+	jobFiles, err := filepath.Glob(filepath.Join(dataDir, ".jobs", "*.json"))
+	if err != nil || len(jobFiles) != 1 {
+		t.Fatalf("expected one persisted planning job, got %d files: %v", len(jobFiles), err)
+	}
+	eventFiles, err := filepath.Glob(filepath.Join(dataDir, ".events.jsonl"))
+	if err != nil || len(eventFiles) != 1 {
+		t.Fatalf("expected one audit event store, got %d files: %v", len(eventFiles), err)
+	}
+	if !strings.Contains(stdout.String(), "job=") || !strings.Contains(stdout.String(), "status=blocked") {
+		t.Fatalf("apply did not report persisted blocked job: %s", stdout.String())
+	}
+}
+
 func TestTemplateInfoCommandReportsSelectionAndBlocking(t *testing.T) {
 	input := `capability_registry:
   entries:

@@ -47,6 +47,9 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "InfraFlow Control") || page.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("console page or security headers missing: %d %q %#v", page.Code, page.Body.String(), page.Header())
 	}
+	if strings.Contains(page.Body.String(), "Provider connected") {
+		t.Fatal("console must not claim provider connectivity without a live health signal")
+	}
 	asset := fiberRequest(t, app, http.MethodGet, "/assets/app.js", nil, "")
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "/auth/login") {
 		t.Fatalf("console JavaScript was not served: %d %q", asset.Code, asset.Body.String())
