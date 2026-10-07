@@ -1,0 +1,14 @@
+.git
+.gitignore
+.github
+bin/
+provider-data/
+agent-data/
+docker/provider-data/
+docker/agent-data/
+docker/tls/
+**/*.log
+**/*.sqlite*
+**/*.pem
+**/*.crt
+**/*.key

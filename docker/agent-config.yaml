@@ -1,0 +1,16 @@
+agent:
+  id: lab-agent-01
+  site_id: devlab
+  capabilities:
+    - inventory
+    - topology
+    - bootstrap
+  state_directory: /data/agent
+
+provider:
+  address: infraflow-provider:8443
+  api_address: http://infraflow-provider:8080
+  token_env: INFRAFLOW_AGENT_TOKEN
+  tls:
+    enabled: true
+    ca_file: /etc/infraflow/tls/ca.crt

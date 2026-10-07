@@ -1,0 +1,26 @@
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+RUN apk add --no-cache gcc musl-dev
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/infraflow-provider ./provider/cmd
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates openssl sqlite-libs
+WORKDIR /app
+
+COPY --from=build /out/infraflow-provider /usr/local/bin/infraflow-provider
+COPY docker/provider-entrypoint.sh /usr/local/bin/provider-entrypoint.sh
+COPY docker/provider-config.yaml /etc/infraflow/provider-config.yaml
+
+RUN chmod +x /usr/local/bin/provider-entrypoint.sh \
+    && mkdir -p /data/provider /etc/infraflow/tls
+
+EXPOSE 8443 8080
+
+ENTRYPOINT ["/usr/local/bin/provider-entrypoint.sh"]
+CMD ["serve", "-config", "/etc/infraflow/provider-config.yaml"]

@@ -24,6 +24,69 @@ type DeviceCapability struct {
 	LastSeenAt string          `json:"last_seen_at,omitempty"`
 }
 
+// VendorProfile describes the known vendor/family configuration surface without
+// claiming lab-proven execution. The status remains UNVERIFIED until a real device
+// test has been recorded.
+type VendorProfile struct {
+	Vendor        string            `json:"vendor"`
+	Family        string            `json:"family"`
+	Model         string            `json:"model,omitempty"`
+	DefaultMethod string            `json:"default_method"`
+	Methods       map[string]string `json:"methods,omitempty"`
+	Status        CapabilityState   `json:"status"`
+	Evidence      string            `json:"evidence"`
+}
+
+func VendorProfileFor(device Device) (VendorProfile, bool) {
+	vendor := strings.ToLower(strings.TrimSpace(device.Vendor))
+	family := strings.ToLower(strings.TrimSpace(device.Family))
+	model := strings.TrimSpace(device.Model)
+
+	switch {
+	case vendor == "cisco" && (family == "iosxe" || family == "ios-xe" || family == "ios_xe"):
+		return VendorProfile{
+			Vendor:        "cisco",
+			Family:        "iosxe",
+			Model:         model,
+			DefaultMethod: "netconf",
+			Methods: map[string]string{
+				"netconf": "iosxe NETCONF management path",
+				"ssh":     "IOS XE CLI management path",
+			},
+			Status:   CapabilityUnverified,
+			Evidence: "Vendor family recognized; no real Cisco IOS XE device execution or observed state recorded yet.",
+		}, true
+	case vendor == "mikrotik" && family == "routeros":
+		return VendorProfile{
+			Vendor:        "mikrotik",
+			Family:        "routeros",
+			Model:         model,
+			DefaultMethod: "api",
+			Methods: map[string]string{
+				"api": "RouterOS API via community.routeros",
+				"ssh": "RouterOS SSH/CLI management path",
+			},
+			Status:   CapabilityUnverified,
+			Evidence: "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet.",
+		}, true
+	case (vendor == "fortinet" || vendor == "fortigate") && (family == "fortios" || family == "fortigate"):
+		return VendorProfile{
+			Vendor:        "fortinet",
+			Family:        "fortios",
+			Model:         model,
+			DefaultMethod: "https",
+			Methods: map[string]string{
+				"https": "FortiGate HTTPS API path",
+				"ssh":   "FortiOS SSH/CLI management path",
+			},
+			Status:   CapabilityUnverified,
+			Evidence: "Vendor family recognized; no real FortiGate/FortiOS lab verification or observed state recorded yet.",
+		}, true
+	default:
+		return VendorProfile{}, false
+	}
+}
+
 type CapabilityRegistry struct {
 	Entries map[string]map[string]DeviceCapability `json:"entries,omitempty"`
 }

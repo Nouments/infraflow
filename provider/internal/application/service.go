@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -214,7 +215,13 @@ func (service *Service) CapabilityMatrix(input []byte) ([]CapabilityMatrixRow, e
 			if !ok {
 				continue
 			}
-			for method, capability := range methods {
+			methodNames := make([]string, 0, len(methods))
+			for method := range methods {
+				methodNames = append(methodNames, method)
+			}
+			sort.Strings(methodNames)
+			for _, method := range methodNames {
+				capability := methods[method]
 				row := CapabilityMatrixRow{
 					Site:     site.Name,
 					Device:   device.Name,
