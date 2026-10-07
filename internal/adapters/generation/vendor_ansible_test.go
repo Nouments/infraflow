@@ -1,8 +1,12 @@
 package generator
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
 )
 
@@ -299,6 +303,190 @@ func TestBuildVendorTasksKeepsCiscoInterfaceWithoutIPv4ButNoInventedData(t *test
 	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
 		if _, exists := entry[forbidden]; exists {
 			t.Fatalf("unexpected automatic %q field for interface without IP: %#v", forbidden, entry)
+		}
+	}
+}
+
+func TestGenerateAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        management:
+          ipv4: 192.168.100.10
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.168.100.10/24
+            - name: GigabitEthernet2
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/30
+            - name: GigabitEthernet3
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 10.10.10.1/24
+            - name: GigabitEthernet4
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.5/30
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := GenerateAnsible(infrastructure, outDir); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(outDir, "lab", "ansible", "vendor-playbook.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated vendor playbook: %v", err)
+	}
+
+	var doc any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("decode generated vendor playbook: %v", err)
+	}
+	plays, ok := doc.([]any)
+	if !ok || len(plays) == 0 {
+		t.Fatalf("expected generated playbook to be a YAML list of plays, got %#v", doc)
+	}
+	play, ok := plays[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected play entry to be a map, got %#v", plays[0])
+	}
+	if got := play["name"]; got != "InfraFlow vendor configuration for R1" {
+		t.Fatalf("expected first play name %q, got %#v", "InfraFlow vendor configuration for R1", got)
+	}
+	if got := play["hosts"]; got != "R1" {
+		t.Fatalf("expected hosts R1, got %#v", got)
+	}
+
+	tasks, ok := play["tasks"].([]any)
+	if !ok || len(tasks) < 2 {
+		t.Fatalf("expected generated play to contain tasks, got %#v", play["tasks"])
+	}
+	configTask, ok := tasks[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second task to be the Cisco config task, got %#v", tasks[1])
+	}
+	if got := configTask["name"]; got != "Render Cisco interface configuration" {
+		t.Fatalf("expected Cisco task name %q, got %#v", "Render Cisco interface configuration", got)
+	}
+	iosTask, ok := configTask["cisco.ios.ios_l3_interfaces"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cisco.ios.ios_l3_interfaces payload, got %#v", configTask["cisco.ios.ios_l3_interfaces"])
+	}
+	if got := iosTask["state"]; got != "merged" {
+		t.Fatalf("expected state merged, got %#v", got)
+	}
+
+	configEntries, ok := iosTask["config"].([]any)
+	if !ok || len(configEntries) != 4 {
+		t.Fatalf("expected 4 Cisco config entries, got %#v", iosTask["config"])
+	}
+	seen := map[string]string{}
+	for _, item := range configEntries {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected config entry to be a map, got %#v", item)
+		}
+		name, _ := entry["name"].(string)
+		if name == "" {
+			t.Fatalf("expected config entry name to be non-empty, got %#v", entry)
+		}
+		if got, ok := entry["enabled"].(bool); !ok || !got {
+			t.Fatalf("expected enabled=true for %q, got %#v", name, entry["enabled"])
+		}
+		if ipv4Raw, exists := entry["ipv4"]; exists {
+			ipv4List, ok := ipv4Raw.([]any)
+			if !ok || len(ipv4List) != 1 {
+				t.Fatalf("expected single ipv4 list for %q, got %#v", name, ipv4Raw)
+			}
+			ipv4Map, ok := ipv4List[0].(map[string]any)
+			if !ok {
+				t.Fatalf("expected ipv4 list item to be a map for %q, got %#v", name, ipv4List[0])
+			}
+			seen[name] = ipv4Map["address"].(string)
+		} else {
+			seen[name] = ""
+		}
+		for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+			if _, exists := entry[forbidden]; exists {
+				t.Fatalf("unexpected automatic %q field in generated artifact: %#v", forbidden, entry)
+			}
+		}
+	}
+	for expectedName, expectedAddr := range map[string]string{
+		"GigabitEthernet1": "192.168.100.10/24",
+		"GigabitEthernet2": "10.0.0.1/30",
+		"GigabitEthernet3": "10.10.10.1/24",
+		"GigabitEthernet4": "10.0.0.5/30",
+	} {
+		if seen[expectedName] != expectedAddr {
+			t.Fatalf("expected %q=%q in generated artifact, got %q", expectedName, expectedAddr, seen[expectedName])
+		}
+	}
+}
+
+func TestGenerateAnsibleWritesCiscoInterfaceWithoutIPv4WithoutInventingAddress(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: GigabitEthernet5
+              role: management
+              ipv4_mode: dhcp
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	if _, err := GenerateAnsible(infrastructure, outDir); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(outDir, "lab", "ansible", "vendor-playbook.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated vendor playbook: %v", err)
+	}
+
+	var doc any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("decode generated vendor playbook: %v", err)
+	}
+	plays := doc.([]any)
+	play := plays[0].(map[string]any)
+	tasks := play["tasks"].([]any)
+	configTask := tasks[1].(map[string]any)
+	iosTask := configTask["cisco.ios.ios_l3_interfaces"].(map[string]any)
+	configEntries := iosTask["config"].([]any)
+	if len(configEntries) != 1 {
+		t.Fatalf("expected 1 config entry for interface without IPv4, got %#v", iosTask["config"])
+	}
+	entry := configEntries[0].(map[string]any)
+	if got := entry["name"]; got != "GigabitEthernet5" {
+		t.Fatalf("expected interface name GigabitEthernet5, got %#v", got)
+	}
+	if _, exists := entry["ipv4"]; exists {
+		t.Fatalf("expected no ipv4 to be invented for GigabitEthernet5, got %#v", entry)
+	}
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+		if _, exists := entry[forbidden]; exists {
+			t.Fatalf("unexpected automatic %q field in artifact for GigabitEthernet5: %#v", forbidden, entry)
 		}
 	}
 }
