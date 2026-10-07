@@ -172,10 +172,12 @@ type Provisioning struct {
 }
 
 type DeviceNetwork struct {
-	VDOM       string             `yaml:"vdom,omitempty" json:"vdom,omitempty"`
-	Interfaces []NetworkInterface `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
-	Routes     []StaticRoute      `yaml:"routes,omitempty" json:"routes,omitempty"`
-	NAT        NATConfig          `yaml:"nat,omitempty" json:"nat,omitempty"`
+	VDOM            string             `yaml:"vdom,omitempty" json:"vdom,omitempty"`
+	Interfaces      []NetworkInterface `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	Routes          []StaticRoute      `yaml:"routes,omitempty" json:"routes,omitempty"`
+	RoutingProtocol string             `yaml:"routing_protocol,omitempty" json:"routing_protocol,omitempty"`
+	RoutingArea     int                `yaml:"routing_area,omitempty" json:"routing_area,omitempty"`
+	NAT             NATConfig          `yaml:"nat,omitempty" json:"nat,omitempty"`
 }
 
 type NetworkInterface struct {

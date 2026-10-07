@@ -4,10 +4,10 @@ import "testing"
 
 func TestVendorProfileForRecognizesSupportedVendorFamilies(t *testing.T) {
 	tests := []struct {
-		name     string
-		device   Device
-		wantName string
-		wantType string
+		name       string
+		device     Device
+		wantName   string
+		wantType   string
 		wantMethod string
 	}{
 		{name: "cisco iosxe", device: Device{Vendor: "cisco", Family: "iosxe", Model: "csr1000v"}, wantName: "cisco", wantType: "iosxe", wantMethod: "netconf"},

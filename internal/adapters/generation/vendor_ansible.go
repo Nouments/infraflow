@@ -84,16 +84,7 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 			"hosts":        deviceName,
 			"gather_facts": false,
 			"serial":       1,
-			"tasks": []any{
-				map[string]any{
-					"name": "Require explicit safety opt-in",
-					"ansible.builtin.assert": map[string]any{
-						"that":     []string{"ansible_check_mode or lookup('env', 'INFRAFLOW_APPLY') == 'true'"},
-						"fail_msg": "Refusing device changes. Review the generated plan and set INFRAFLOW_APPLY=true only when authorized.",
-					},
-				},
-				vendorSafetyTask(device, profiles[deviceName]),
-			},
+			"tasks":        buildVendorTasks(device, profiles[deviceName]),
 		})
 	}
 	playbookBytes, err := marshal(playbook)
@@ -167,35 +158,304 @@ func findDevice(devices []domain.Device, name string) domain.Device {
 	return domain.Device{Name: name}
 }
 
-func vendorSafetyTask(device domain.Device, profile vendorProfile) map[string]any {
-	var module string
-	var parameters map[string]any
+func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
+	if device.Network == nil {
+		return []any{
+			map[string]any{
+				"name": "Require explicit safety opt-in",
+				"ansible.builtin.assert": map[string]any{
+					"that":     []string{"ansible_check_mode or lookup('env', 'INFRAFLOW_APPLY') == 'true'"},
+					"fail_msg": "Refusing device changes. Review the generated plan and set INFRAFLOW_APPLY=true only when authorized.",
+				},
+			},
+			map[string]any{"name": "No network intent for this device", "ansible.builtin.debug": map[string]any{"msg": "No vendor task generated because network intent is empty"}},
+		}
+	}
+
+	baseTasks := []any{
+		map[string]any{
+			"name": "Require explicit safety opt-in",
+			"ansible.builtin.assert": map[string]any{
+				"that":     []string{"ansible_check_mode or lookup('env', 'INFRAFLOW_APPLY') == 'true'"},
+				"fail_msg": "Refusing device changes. Review the generated plan and set INFRAFLOW_APPLY=true only when authorized.",
+			},
+		},
+	}
+
 	switch profile.group {
 	case "cisco_iosxe":
-		module = "cisco.ios.ios_interfaces"
-		parameters = map[string]any{
-			"config": []any{map[string]any{"name": "management", "enabled": true}},
-			"state":  "merged",
-		}
+		baseTasks = append(baseTasks, renderCiscoTasks(device)...)
 	case "mikrotik_routeros":
-		module = "community.routeros.api_modify"
-		parameters = map[string]any{
-			"hostname": device.Management.IPv4,
-			"path":     "ip address",
-			"data":     []any{},
-		}
+		baseTasks = append(baseTasks, renderMikroTikTasks(device)...)
 	case "fortinet_fortios":
-		module = "fortinet.fortios.fortios_system_interface"
-		parameters = map[string]any{
-			"vdom":         device.Network.VDOM,
-			"state":        "present",
-			"access_token": "{{ lookup('env', 'INFRAFLOW_FORTIOS_ACCESS_TOKEN') }}",
-		}
+		baseTasks = append(baseTasks, renderFortinetTasks(device)...)
 	default:
-		module = "ansible.builtin.debug"
-		parameters = map[string]any{"msg": "Template is intentionally inert until a verified profile implementation is available"}
+		baseTasks = append(baseTasks, map[string]any{"name": "Render vendor placeholder task", "ansible.builtin.debug": map[string]any{"msg": "Template is intentionally inert until a verified profile implementation is available"}})
 	}
-	return map[string]any{"name": "Render " + profile.family + " placeholder task", module: parameters}
+	return baseTasks
+}
+
+func renderCiscoTasks(device domain.Device) []any {
+	tasks := make([]any, 0, 5)
+	if len(device.Network.Interfaces) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render Cisco interface configuration",
+			"cisco.ios.ios_l3_interfaces": map[string]any{
+				"config": renderCiscoInterfaces(device.Network.Interfaces),
+				"state":  "merged",
+			},
+		})
+	}
+	if len(device.Network.Routes) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render Cisco static routes",
+			"cisco.ios.ios_static_routes": map[string]any{
+				"config": renderCiscoRoutes(device.Network.Routes),
+				"state":  "merged",
+			},
+		})
+	} else if shouldRenderDefaultOSPF(device.Network) {
+		tasks = append(tasks, map[string]any{
+			"name": "Render Cisco default OSPF routing",
+			"cisco.ios.ios_ospfv2": map[string]any{
+				"config": renderCiscoOSPF(device),
+				"state":  "merged",
+			},
+		})
+	}
+	return tasks
+}
+
+func renderCiscoInterfaces(interfaces []domain.NetworkInterface) []any {
+	out := make([]any, 0, len(interfaces))
+	for _, item := range interfaces {
+		entry := map[string]any{"name": item.Name, "enabled": true}
+		if item.IPv4Address != "" {
+			entry["ipv4"] = []any{map[string]any{"address": item.IPv4Address}}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func renderCiscoRoutes(routes []domain.StaticRoute) []any {
+	out := make([]any, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, map[string]any{
+			"address_families": []any{map[string]any{
+				"afi": "ipv4",
+				"safis": []any{map[string]any{
+					"multi_hop": false,
+					"routes": []any{map[string]any{
+						"dest":     route.Destination,
+						"next_hop": map[string]any{"forward_router_address": route.NextHop},
+					}},
+				}},
+			}},
+		})
+	}
+	return out
+}
+
+func renderCiscoOSPF(device domain.Device) []any {
+	network := device.Network
+	areaID := defaultRoutingArea(network)
+	routerID := device.Management.IPv4
+	if routerID == "" {
+		routerID = "192.168.90.10"
+	}
+	return []any{map[string]any{
+		"process_id": 1,
+		"router_id": routerID,
+		"areas":      []any{map[string]any{"area_id": areaID, "type": "normal"}},
+		"networks":   renderOSPFNetworks(network.Interfaces, areaID),
+	}}
+}
+
+func renderMikroTikTasks(device domain.Device) []any {
+	tasks := make([]any, 0, 5)
+	if len(device.Network.Interfaces) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render MikroTik interface addresses",
+			"community.routeros.api_modify": map[string]any{
+				"hostname": device.Management.IPv4,
+				"path":     "ip address",
+				"data":     renderMikroTikInterfaces(device.Network.Interfaces),
+			},
+		})
+	}
+	if len(device.Network.Routes) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render MikroTik static routes",
+			"community.routeros.api_modify": map[string]any{
+				"hostname": device.Management.IPv4,
+				"path":     "ip route",
+				"data":     renderMikroTikRoutes(device.Network.Routes),
+			},
+		})
+	} else if shouldRenderDefaultOSPF(device.Network) {
+		tasks = append(tasks, map[string]any{
+			"name": "Render MikroTik default OSPF routing",
+			"community.routeros.api_modify": map[string]any{
+				"hostname": device.Management.IPv4,
+				"path":     "routing ospf instance",
+				"data":     renderMikroTikOSPF(device),
+			},
+		})
+	}
+	return tasks
+}
+
+func renderMikroTikInterfaces(interfaces []domain.NetworkInterface) []any {
+	out := make([]any, 0, len(interfaces))
+	for _, item := range interfaces {
+		if item.IPv4Address == "" {
+			continue
+		}
+		out = append(out, map[string]any{"interface": item.Name, "address": item.IPv4Address})
+	}
+	return out
+}
+
+func renderMikroTikRoutes(routes []domain.StaticRoute) []any {
+	out := make([]any, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, map[string]any{"dst": route.Destination, "gateway": route.NextHop})
+	}
+	return out
+}
+
+func renderMikroTikOSPF(device domain.Device) map[string]any {
+	network := device.Network
+	areaID := defaultRoutingArea(network)
+	routerID := device.Management.IPv4
+	if routerID == "" {
+		routerID = "192.168.90.10"
+	}
+	return map[string]any{
+		"name":      "default",
+		"router-id": routerID,
+		"area":      fmt.Sprintf("area=%d", areaID),
+		"network":   renderOSPFNetworks(network.Interfaces, areaID),
+	}
+}
+
+func renderFortinetTasks(device domain.Device) []any {
+	tasks := make([]any, 0, 5)
+	if len(device.Network.Interfaces) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render FortiGate interface addresses",
+			"fortinet.fortios.fortios_system_interface": map[string]any{
+				"vdom":        device.Network.VDOM,
+				"state":       "present",
+				"name":        "{{ item.name }}",
+				"ip":          "{{ item.ipv4_address }}",
+				"allowaccess": "ping",
+				"with_items":  renderFortinetInterfaces(device.Network.Interfaces),
+			},
+		})
+	}
+	if len(device.Network.Routes) > 0 {
+		tasks = append(tasks, map[string]any{
+			"name": "Render FortiGate static routes",
+			"fortinet.fortios.fortios_router_static": map[string]any{
+				"vdom":        device.Network.VDOM,
+				"state":       "present",
+				"destination": "{{ item.destination }}",
+				"gateway":     "{{ item.gateway }}",
+				"device":      "{{ item.device }}",
+				"with_items":  renderFortinetRoutes(device.Network.Routes),
+			},
+		})
+	} else if shouldRenderDefaultOSPF(device.Network) {
+		routerID := device.Management.IPv4
+		if routerID == "" {
+			routerID = "192.168.90.10"
+		}
+		tasks = append(tasks, map[string]any{
+			"name": "Render FortiGate default OSPF routing",
+			"fortinet.fortios.fortios_router_ospf": map[string]any{
+				"vdom":      device.Network.VDOM,
+				"state":     "present",
+				"router_id": routerID,
+				"areas":     renderFortinetOSPFAreas(device.Network),
+			},
+		})
+	}
+	return tasks
+}
+
+func renderFortinetInterfaces(interfaces []domain.NetworkInterface) []any {
+	out := make([]any, 0, len(interfaces))
+	for _, item := range interfaces {
+		if item.IPv4Address == "" {
+			continue
+		}
+		out = append(out, map[string]any{"name": item.Name, "ipv4_address": item.IPv4Address})
+	}
+	return out
+}
+
+func renderFortinetRoutes(routes []domain.StaticRoute) []any {
+	out := make([]any, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, map[string]any{"destination": route.Destination, "gateway": route.NextHop, "device": "port1"})
+	}
+	return out
+}
+
+func renderFortinetOSPFAreas(network *domain.DeviceNetwork) []any {
+	areaID := defaultRoutingArea(network)
+	interfaces := make([]any, 0, len(network.Interfaces))
+	for _, iface := range network.Interfaces {
+		if iface.IPv4Address == "" {
+			continue
+		}
+		interfaces = append(interfaces, map[string]any{
+			"name":    iface.Name,
+			"area_id": areaID,
+			"network": iface.IPv4Address,
+		})
+	}
+	return []any{map[string]any{"area_id": areaID, "interface": interfaces}}
+}
+
+func shouldRenderDefaultOSPF(network *domain.DeviceNetwork) bool {
+	if network == nil {
+		return false
+	}
+	if len(network.Routes) > 0 {
+		return false
+	}
+	if strings.TrimSpace(network.RoutingProtocol) == "" {
+		return len(network.Interfaces) > 0
+	}
+	return strings.EqualFold(network.RoutingProtocol, "ospf")
+}
+
+func defaultRoutingArea(network *domain.DeviceNetwork) int {
+	if network == nil {
+		return 10
+	}
+	if network.RoutingArea != 0 {
+		return network.RoutingArea
+	}
+	return 10
+}
+
+func renderOSPFNetworks(interfaces []domain.NetworkInterface, areaID int) []any {
+	out := make([]any, 0, len(interfaces))
+	for _, iface := range interfaces {
+		if iface.IPv4Address == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"name":    iface.Name,
+			"prefix":  iface.IPv4Address,
+			"area_id": areaID,
+		})
+	}
+	return out
 }
 
 func vendorRequirements(profiles map[string]vendorProfile) []byte {
