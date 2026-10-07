@@ -1,129 +1,217 @@
-# Step 01.1 — PATCH STRICT — Cisco interfaces
+# Step 01.1 — PATCH RÉEL DU CODE — Cisco interfaces
 
-## Objectif
+## OBJECTIF UNIQUE
 
-Patcher réellement le Step 01.
+Tu dois **modifier le code Go du repository** pour terminer le Step 01.1.
 
-Le problème actuel est que les tests vérifient surtout le YAML produit par `buildVendorTasks()`.
+⚠️ **NE MODIFIE PAS uniquement un fichier `.md`.**
 
-Ce n'est pas suffisant.
+⚠️ Le travail demandé est un **PATCH DE CODE + TESTS**.
 
-Nous devons tester directement :
-
-```text
-Device.Network.Interfaces
-        ↓
-renderCiscoInterfaces()
-        ↓
-structure Cisco générée
-```
-
-## Travail obligatoire
-
-Modifier :
+Le commit précédent a seulement modifié la consigne du Step.
+Cette fois, tu dois réellement modifier :
 
 ```text
 internal/adapters/generation/vendor_ansible.go
 internal/adapters/generation/vendor_ansible_test.go
 ```
 
-### 1. Tester directement `renderCiscoInterfaces()`
+---
 
-Créer des tests qui appellent directement :
+## 1. CODE À TESTER
+
+La fonction concernée existe déjà :
+
+```go
+func renderCiscoInterfaces(interfaces []domain.NetworkInterface) []any
+```
+
+Elle reçoit directement :
+
+```text
+[]domain.NetworkInterface
+```
+
+et doit produire la structure Cisco utilisée par :
+
+```go
+cisco.ios.ios_l3_interfaces
+```
+
+### Ne réécris pas inutilement cette fonction.
+
+Si son comportement actuel est correct, conserve-le.
+
+Le but principal de ce step est de **prouver son comportement avec des tests directs**.
+
+---
+
+## 2. TEST DIRECT OBLIGATOIRE
+
+Dans :
+
+```text
+internal/adapters/generation/vendor_ansible_test.go
+```
+
+ajoute des tests qui appellent **directement** :
 
 ```go
 renderCiscoInterfaces(...)
 ```
 
-et inspectent la structure retournée.
-
-Ne pas simplement faire :
+Exemple de principe :
 
 ```go
-marshal(...)
+got := renderCiscoInterfaces(input)
+```
+
+Puis inspecte directement :
+
+```go
+got[0]
+got[0]["name"]
+got[0]["enabled"]
+got[0]["ipv4"]
+```
+
+ou une conversion structurée équivalente.
+
+### INTERDIT
+
+Ne considère PAS ceci comme un test suffisant :
+
+```go
+playbook := buildVendorTasks(...)
+data, _ := marshal(playbook)
+
 strings.Contains(...)
 ```
 
-pour considérer le test comme suffisant.
+Ce type de test peut rester pour les tests existants, mais il ne remplace PAS le test direct.
 
-Le test doit vérifier les champs structurés :
+---
+
+## 3. CAS DE TEST OBLIGATOIRES
+
+### Test A — interface `/30`
+
+Entrée :
+
+```text
+Name = GigabitEthernet2
+Role = wan
+IPv4Address = 10.0.0.1/30
+```
+
+Vérifier directement que la sortie contient exactement :
+
+```text
+name = GigabitEthernet2
+enabled = true
+ipv4[0].address = 10.0.0.1/30
+```
+
+---
+
+### Test B — interface `/24`
+
+Entrée :
+
+```text
+Name = GigabitEthernet3
+Role = lan
+IPv4Address = 10.10.10.1/24
+```
+
+Vérifier :
+
+```text
+name = GigabitEthernet3
+enabled = true
+ipv4[0].address = 10.10.10.1/24
+```
+
+---
+
+### Test C — plusieurs rôles
+
+Créer au minimum 4 interfaces :
+
+```text
+GigabitEthernet1 → management
+GigabitEthernet2 → wan
+GigabitEthernet3 → lan
+GigabitEthernet4 → transit
+```
+
+avec des adresses réellement fournies dans le test.
+
+Vérifier que chaque interface conserve :
 
 ```text
 name
+IPv4Address
 enabled
-ipv4.address
 ```
 
-avec les valeurs exactes fournies en entrée.
+exactement.
 
-### 2. Cas obligatoires
+---
 
-Tester au minimum :
-
-#### Interface simple
-
-```text
-GigabitEthernet2
-10.0.0.1/30
-```
-
-#### Interface LAN
-
-```text
-GigabitEthernet3
-10.10.10.1/24
-```
-
-#### Plusieurs interfaces
-
-Au moins 4 interfaces avec des rôles différents :
-
-```text
-management
-wan
-lan
-transit
-```
-
-Le rôle doit rester une information d'entrée et **ne doit pas provoquer de configuration implicite**.
-
-### 3. Interface sans IPv4
+## 4. TEST INTERFACE SANS IPv4
 
 Tester :
 
 ```text
-GigabitEthernet4
+Name = GigabitEthernet5
 IPv4Address = ""
 ```
 
-Le renderer ne doit pas inventer d'adresse.
+Vérifier que le renderer :
 
-Il doit uniquement produire ce qui est réellement supporté par sa structure actuelle.
+* conserve le nom ;
+* conserve `enabled = true` si c'est son comportement actuel ;
+* **n'invente aucune adresse IPv4** ;
+* ne crée pas un champ `ipv4` contenant une fausse valeur.
 
-### 4. Aucun comportement implicite
+---
 
-Ajouter des assertions explicites démontrant que :
+## 5. TEST DU ROLE — TRÈS IMPORTANT
+
+Le champ :
+
+```go
+Role
+```
+
+est une information descriptive.
+
+Le renderer d'interface **NE DOIT PAS utiliser le rôle pour déclencher automatiquement une fonctionnalité réseau.**
+
+Tester explicitement :
 
 ```text
 role = wan
 ```
 
-ne génère pas :
+ne produit PAS :
 
 ```text
 NAT
 ip nat inside
 ip nat outside
-route par défaut
+default route
+routing
 ```
 
-et que :
+Et :
 
 ```text
 role = lan
 ```
 
-ne génère pas automatiquement :
+ne produit PAS automatiquement :
 
 ```text
 VLAN
@@ -132,59 +220,62 @@ NAT
 routing
 ```
 
-Le renderer d'interface reste générique.
+Le renderer doit seulement traduire les propriétés réellement présentes dans :
 
-### 5. Aucun routing
+```go
+domain.NetworkInterface
+```
 
-Le test doit également confirmer que l'appel à :
+---
+
+## 6. PAS DE ROUTING DANS CE STEP
+
+Le test direct de :
 
 ```go
 renderCiscoInterfaces()
 ```
 
-ne produit aucune configuration :
+doit confirmer qu'il ne produit aucune configuration :
 
 ```text
 OSPF
+BGP
 static route
 default route
-BGP
 ```
 
-Ne pas implémenter ces fonctionnalités dans ce patch.
+⚠️ Ne modifie PAS `renderCiscoRoutes()`.
 
-### 6. Validation des données invalides
+⚠️ N'ajoute PAS OSPF.
 
-Ne pas ajouter une deuxième validation dans `renderCiscoInterfaces()` si la validation existe déjà dans `config.Parse()`.
+⚠️ N'ajoute PAS routing.
 
-Conserver la responsabilité actuelle :
+---
 
-```text
-config.Parse()
-    ↓
-validation
-    ↓
+## 7. PAS DE NOUVELLE VALIDATION
+
+Ne rajoute pas de validation CIDR/interface dans :
+
+```go
 renderCiscoInterfaces()
 ```
 
-Le test `/99` peut rester comme test du parser, mais il ne doit pas être présenté comme un test direct du renderer.
+La validation appartient déjà au parser/validator.
 
-## Important : ne pas tricher avec les tests
+Le test `/99` existant peut rester un test de :
 
-Interdit :
+```text
+config.Parse()
+```
 
-* tester uniquement la présence de chaînes dans le YAML ;
-* tester uniquement `buildVendorTasks()` ;
-* créer des valeurs fictives dans le renderer pour faire passer les tests ;
-* modifier le modèle uniquement pour satisfaire les tests ;
-* tester une fonctionnalité non implémentée ;
-* considérer un test parser comme un test renderer.
+mais il ne doit pas être considéré comme le test direct du renderer.
 
-Les tests doivent échouer si `renderCiscoInterfaces()` produit une mauvaise structure.
+---
 
-## Ne PAS toucher
+## 8. NE PAS MODIFIER
 
-Cette étape ne doit PAS modifier :
+Pour ce step, ne touche absolument pas à :
 
 ```text
 MikroTik
@@ -196,17 +287,48 @@ BGP
 ZTP
 Autoinstall
 DHCP
-PXE/iPXE
+PXE
+iPXE
 Proxmox
 agent
 Web
 TUI
 API
+domain model
+YAML schema
 ```
 
-Ne pas créer non plus le générateur `.cfg` dans cette étape.
+Ne crée PAS non plus :
 
-## Commandes obligatoires
+```text
+.cfg generator
+native Cisco config generator
+```
+
+Ce sera un autre step.
+
+---
+
+## 9. FICHIERS AUTORISÉS
+
+Tu dois modifier uniquement :
+
+```text
+internal/adapters/generation/vendor_ansible.go
+internal/adapters/generation/vendor_ansible_test.go
+```
+
+Si aucun changement de `vendor_ansible.go` n'est réellement nécessaire, ne le modifies pas artificiellement.
+
+Mais **`vendor_ansible_test.go` DOIT contenir les tests directs de `renderCiscoInterfaces()`**.
+
+Ne modifie pas le cahier des charges pour simuler que le travail est terminé.
+
+---
+
+## 10. COMMANDES OBLIGATOIRES
+
+Après modification :
 
 ```bash
 gofmt -w internal/adapters/generation/vendor_ansible.go \
@@ -217,29 +339,56 @@ go test ./internal/adapters/generation/... -count=1
 git diff --check
 ```
 
-## Critère de validation
+Puis vérifie les fichiers réellement modifiés :
 
-Le patch est accepté uniquement si les tests prouvent réellement :
+```bash
+git status --short
+git diff -- internal/adapters/generation/vendor_ansible.go
+git diff -- internal/adapters/generation/vendor_ansible_test.go
+```
+
+---
+
+## 11. CRITÈRE D'ACCEPTATION
+
+Le step est accepté uniquement si le code contient réellement des tests de cette forme logique :
 
 ```text
-Device.Network.Interfaces
-        ↓
+NetworkInterface
+      ↓
 renderCiscoInterfaces()
-        ↓
-structure Cisco exacte
+      ↓
+structure retournée
+      ↓
+assertions directes sur les champs
 ```
 
-et démontrent explicitement :
+et non :
 
 ```text
-WAN ≠ NAT automatique
-LAN ≠ configuration automatique
-role ≠ comportement implicite
+NetworkInterface
+      ↓
+buildVendorTasks()
+      ↓
+YAML
+      ↓
+strings.Contains()
 ```
 
-## Rapport final obligatoire
+Les tests doivent échouer si `renderCiscoInterfaces()` produit :
 
-Répondre uniquement avec :
+* un mauvais nom ;
+* une mauvaise adresse ;
+* une mauvaise structure ;
+* une adresse inventée ;
+* un comportement WAN implicite ;
+* un comportement LAN implicite.
+
+---
+
+## 12. RAPPORT FINAL
+
+À la fin, réponds UNIQUEMENT :
 
 ```text
 Fichiers modifiés:
@@ -248,6 +397,6 @@ Tests exécutés:
 Résultat:
 ```
 
-Ne pas déclarer le Step terminé si le renderer lui-même n'est pas testé directement.
+Ne réponds pas que le Step est terminé si tu as seulement modifié un `.md`.
 
-Ne faire aucune autre fonctionnalité.
+**Le résultat attendu est un véritable commit contenant le patch de code et les tests directs.**
