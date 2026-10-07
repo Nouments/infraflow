@@ -37,6 +37,16 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !ValidArtifactPath("lab", Artifact{Type: "ansible_inventory", Path: "lab/ansible/inventory.yml"}) || !ValidArtifactPath("lab", Artifact{Type: "ansible_playbook", Path: "lab/ansible/site.yml"}) {
 		t.Fatal("expected valid Ansible artifact paths")
 	}
+	for _, artifact := range []Artifact{
+		{Type: "ansible_vendor_inventory", Path: "lab/ansible/vendor-inventory.yml"},
+		{Type: "ansible_playbook", Path: "lab/ansible/vendor-playbook.yml"},
+		{Type: "ansible_requirements", Path: "lab/ansible/requirements.yml"},
+		{Type: "ansible_vendor_manifest", Path: "lab/ansible/vendor-template.json"},
+	} {
+		if !ValidArtifactPath("lab", artifact) {
+			t.Errorf("expected valid vendor artifact path: %#v", artifact)
+		}
+	}
 	if !ValidArtifactPath("lab", Artifact{Type: "terraform_locals", Path: "lab/terraform/locals.tf"}) || !ValidArtifactPath("lab", Artifact{Type: "terraform_tfvars_example", Path: "lab/terraform/terraform.tfvars.example"}) {
 		t.Fatal("expected valid Terraform artifact paths")
 	}

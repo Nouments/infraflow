@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	configadapter "infraflow/internal/adapters/config"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 	"infraflow/provider/internal/delivery/httpapi"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {

@@ -359,8 +359,8 @@ func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory strin
 		return nil, fmt.Errorf("encode normalized input: %w", err)
 	}
 	inputHash := protocol.SHA256(canonicalInput)
-	files := make([]pendingFile, 0, len(canonical.Sites)*2)
-	artifacts := make([]Artifact, 0, len(canonical.Sites)*2)
+	files := make([]pendingFile, 0, len(canonical.Sites)*6)
+	artifacts := make([]Artifact, 0, len(canonical.Sites)*6)
 	for _, site := range canonical.Sites {
 		hosts := make(map[string]ansibleHost, len(site.Devices))
 		for _, device := range site.Devices {
@@ -390,6 +390,14 @@ func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory strin
 		playbookArtifact := Artifact{Type: "ansible_playbook", Path: playbookPath, InputHash: inputHash, OutputHash: protocol.SHA256(playbookBytes)}
 		artifacts = append(artifacts, inventoryArtifact, playbookArtifact)
 		files = append(files, pendingFile{path: inventoryPath, data: inventoryBytes}, pendingFile{path: playbookPath, data: playbookBytes})
+		if hasVendorNetworkIntent(site) {
+			vendorFiles, vendorArtifacts, err := vendorAnsibleFiles(site, inputHash)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, vendorFiles...)
+			artifacts = append(artifacts, vendorArtifacts...)
+		}
 	}
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {

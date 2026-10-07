@@ -214,6 +214,7 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 				}
 				seenMACs[normalizedMAC] = device.Name
 			}
+			problems = append(problems, validateDeviceNetwork(devicePrefix, device)...)
 		}
 
 		seenLinkIDs := make(map[string]struct{})
@@ -263,6 +264,211 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 
 	sort.Strings(problems)
 	return problems
+}
+
+func validateDeviceNetwork(prefix string, device domain.Device) ValidationErrors {
+	var problems ValidationErrors
+	if device.Network == nil {
+		return problems
+	}
+	interfaces := make(map[string]domain.NetworkInterface, len(device.Network.Interfaces))
+	fortinet := strings.EqualFold(device.Vendor, "fortinet") || strings.EqualFold(device.Vendor, "fortigate")
+	if fortinet && strings.TrimSpace(device.Network.VDOM) == "" {
+		problems = append(problems, prefix+": Fortinet network intent requires network.vdom")
+	}
+	for _, iface := range device.Network.Interfaces {
+		if !protocol.ValidSiteName(iface.Name) {
+			problems = append(problems, prefix+": network interface name is required and must use letters, digits, '.', '_' or '-'")
+			continue
+		}
+		if _, exists := interfaces[iface.Name]; exists {
+			problems = append(problems, prefix+": duplicate network interface "+iface.Name)
+		}
+		interfaces[iface.Name] = iface
+		switch iface.Role {
+		case "wan", "lan", "management", "transit":
+		default:
+			problems = append(problems, prefix+": interface "+iface.Name+" role must be wan, lan, management, or transit")
+		}
+		switch iface.NATSide {
+		case "", "inside", "outside":
+		default:
+			problems = append(problems, prefix+": interface "+iface.Name+" nat_side must be inside or outside")
+		}
+		switch iface.IPv4Mode {
+		case "static":
+			if !validIPv4Prefix(iface.IPv4Address) {
+				problems = append(problems, prefix+": interface "+iface.Name+" static ipv4_address must be an IPv4 CIDR")
+			}
+		case "dhcp":
+			if iface.IPv4Address != "" {
+				problems = append(problems, prefix+": interface "+iface.Name+" must not set ipv4_address when ipv4_mode is dhcp")
+			}
+		default:
+			problems = append(problems, prefix+": interface "+iface.Name+" ipv4_mode must be static or dhcp")
+		}
+	}
+
+	routes := make(map[string]struct{}, len(device.Network.Routes))
+	fortinetSequences := make(map[int]struct{})
+	for _, route := range device.Network.Routes {
+		if !validIPv4Prefix(route.Destination) {
+			problems = append(problems, prefix+": route destination must be an IPv4 CIDR")
+		}
+		if route.NextHop == "" && route.Interface == "" {
+			problems = append(problems, prefix+": route requires next_hop or interface")
+		}
+		if route.NextHop != "" && !validIPv4Address(route.NextHop) {
+			problems = append(problems, prefix+": route next_hop must be an IPv4 address")
+		}
+		if route.Interface != "" {
+			if _, exists := interfaces[route.Interface]; !exists {
+				problems = append(problems, prefix+": route references unknown interface "+route.Interface)
+			}
+		}
+		if route.Distance < 0 || route.Distance > 255 {
+			problems = append(problems, prefix+": route distance must be between 0 and 255")
+		}
+		if fortinet {
+			if route.Interface == "" {
+				problems = append(problems, prefix+": Fortinet static routes require an interface")
+			}
+			if route.FortinetSequence < 1 {
+				problems = append(problems, prefix+": Fortinet static routes require fortinet_sequence greater than zero")
+			} else if _, exists := fortinetSequences[route.FortinetSequence]; exists {
+				problems = append(problems, prefix+": duplicate Fortinet static route fortinet_sequence")
+			} else {
+				fortinetSequences[route.FortinetSequence] = struct{}{}
+			}
+		}
+		if _, exists := routes[route.Destination]; exists {
+			problems = append(problems, prefix+": duplicate route destination "+route.Destination)
+		}
+		routes[route.Destination] = struct{}{}
+	}
+
+	policyIDs := make(map[int]struct{})
+	validatePolicyID := func(id int) {
+		if !strings.EqualFold(device.Vendor, "fortinet") && !strings.EqualFold(device.Vendor, "fortigate") {
+			return
+		}
+		if id < 1 || id > 4294967294 {
+			problems = append(problems, prefix+": Fortinet NAT rules require fortinet_policy_id between 1 and 4294967294")
+			return
+		}
+		if _, exists := policyIDs[id]; exists {
+			problems = append(problems, prefix+": duplicate fortinet_policy_id")
+		}
+		policyIDs[id] = struct{}{}
+	}
+	for _, rule := range device.Network.NAT.Source {
+		if !protocol.ValidSiteName(rule.Name) {
+			problems = append(problems, prefix+": source NAT rule requires a valid name")
+		}
+		if _, exists := interfaces[rule.IngressInterface]; !exists || rule.IngressInterface == "" {
+			problems = append(problems, prefix+": source NAT rule references unknown ingress_interface "+rule.IngressInterface)
+		}
+		if _, exists := interfaces[rule.EgressInterface]; !exists || rule.EgressInterface == "" {
+			problems = append(problems, prefix+": source NAT rule references unknown egress_interface "+rule.EgressInterface)
+		}
+		if !validIPv4Prefix(rule.SourceCIDR) {
+			problems = append(problems, prefix+": source NAT rule "+rule.Name+" source_cidr must be an IPv4 CIDR")
+		}
+		switch rule.Mode {
+		case "interface":
+			if rule.PoolName != "" || rule.PoolStart != "" || rule.PoolEnd != "" || rule.PoolMask != "" {
+				problems = append(problems, prefix+": interface source NAT must not define pool fields")
+			}
+		case "pool":
+			if !protocol.ValidSiteName(rule.PoolName) || !validIPv4Address(rule.PoolStart) || !validIPv4Address(rule.PoolEnd) || !validIPv4Mask(rule.PoolMask) {
+				problems = append(problems, prefix+": pool source NAT requires a valid pool_name, IPv4 pool_start/pool_end, and IPv4 pool_mask")
+			} else if bytes.Compare(net.ParseIP(rule.PoolStart).To4(), net.ParseIP(rule.PoolEnd).To4()) > 0 {
+				problems = append(problems, prefix+": source NAT pool_start must not exceed pool_end")
+			}
+		default:
+			problems = append(problems, prefix+": source NAT mode must be interface or pool")
+		}
+		for _, service := range rule.FortinetServices {
+			if !protocol.ValidSiteName(service) {
+				problems = append(problems, prefix+": Fortinet service names must be valid identifiers")
+			}
+		}
+		if !fortinet && len(rule.FortinetServices) > 0 {
+			problems = append(problems, prefix+": fortinet_services is only valid for Fortinet devices")
+		}
+		if fortinet && len(rule.FortinetServices) == 0 {
+			problems = append(problems, prefix+": Fortinet source NAT rules require at least one explicit service")
+		}
+		validatePolicyID(rule.FortinetPolicyID)
+	}
+
+	type vipKey struct {
+		iface, address, protocol string
+		port                     int
+	}
+	seenVIPs := make(map[vipKey]struct{})
+	for _, rule := range device.Network.NAT.Destination {
+		if !protocol.ValidSiteName(rule.Name) {
+			problems = append(problems, prefix+": destination NAT rule requires a valid name")
+		}
+		for name, interfaceName := range map[string]string{"ingress_interface": rule.IngressInterface, "egress_interface": rule.EgressInterface} {
+			if _, exists := interfaces[interfaceName]; !exists || interfaceName == "" {
+				problems = append(problems, prefix+": destination NAT rule references unknown "+name+" "+interfaceName)
+			}
+		}
+		if !validIPv4Address(rule.ExternalAddress) || !validIPv4Address(rule.InternalAddress) {
+			problems = append(problems, prefix+": destination NAT external_address and internal_address must be IPv4 addresses")
+		}
+		if rule.Protocol != "tcp" && rule.Protocol != "udp" {
+			problems = append(problems, prefix+": destination NAT protocol must be tcp or udp")
+		}
+		if rule.ExternalPort < 1 || rule.ExternalPort > 65535 || rule.InternalPort < 1 || rule.InternalPort > 65535 {
+			problems = append(problems, prefix+": destination NAT ports must be between 1 and 65535")
+		}
+		if rule.SourceCIDR == "" && !rule.AllowAnySource {
+			problems = append(problems, prefix+": destination NAT requires source_cidr or explicit allow_any_source: true")
+		}
+		if rule.SourceCIDR != "" && (!validIPv4Prefix(rule.SourceCIDR) || rule.AllowAnySource) {
+			problems = append(problems, prefix+": destination NAT source_cidr must be an IPv4 CIDR and cannot be combined with allow_any_source")
+		}
+		for _, service := range rule.FortinetServices {
+			if !protocol.ValidSiteName(service) {
+				problems = append(problems, prefix+": Fortinet service names must be valid identifiers")
+			}
+		}
+		if !fortinet && len(rule.FortinetServices) > 0 {
+			problems = append(problems, prefix+": fortinet_services is only valid for Fortinet devices")
+		}
+		if fortinet && len(rule.FortinetServices) == 0 {
+			problems = append(problems, prefix+": Fortinet destination NAT rules require at least one explicit service")
+		}
+		key := vipKey{rule.IngressInterface, rule.ExternalAddress, rule.Protocol, rule.ExternalPort}
+		if _, exists := seenVIPs[key]; exists {
+			problems = append(problems, prefix+": overlapping destination NAT external interface/address/protocol/port")
+		}
+		seenVIPs[key] = struct{}{}
+		validatePolicyID(rule.FortinetPolicyID)
+	}
+	return problems
+}
+
+func validIPv4Address(value string) bool {
+	parsed := net.ParseIP(value)
+	return parsed != nil && parsed.To4() != nil
+}
+
+func validIPv4Prefix(value string) bool {
+	address, _, err := net.ParseCIDR(value)
+	return err == nil && address.To4() != nil
+}
+
+func validIPv4Mask(value string) bool {
+	_, network, err := net.ParseCIDR("0.0.0.0/" + value)
+	if err != nil {
+		return false
+	}
+	_, bits := network.Mask.Size()
+	return bits == 32
 }
 
 type namedNetwork struct {

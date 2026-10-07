@@ -61,7 +61,13 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 	case "ansible_inventory":
 		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "inventory.yml"
 	case "ansible_playbook":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "site.yml"
+		return len(parts) == 3 && parts[1] == "ansible" && (parts[2] == "site.yml" || parts[2] == "vendor-playbook.yml")
+	case "ansible_vendor_inventory":
+		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-inventory.yml"
+	case "ansible_requirements":
+		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "requirements.yml"
+	case "ansible_vendor_manifest":
+		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-template.json"
 	case "terraform_versions":
 		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "versions.tf"
 	case "terraform_providers":

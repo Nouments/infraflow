@@ -82,15 +82,16 @@ type Bootstrap struct {
 }
 
 type Device struct {
-	ID           string       `yaml:"id,omitempty" json:"id,omitempty"`
-	Name         string       `yaml:"name" json:"name"`
-	Role         string       `yaml:"role,omitempty" json:"role,omitempty"`
-	Vendor       string       `yaml:"vendor,omitempty" json:"vendor,omitempty"`
-	Family       string       `yaml:"family,omitempty" json:"family,omitempty"`
-	Model        string       `yaml:"model,omitempty" json:"model,omitempty"`
-	Identity     Identity     `yaml:"identity,omitempty" json:"identity,omitempty"`
-	Management   Management   `yaml:"management,omitempty" json:"management,omitempty"`
-	Provisioning Provisioning `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
+	ID           string         `yaml:"id,omitempty" json:"id,omitempty"`
+	Name         string         `yaml:"name" json:"name"`
+	Role         string         `yaml:"role,omitempty" json:"role,omitempty"`
+	Vendor       string         `yaml:"vendor,omitempty" json:"vendor,omitempty"`
+	Family       string         `yaml:"family,omitempty" json:"family,omitempty"`
+	Model        string         `yaml:"model,omitempty" json:"model,omitempty"`
+	Identity     Identity       `yaml:"identity,omitempty" json:"identity,omitempty"`
+	Management   Management     `yaml:"management,omitempty" json:"management,omitempty"`
+	Provisioning Provisioning   `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
+	Network      *DeviceNetwork `yaml:"network,omitempty" json:"network,omitempty"`
 }
 
 type Identity struct {
@@ -105,6 +106,63 @@ type Management struct {
 type Provisioning struct {
 	Method          string `yaml:"method,omitempty" json:"method,omitempty"`
 	TemplateVersion string `yaml:"template_version,omitempty" json:"template_version,omitempty"`
+}
+
+type DeviceNetwork struct {
+	VDOM       string             `yaml:"vdom,omitempty" json:"vdom,omitempty"`
+	Interfaces []NetworkInterface `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	Routes     []StaticRoute      `yaml:"routes,omitempty" json:"routes,omitempty"`
+	NAT        NATConfig          `yaml:"nat,omitempty" json:"nat,omitempty"`
+}
+
+type NetworkInterface struct {
+	Name        string `yaml:"name" json:"name"`
+	Role        string `yaml:"role" json:"role"`
+	NATSide     string `yaml:"nat_side,omitempty" json:"nat_side,omitempty"`
+	IPv4Mode    string `yaml:"ipv4_mode" json:"ipv4_mode"`
+	IPv4Address string `yaml:"ipv4_address,omitempty" json:"ipv4_address,omitempty"`
+}
+
+type StaticRoute struct {
+	Destination      string `yaml:"destination" json:"destination"`
+	NextHop          string `yaml:"next_hop" json:"next_hop"`
+	Interface        string `yaml:"interface,omitempty" json:"interface,omitempty"`
+	Distance         int    `yaml:"distance,omitempty" json:"distance,omitempty"`
+	FortinetSequence int    `yaml:"fortinet_sequence,omitempty" json:"fortinet_sequence,omitempty"`
+}
+
+type NATConfig struct {
+	Source      []SourceNATRule      `yaml:"source,omitempty" json:"source,omitempty"`
+	Destination []DestinationNATRule `yaml:"destination,omitempty" json:"destination,omitempty"`
+}
+
+type SourceNATRule struct {
+	Name             string   `yaml:"name" json:"name"`
+	SourceCIDR       string   `yaml:"source_cidr" json:"source_cidr"`
+	IngressInterface string   `yaml:"ingress_interface" json:"ingress_interface"`
+	EgressInterface  string   `yaml:"egress_interface" json:"egress_interface"`
+	Mode             string   `yaml:"mode" json:"mode"`
+	PoolName         string   `yaml:"pool_name,omitempty" json:"pool_name,omitempty"`
+	PoolStart        string   `yaml:"pool_start,omitempty" json:"pool_start,omitempty"`
+	PoolEnd          string   `yaml:"pool_end,omitempty" json:"pool_end,omitempty"`
+	PoolMask         string   `yaml:"pool_mask,omitempty" json:"pool_mask,omitempty"`
+	FortinetServices []string `yaml:"fortinet_services,omitempty" json:"fortinet_services,omitempty"`
+	FortinetPolicyID int      `yaml:"fortinet_policy_id,omitempty" json:"fortinet_policy_id,omitempty"`
+}
+
+type DestinationNATRule struct {
+	Name             string   `yaml:"name" json:"name"`
+	IngressInterface string   `yaml:"ingress_interface" json:"ingress_interface"`
+	EgressInterface  string   `yaml:"egress_interface" json:"egress_interface"`
+	ExternalAddress  string   `yaml:"external_address" json:"external_address"`
+	Protocol         string   `yaml:"protocol" json:"protocol"`
+	ExternalPort     int      `yaml:"external_port" json:"external_port"`
+	InternalAddress  string   `yaml:"internal_address" json:"internal_address"`
+	InternalPort     int      `yaml:"internal_port" json:"internal_port"`
+	SourceCIDR       string   `yaml:"source_cidr,omitempty" json:"source_cidr,omitempty"`
+	AllowAnySource   bool     `yaml:"allow_any_source,omitempty" json:"allow_any_source,omitempty"`
+	FortinetServices []string `yaml:"fortinet_services,omitempty" json:"fortinet_services,omitempty"`
+	FortinetPolicyID int      `yaml:"fortinet_policy_id,omitempty" json:"fortinet_policy_id,omitempty"`
 }
 
 type Link struct {

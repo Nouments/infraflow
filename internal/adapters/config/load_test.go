@@ -37,6 +37,92 @@ func TestParseValidInfrastructure(t *testing.T) {
 	}
 }
 
+func TestParseVendorNetworkIntentWithSNATAndDNAT(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: edge
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: wan
+              nat_side: outside
+              ipv4_mode: static
+              ipv4_address: 198.51.100.2/24
+            - name: GigabitEthernet2
+              role: lan
+              nat_side: inside
+              ipv4_mode: static
+              ipv4_address: 10.20.0.1/24
+          routes:
+            - destination: 0.0.0.0/0
+              next_hop: 198.51.100.1
+              interface: GigabitEthernet1
+          nat:
+            source:
+              - name: lan-outbound
+                source_cidr: 10.20.0.0/24
+                ingress_interface: GigabitEthernet2
+                egress_interface: GigabitEthernet1
+                mode: interface
+            destination:
+              - name: web-inbound
+                ingress_interface: GigabitEthernet1
+                egress_interface: GigabitEthernet2
+                external_address: 198.51.100.10
+                protocol: tcp
+                external_port: 443
+                internal_address: 10.20.0.10
+                internal_port: 8443
+                source_cidr: 203.0.113.0/24
+`
+	infrastructure, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := infrastructure.Sites[0].Devices[0]
+	if len(device.Network.Interfaces) != 2 || len(device.Network.Routes) != 1 || len(device.Network.NAT.Source) != 1 || len(device.Network.NAT.Destination) != 1 {
+		t.Fatalf("network intent was not preserved: %#v", device.Network)
+	}
+}
+
+func TestParseVendorNetworkIntentRejectsUnsafeDNAT(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: edge
+        vendor: cisco
+        network:
+          interfaces:
+            - name: wan0
+              role: wan
+              nat_side: outside
+              ipv4_mode: dhcp
+            - name: lan0
+              role: lan
+              nat_side: inside
+              ipv4_mode: static
+              ipv4_address: 10.20.0.1/24
+          nat:
+            destination:
+              - name: web
+                ingress_interface: wan0
+                egress_interface: lan0
+                external_address: 198.51.100.10
+                protocol: tcp
+                external_port: 70000
+                internal_address: 10.20.0.10
+                internal_port: 443
+`
+	_, err := Parse([]byte(input))
+	if err == nil || !strings.Contains(err.Error(), "ports must be between 1 and 65535") {
+		t.Fatalf("expected invalid DNAT port error, got %v", err)
+	}
+}
+
 func TestParseCapabilityRegistryPreservesEvidenceAndStates(t *testing.T) {
 	input := `capability_registry:
   entries:
