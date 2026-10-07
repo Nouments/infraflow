@@ -1,91 +1,138 @@
-# Step 01 — Review Cisco Interface Renderer
+# Step 01.1 — Patch Cisco interface rendering
 
 ## Objectif
 
-Revoir uniquement le renderer Cisco des interfaces.
+Corriger et compléter le Step 01 pour que le générateur Cisco configure des interfaces de manière **générique**.
 
-Fichier principal :
+Une interface ne doit PAS être considérée automatiquement comme WAN ou LAN.
 
-`internal/adapters/generation/vendor_ansible.go`
+Le `role` peut être `management`, `lan`, `wan`, `transit`, `uplink`, `ztp`, etc., mais le renderer d'interface ne doit pas déduire une configuration à partir de ce rôle.
 
-## À corriger
+Le renderer doit uniquement traduire les données réellement présentes dans `Device.Network.Interfaces`.
 
-Le renderer doit générer les interfaces uniquement depuis :
+## À modifier
 
-`DeviceNetwork.Interfaces`
+Limiter les changements à :
 
-Chaque interface peut être :
+* `internal/adapters/generation/vendor_ansible.go`
+* `internal/adapters/generation/vendor_ansible_test.go`
 
-* management
-* LAN
-* WAN
-* transit
-* uplink
-* autre
+Ne pas modifier pour cette étape :
 
-Le rôle ne doit pas limiter la génération.
-
-## Interdictions
-
-Ne pas :
-
-* hardcoder une interface ;
-* inventer une IP ;
-* inventer un router-id ;
-* exiger `management.ipv4` pour configurer une interface ;
-* générer OSPF automatiquement ;
-* modifier MikroTik/FortiGate ;
-* implémenter ZTP/autoinstall maintenant.
-
-## Exemple attendu
-
-Input :
-
-```yaml
-interfaces:
-  - name: GigabitEthernet2
-    role: wan
-    ipv4_mode: static
-    ipv4_address: 10.0.0.1/30
-```
-
-Doit produire une configuration Cisco équivalente à :
-
-```text
-interface GigabitEthernet2
- ip address 10.0.0.1 255.255.255.252
- no shutdown
-```
+* MikroTik
+* FortiGate
+* NAT
+* routing
+* OSPF
+* ZTP
+* Autoinstall
+* DHCP
+* PXE/iPXE
+* modèle YAML global
+* agent
+* API
+* Web/TUI
 
 ## Tests obligatoires
 
-Ajouter/vérifier les tests pour :
+Tester directement `renderCiscoInterfaces()` et vérifier la structure réellement générée.
 
-* une interface ;
-* plusieurs interfaces ;
-* `/24` ;
-* `/30` ;
-* IP/CIDR invalide ;
-* interface sans nom ;
-* aucune génération automatique d'OSPF.
+Couvrir au minimum :
 
-## Validation
+1. Interface avec IPv4 `/30`
+2. Interface avec IPv4 `/24`
+3. Plusieurs interfaces simultanément
+4. Interfaces avec différents rôles :
 
-```bash
-gofmt -w .
-go test ./... -count=1
-git diff --check
-```
+   * `management`
+   * `lan`
+   * `wan`
+   * `transit`
+   * `uplink`
+5. Interface sans adresse IP
+6. Vérifier qu'aucune valeur n'est inventée
+7. Vérifier qu'un rôle `wan` ne provoque PAS automatiquement de NAT
+8. Vérifier qu'un rôle `lan` ne provoque PAS automatiquement de configuration particulière
+9. Vérifier qu'aucune tâche OSPF/routing n'est générée par ce renderer
+10. Vérifier les noms et adresses exacts fournis par `Device.Network.Interfaces`
+
+Les tests doivent inspecter directement les données produites par `renderCiscoInterfaces()`, pas seulement rechercher des chaînes dans le YAML final.
+
+## Principe attendu
+
+Le flux doit rester :
+
+Device.Network.Interfaces
+↓
+renderCiscoInterfaces()
+↓
+configuration Cisco d'interfaces
+
+Et non :
+
+role: wan
+↓
+NAT automatique
+
+ou :
+
+role: lan
+↓
+configuration LAN automatique
 
 ## Important
 
-Ne faire **aucune autre fonctionnalité** dans cette étape.
+Le rôle d'une interface pourra être utilisé plus tard par d'autres fonctionnalités.
 
-À la fin, retourner :
+Exemples futurs :
+
+* `uplink` → possibilité d'utiliser cette interface comme sortie Internet
+* `wan` → possibilité de demander explicitement du NAT
+* `transit` → possibilité de l'utiliser dans le routing
+* `ztp` → bootstrap ZTP
+* `management` → gestion
+* `lan` → réseau interne
+
+Mais ces comportements seront implémentés dans des étapes séparées.
+
+## Génération
+
+InfraFlow doit à terme pouvoir produire plusieurs types d'artefacts :
+
+* playbook Ansible
+* configuration Cisco native
+
+Cette étape ne demande PAS encore l'implémentation du générateur `.cfg`.
+
+Elle doit seulement garantir que la représentation des interfaces est suffisamment propre pour être réutilisée par ces deux modes de génération.
+
+## Validation
+
+Exécuter :
+
+```bash
+gofmt -w internal/adapters/generation/vendor_ansible.go \
+        internal/adapters/generation/vendor_ansible_test.go
+
+go test ./internal/adapters/generation/... -count=1
+
+git diff --check
+```
+
+## Critère de réussite
+
+Le test doit démontrer :
+
+`Device.Network.Interfaces → renderCiscoInterfaces() → configuration Cisco`
+
+sans hypothèse WAN/LAN et sans valeur inventée.
+
+Rapporter uniquement :
 
 ```text
 Fichiers modifiés:
-Tests:
+Tests ajoutés/modifiés:
 Résultat:
-Problèmes restants:
 ```
+
+Ne pas implémenter d'autre fonctionnalité dans ce step.
