@@ -133,8 +133,8 @@ func TestServiceValidatesPlansAndGenerates(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, err := service.Plan(input)
-	if err != nil || plan.Status != "blocked" {
-		t.Fatalf("expected unsupported provisioning to be blocked: %#v, %v", plan, err)
+	if err != nil || plan.Status != "PLANNED" {
+		t.Fatalf("expected planned execution plan: %#v, %v", plan, err)
 	}
 	artifacts, err := service.Generate(input, "artifact-output")
 	if err != nil || len(artifacts) != 2 {
@@ -172,7 +172,7 @@ func TestServiceCreatesAndManagesPlanningJobsWithoutExecutingTasks(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if job.Status != domain.JobStatusBlocked || len(job.Plan.Tasks) != 3 || len(jobs.items) != 1 {
+	if job.Status != domain.JobStatusPlanned || len(job.Plan.Tasks) != 0 || len(jobs.items) != 1 {
 		t.Fatalf("unexpected created job: %#v", job)
 	}
 	cancelled, err := service.CancelJob(job.ID)
@@ -180,8 +180,8 @@ func TestServiceCreatesAndManagesPlanningJobsWithoutExecutingTasks(t *testing.T)
 		t.Fatalf("job was not cancelled: %#v, %v", cancelled, err)
 	}
 	retried, err := service.RetryJob(job.ID)
-	if err != nil || retried.Status != domain.JobStatusBlocked {
-		t.Fatalf("blocked job retry should remain blocked: %#v, %v", retried, err)
+	if err != nil || retried.Status != domain.JobStatusPlanned {
+		t.Fatalf("planned job retry should remain planned: %#v, %v", retried, err)
 	}
 	if _, err := service.CreateJob([]byte("sites:\n  - name: lab\n    unknown: true\n")); err == nil {
 		t.Fatal("invalid input should not create a job")

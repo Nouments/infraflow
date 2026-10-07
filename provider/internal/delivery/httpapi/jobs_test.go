@@ -90,8 +90,8 @@ func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
 	if len(preview.Infrastructure.Sites) != 1 || preview.Infrastructure.Sites[0].Name != "lab" {
 		t.Fatalf("preview did not return normalized configuration: %#v", preview.Infrastructure)
 	}
-	if preview.Plan.Status != "blocked" || len(preview.Plan.Tasks) != 3 || preview.Plan.Tasks[2].Status != "blocked" {
-		t.Fatalf("preview did not report unsupported device provisioning: %#v", preview.Plan)
+	if preview.Plan.Status != "PLANNED" || len(preview.Plan.Tasks) != 0 {
+		t.Fatalf("preview did not report a deterministic planned execution plan without invented tasks: %#v", preview.Plan)
 	}
 	storedJobs, err := jobs.List()
 	if err != nil {

@@ -1,87 +1,212 @@
-# STEP 01.5 — Execution Plan
+# STEP 01.5 — EXECUTION PLAN DÉTERMINISTE
 
-## Objectif
+## 0. CONTEXTE OBLIGATOIRE
 
-Implémenter uniquement la représentation et la construction d'un **Execution Plan déterministe** à partir de l'état désiré validé.
+Le repository possède déjà une première implémentation de planning :
 
-Cette étape prépare InfraFlow à l'exécution réelle future.
+```text
+internal/domain/plan.go
+internal/application/planner/planner.go
+internal/application/planner/planner_test.go
+```
 
-Elle ne doit exécuter aucune commande et ne doit contacter aucun équipement.
+Le modèle actuel contient notamment :
 
-La distinction fondamentale doit rester :
+```go
+type Plan struct {
+    Version string
+    Status  string
+    Tasks   []Task
+}
+
+type Task struct {
+    ID
+    Site
+    Target
+    Action
+    Status
+    Reason
+    Dependencies
+}
+```
+
+Le planner actuel ajoute notamment :
+
+```text
+generate_inventory
+generate_topology
+provision_device
+```
+
+Cette implémentation ne correspond pas encore complètement au contrat du Step 01.5.
+
+### RÈGLE ABSOLUE
+
+**NE PAS créer un deuxième système de planning parallèle.**
+
+Avant toute modification :
+
+```bash
+grep -R "type Plan" -n internal pkg
+grep -R "type Task" -n internal pkg
+grep -R "Build(" -n internal/application internal
+grep -R "PLANNED" -n internal pkg
+grep -R "Transition(" -n internal pkg
+grep -R "CapabilityRegistry" -n internal pkg
+grep -R "TemplateRegistry" -n internal pkg
+```
+
+Comprendre les dépendances existantes avant de modifier quoi que ce soit.
+
+---
+
+# 1. OBJECTIF EXACT
+
+Transformer l'implémentation actuelle en un véritable **Execution Plan déterministe et descriptif**.
+
+Le résultat doit représenter :
 
 ```text
 DESIRED
-    ↓
+   ↓
 PLANNED
-    ↓
+```
+
+et préparer les futures étapes :
+
+```text
+PLANNED
+   ↓
 GENERATED
-    ↓
+   ↓
 EXECUTED
-    ↓
+   ↓
 VERIFIED
 ```
 
-et :
+Mais dans ce Step :
 
 ```text
-GENERATED != EXECUTED
+PLANNED = OUI
+GENERATED = NON
+EXECUTED = NON
+VERIFIED = NON
+OBSERVED = NON
 ```
 
----
+Le planner :
 
-# 1. Principe
-
-InfraFlow doit pouvoir transformer un état désiré validé en un plan explicite décrivant :
-
-* quelles actions doivent être effectuées ;
-* sur quel device ;
-* dans quel ordre ;
-* avec quel provider/méthode ;
-* quels artefacts générés sont associés ;
-* quelles dépendances existent entre actions.
-
-Le plan doit être **descriptif uniquement**.
-
-Il ne doit jamais exécuter lui-même les actions.
+* analyse l'état désiré ;
+* construit un plan ;
+* ordonne les actions ;
+* représente les dépendances ;
+* représente la méthode/provider future lorsque celle-ci est explicitement connue ;
+* peut référencer des artefacts déjà générés ;
+* ne contacte aucun équipement ;
+* ne lance aucune commande ;
+* ne vérifie aucun équipement.
 
 ---
 
-# 2. ExecutionPlan
+# 2. CONTRAINTE ARCHITECTURALE MAJEURE
 
-Introduire un modèle de domaine clair, par exemple :
+Il existe déjà :
+
+```text
+domain.Plan
+domain.Task
+planner.Build()
+```
+
+Il faut décider, après inspection, si ces modèles peuvent être adaptés.
+
+### Préférence
+
+Réutiliser :
 
 ```go
-type ExecutionPlan struct {
-    ID        string         `json:"id"`
-    Site      string         `json:"site"`
-    Status    string         `json:"status"`
-    Steps     []ExecutionStep `json:"steps"`
+Plan
+Task
+```
+
+si cela permet de représenter correctement un Execution Plan.
+
+Ne créer :
+
+```go
+ExecutionPlan
+ExecutionStep
+```
+
+que si l'architecture actuelle rend réellement nécessaire cette distinction.
+
+### INTERDICTION
+
+Ne pas finir avec simultanément :
+
+```text
+Plan
+ExecutionPlan
+Task
+ExecutionStep
+```
+
+qui représentent tous plus ou moins la même chose.
+
+Il doit exister **un modèle canonique de plan d'exécution**.
+
+Si `Plan` est conservé, documenter clairement :
+
+```text
+Plan = Execution Plan
+Task = Execution Step
+```
+
+ou adapter les noms si nécessaire.
+
+---
+
+# 3. MODÈLE CIBLE
+
+Le modèle doit pouvoir représenter au minimum :
+
+```go
+type Plan struct {
+    ID      string
+    Site    string
+    Status  string
+    Tasks   []Task
+}
+
+type Task struct {
+    ID           string
+    Site         string
+    Target       string
+    Action       string
+    Method       string
+    Dependencies []string
+    Artifacts    []string
 }
 ```
 
-et :
+Adapter les champs aux conventions JSON existantes.
 
-```go
-type ExecutionStep struct {
-    ID          string   `json:"id"`
-    Device      string   `json:"device"`
-    Action      string   `json:"action"`
-    Method      string   `json:"method"`
-    Dependencies []string `json:"dependencies,omitempty"`
-    Artifacts   []string `json:"artifacts,omitempty"`
-}
+Les champs existants utiles comme :
+
+```text
+Reason
+Version
 ```
 
-Adapter les noms/types à l'architecture existante si un modèle équivalent existe déjà.
+peuvent être conservés s'ils ont une vraie utilité.
 
-**Ne pas créer un deuxième système parallèle si le repository possède déjà un modèle approprié.**
+Ne pas supprimer une donnée existante utilisée ailleurs sans vérifier ses usages.
 
 ---
 
-# 3. Statuts du plan
+# 4. STATUTS
 
-Le plan doit utiliser un statut explicite.
+Le modèle de plan doit avoir des statuts explicites.
 
 Minimum :
 
@@ -93,324 +218,793 @@ FAILED
 VERIFIED
 ```
 
-Mais cette étape ne doit réellement utiliser que :
+Mais **ce Step ne doit produire qu'un plan `PLANNED`**.
+
+Un planner ne doit jamais produire :
 
 ```text
-PLANNED
-```
-
-pour un plan nouvellement créé.
-
-Ne jamais créer artificiellement :
-
-```text
+EXECUTING
 EXECUTED
+FAILED
 VERIFIED
 ```
 
-lors de la construction du plan.
+simplement parce qu'il a construit le plan.
+
+Le statut :
+
+```text
+FAILED
+```
+
+appartient à une future exécution réelle.
 
 ---
 
-# 4. Génération déterministe
+# 5. IMPORTANT — PLANIFICATION ≠ EXÉCUTION
 
-À partir du même état désiré, la construction du plan doit produire le même résultat logique.
-
-Exemple :
+La construction d'un plan ne signifie absolument pas :
 
 ```text
-Device R1
-    interface Gi1
-    interface Gi2
-
-Device R2
-    interface Gi1
+device configured
 ```
 
-doit produire des steps déterministes :
+Elle signifie uniquement :
 
 ```text
-R1 / configure_interfaces
-R2 / configure_interfaces
+InfraFlow sait ce qu'il faudrait faire.
 ```
 
-L'ordre doit être stable.
+Donc :
 
-Ne pas dépendre de l'ordre aléatoire d'une map Go.
+```text
+plan built
+    !=
+command executed
+```
 
-Utiliser un tri déterministe lorsque nécessaire.
+et :
+
+```text
+generated artifact
+    !=
+device configured
+```
 
 ---
 
-# 5. Actions
+# 6. ACTIONS DU PLANNER
 
-Cette étape ne doit introduire qu'un vocabulaire minimal d'actions.
+Le planner doit utiliser un vocabulaire d'actions explicite.
 
-Exemple :
+Pour ce Step, le minimum demandé est :
 
 ```text
 configure_interfaces
 ```
 
-Une action doit décrire une intention.
+Exemple :
 
-Elle ne doit pas contenir directement :
-
-```text
-ssh command
-telnet command
-netconf RPC
-REST API request
-shell command
+```yaml
+devices:
+  - name: R1
+    vendor: cisco
+    family: iosxe
+    model: csr1000v
+    network:
+      interfaces:
+        - name: GigabitEthernet1
+          role: lan
+          ipv4_mode: static
+          ipv4_address: 10.0.0.1/24
+        - name: GigabitEthernet2
+          role: transit
+          ipv4_mode: static
+          ipv4_address: 10.0.1.1/30
 ```
 
-Ces mécanismes appartiendront à l'étape d'exécution future.
-
----
-
-# 6. Méthode / Provider
-
-Le plan doit conserver la méthode nécessaire à l'exécution future.
-
-Exemples :
+doit pouvoir produire :
 
 ```text
-cisco / iosxe / netconf
-mikrotik / routeros / api
-fortinet / fortios / https
+Task:
+    target: R1
+    action: configure_interfaces
 ```
 
-Mais attention :
+### IMPORTANT
 
-Le fait qu'une méthode soit présente dans le plan ne signifie PAS qu'elle est :
-
-```text
-SUPPORTED
-IMPLEMENTED
-LAB-VERIFIED
-```
-
-Ne pas transformer automatiquement :
+Le planner ne doit PAS transformer automatiquement :
 
 ```text
-method = netconf
+role: wan
 ```
 
 en :
 
 ```text
-verified = true
+NAT
 ```
 
-Utiliser les informations existantes du capability registry/vendor profile si elles existent déjà.
+et :
 
-Ne pas créer un nouveau capability registry.
+```text
+role: lan
+```
+
+en :
+
+```text
+DHCP
+VLAN
+NAT
+routing
+```
+
+Les rôles d'interface sont descriptifs.
+
+Les comportements réseau doivent être représentés par des intentions explicites dans de futures étapes.
 
 ---
 
-# 7. Dépendances
+# 7. RÈGLE POUR LES INTERFACES
 
-Le modèle doit permettre :
-
-```text
-step B depends_on step A
-```
-
-Exemple :
+Une action :
 
 ```text
-bootstrap
-   ↓
-management
-   ↓
-network configuration
+configure_interfaces
 ```
 
-Mais cette étape ne doit pas encore implémenter un moteur complexe de DAG.
+doit être créée uniquement si le device possède réellement une configuration d'interfaces dans l'état désiré.
 
-Il suffit de représenter les dépendances explicitement et de produire un ordre déterministe.
+Donc :
 
-Ne pas implémenter :
+```go
+device.Network == nil
+```
 
-* BFS réel de déploiement ;
-* DFS réel ;
-* retry ;
-* parallélisation ;
-* scheduling ;
-* worker pool.
+ou :
 
-Ces éléments appartiendront à une future étape.
+```go
+len(device.Network.Interfaces) == 0
+```
+
+ne doit PAS créer :
+
+```text
+configure_interfaces
+```
 
 ---
 
-# 8. Relation avec LifecycleState
+# 8. PAS D'ACTIONS ARTIFICIELLES
 
-Lorsqu'un ExecutionPlan est construit avec succès :
-
-```text
-Desired = true
-Planned = true
-Generated = false
-Executed = false
-Verified = false
-Observed = false
-```
-
-La construction du plan doit pouvoir positionner :
+Le planner actuel ajoute :
 
 ```text
-PLANNED
-```
-
-mais elle ne doit jamais positionner :
-
-```text
-GENERATED
-EXECUTED
-VERIFIED
-OBSERVED
+generate_inventory
+generate_topology
 ```
 
 automatiquement.
 
-Si l'architecture possède déjà une fonction de transition, utiliser :
+Dans ce Step, ne pas créer artificiellement des actions simplement parce qu'un site existe.
 
-```go
-state.Transition(StatePlanned)
+Exemple :
+
+```yaml
+sites:
+  - name: lab
 ```
 
-plutôt que de modifier directement les booléens.
+doit produire :
+
+```text
+0 configuration actions
+```
+
+si aucun device/intention réseau ne le justifie.
+
+### RÈGLE
+
+Chaque task doit être traçable à une intention réelle de l'état désiré.
+
+Aucune task ne doit être inventée pour rendre la démonstration plus jolie.
 
 ---
 
-# 9. Aucun fake data
-
-Interdiction stricte :
-
-```text
-mock device
-fake execution
-fake command output
-fake success
-fake metrics
-fake observation
-fake verification
-```
-
-Les steps doivent provenir exclusivement de l'état désiré réellement fourni au planner.
-
-Si aucune configuration réseau n'existe :
-
-```text
-steps = []
-```
-
-ou le comportement déjà prévu par l'architecture.
-
-Ne pas inventer une action.
-
----
-
-# 10. Génération d'artefacts
-
-Le planner peut référencer les artefacts déjà générés, mais ne doit pas prétendre qu'ils ont été exécutés.
+# 9. MULTI-DEVICES
 
 Exemple :
 
 ```text
-Artifact:
-site/ansible/vendor-playbook.yml
+R1
+R2
+R3
+SW1
+SW2
 ```
 
-peut être référencé comme :
+Le planner doit produire un ordre déterministe.
+
+Exemple :
+
+```text
+R1
+R2
+R3
+SW1
+SW2
+```
+
+si cet ordre correspond au tri déterministe choisi.
+
+Le choix exact du tri peut être :
+
+```text
+site
+device name
+action
+```
+
+mais il doit être documenté et stable.
+
+### INTERDICTION
+
+Ne jamais dépendre de :
+
+```go
+range map
+```
+
+pour déterminer l'ordre.
+
+Utiliser explicitement :
+
+```go
+sort.Slice(...)
+```
+
+ou équivalent.
+
+---
+
+# 10. ID DÉTERMINISTE
+
+Les IDs des tasks doivent être déterministes.
+
+INTERDIT :
+
+```text
+UUID random
+timestamp
+random string
+```
+
+pour identifier une task de planning.
+
+Exemple acceptable :
+
+```text
+plan/site-a/R1/configure_interfaces
+```
+
+ou une convention équivalente.
+
+Le même état désiré doit produire le même ID.
+
+---
+
+# 11. ID DU PLAN
+
+Le plan doit lui-même avoir un ID stable ou une convention claire.
+
+Ne pas utiliser un UUID aléatoire simplement pour construire le plan.
+
+Si un hash est utilisé :
+
+```text
+même desired state
+    →
+même logical plan ID
+```
+
+Le hash doit être déterministe.
+
+Ne pas inclure :
+
+```text
+timestamp
+random data
+runtime address
+```
+
+dans le calcul.
+
+---
+
+# 12. METHOD / PROVIDER
+
+Le plan doit conserver la méthode d'exécution future lorsqu'elle est explicitement définie.
+
+Exemples :
+
+```text
+Cisco IOS XE → netconf
+MikroTik RouterOS → api
+FortiOS → https
+```
+
+Mais :
+
+```text
+Method != Capability verification
+```
+
+et :
+
+```text
+Method != Execution
+```
+
+Exemple :
+
+```text
+Method: netconf
+Capability: UNVERIFIED
+```
+
+est parfaitement valide.
+
+Cela signifie :
+
+```text
+InfraFlow sait quelle méthode est prévue,
+mais n'affirme pas qu'elle a été testée.
+```
+
+---
+
+# 13. UTILISATION DU CAPABILITY REGISTRY
+
+Le repository possède déjà :
+
+```text
+CapabilityRegistry
+VendorProfile
+resolveCapability()
+```
+
+Ne créer aucun nouveau capability registry.
+
+Le planner peut consulter les informations existantes pour déterminer :
+
+```text
+vendor
+family
+model
+method
+capability state
+evidence
+```
+
+Mais attention :
+
+### UNVERIFIED
+
+Si la capability est :
+
+```text
+UNVERIFIED
+```
+
+le planner peut toujours représenter l'intention.
+
+Il ne doit cependant jamais prétendre :
+
+```text
+supported
+executed
+verified
+lab-tested
+```
+
+simplement parce que le planner connaît la méthode.
+
+---
+
+# 14. CAPABILITY ET PLANIFICATION
+
+Ne pas confondre :
+
+```text
+PLANIFICATION
+```
+
+et :
+
+```text
+AUTORISATION D'EXÉCUTION
+```
+
+Un plan peut dire :
+
+```text
+R1
+configure_interfaces
+method=netconf
+capability=UNVERIFIED
+```
+
+La future couche d'exécution pourra décider :
+
+```text
+execution allowed
+```
+
+ou :
+
+```text
+execution blocked
+```
+
+selon les règles de sécurité/capability.
+
+Cette décision ne doit pas être simulée comme une exécution.
+
+---
+
+# 15. REASON
+
+Le champ existant :
+
+```go
+Reason string
+```
+
+peut être conservé.
+
+Mais il ne doit pas devenir un substitut à un modèle d'état.
+
+Éviter :
+
+```text
+Status = blocked
+Reason = ...
+```
+
+comme unique représentation d'une capability.
+
+Si une information de capability est importante, utiliser les champs structurés existants lorsque possible.
+
+Ne pas mettre tout le système dans des chaînes de texte.
+
+---
+
+# 16. ARTIFACTS
+
+Le plan peut référencer les artefacts déjà générés.
+
+Exemple :
 
 ```text
 Artifacts:
     - site/ansible/vendor-playbook.yml
 ```
 
-Cela signifie uniquement :
+Cela signifie :
 
 ```text
-artifact generated
+cet artefact existe / est associé au plan
 ```
 
-et jamais :
+et absolument pas :
 
 ```text
-device configured
+le device a été configuré.
+```
+
+### IMPORTANT
+
+Le planner ne doit pas appeler de génération réelle juste pour construire le plan si cela mélange :
+
+```text
+PLANNED
+```
+
+et :
+
+```text
+GENERATED
+```
+
+Si la génération existante fournit déjà un résultat consommable sans modifier le lifecycle, l'intégrer proprement.
+
+Sinon, ne pas forcer l'intégration dans ce Step.
+
+---
+
+# 17. DÉPENDANCES
+
+Le modèle doit conserver :
+
+```go
+Dependencies []string
+```
+
+ou un équivalent.
+
+Exemple :
+
+```text
+Task A:
+    R1/bootstrap
+
+Task B:
+    R1/configure_interfaces
+    depends_on A
+```
+
+Mais cette étape ne doit PAS implémenter un moteur d'exécution de dépendances.
+
+Pas de :
+
+```text
+DAG executor
+BFS
+DFS
+retry
+worker pool
+parallel execution
+scheduler
+```
+
+Uniquement la représentation.
+
+---
+
+# 18. NE PAS INVENTER DE BOOTSTRAP
+
+Ne pas créer automatiquement :
+
+```text
+bootstrap
+management
+network
+```
+
+comme tasks si ces intentions ne sont pas réellement présentes dans le modèle désiré.
+
+Une future étape pourra introduire un modèle explicite de bootstrap.
+
+Pour ce Step :
+
+```text
+desired state
+    →
+actions réellement déductibles
+```
+
+et rien de plus.
+
+---
+
+# 19. LIFECYCLE
+
+Le planner doit utiliser le mécanisme existant :
+
+```go
+state.Transition(StatePlanned)
+```
+
+lorsqu'un lifecycle state est disponible dans le flux concerné.
+
+Après planning :
+
+```text
+Desired   = true
+Planned   = true
+Generated = false
+Executed  = false
+Verified  = false
+Observed  = false
+```
+
+### IMPORTANT
+
+Ne pas faire :
+
+```go
+state.Generated = true
+```
+
+dans le planner.
+
+Ne pas faire :
+
+```go
+state.Executed = true
+```
+
+Ne pas faire :
+
+```go
+state.Verified = true
+```
+
+Ne pas faire :
+
+```go
+state.Observed = true
 ```
 
 ---
 
-# 11. Intégration avec la génération existante
+# 20. OBSERVED / INFERRED
 
-Inspecter d'abord l'architecture actuelle.
-
-Ne pas réécrire :
+Le planner ne doit jamais transformer une donnée :
 
 ```text
-generation
-vendor_ansible
-Cisco renderer
-MikroTik renderer
-FortiGate renderer
+INFERRED
 ```
 
-Le planner doit consommer leurs résultats ou les modèles existants lorsque cela est approprié.
+en :
 
-Ne pas déplacer inutilement du code.
+```text
+OBSERVED
+```
+
+Le planning travaille sur :
+
+```text
+DESIRED
+```
+
+et éventuellement des métadonnées/capabilities existantes.
+
+Il ne produit aucune observation réelle.
+
+Donc après planning :
+
+```text
+Observed = false
+```
+
+sauf si une observation réelle existait déjà dans un état externe et était explicitement fournie par l'architecture.
+
+Le planner lui-même ne crée jamais cette observation.
 
 ---
 
-# 12. Tests obligatoires
+# 21. EXEMPLE COMPLET
 
-Ajouter des tests unitaires.
+Entrée :
 
-## Test 1 — plan vide
+```yaml
+sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        provisioning:
+          method: netconf
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.168.10.1/24
 
-Un site sans configuration réseau ne doit pas produire d'action inventée.
+            - name: GigabitEthernet2
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/30
 
-Vérifier :
+      - name: R2
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        provisioning:
+          method: netconf
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.2/30
+```
+
+Plan logique attendu :
 
 ```text
-steps = 0
+Plan
+    Site: lab
+    Status: PLANNED
+
+Tasks:
+
+1.
+    Target: R1
+    Action: configure_interfaces
+    Method: netconf
+
+2.
+    Target: R2
+    Action: configure_interfaces
+    Method: netconf
+```
+
+L'ordre doit être déterministe.
+
+Le planner ne doit PAS :
+
+```text
+SSH R1
+SSH R2
+envoyer de commandes
+appeler NETCONF
+modifier R1
+modifier R2
+affirmer success
 ```
 
 ---
 
-## Test 2 — plan Cisco
+# 22. CAS SANS CONFIGURATION
 
-Avec un device Cisco possédant deux interfaces :
+Entrée :
+
+```yaml
+sites:
+  - name: lab
+```
+
+Résultat :
 
 ```text
+Plan
+    Status: PLANNED
+    Tasks: []
+```
+
+Aucune task inventée.
+
+---
+
+# 23. CAS AVEC DEVICE SANS INTERFACE
+
+Entrée :
+
+```yaml
+devices:
+  - name: R1
+    vendor: cisco
+    family: iosxe
+    model: csr1000v
+```
+
+Résultat :
+
+```text
+aucune configure_interfaces
+```
+
+Le planner ne doit pas inventer une configuration.
+
+---
+
+# 24. CAS AVEC PLUSIEURS DEVICES
+
+Entrée :
+
+```text
+R3
 R1
-Gi1
-Gi2
+R2
 ```
 
-le planner doit produire une action correspondant à la configuration des interfaces.
-
-Vérifier :
-
-```text
-Device = R1
-Action = configure_interfaces
-```
-
----
-
-## Test 3 — déterminisme
-
-Construire deux fois le plan à partir du même état.
-
-Vérifier que les résultats sont identiques.
-
----
-
-## Test 4 — plusieurs devices
-
-Avec :
+Résultat logique :
 
 ```text
 R1
@@ -418,15 +1012,151 @@ R2
 R3
 ```
 
-vérifier que l'ordre des steps est déterministe.
+ou une autre convention explicitement définie.
 
-Ne jamais dépendre de l'ordre d'une map.
+Mais deux appels successifs avec le même input doivent produire exactement le même résultat sérialisé.
 
 ---
 
-## Test 5 — lifecycle
+# 25. TEST DE DÉTERMINISME
 
-Après construction du plan :
+Ajouter impérativement un test :
+
+```go
+first := Build(input)
+second := Build(input)
+```
+
+Puis comparer une représentation déterministe :
+
+```go
+json.Marshal(first)
+json.Marshal(second)
+```
+
+ou une comparaison structurée appropriée.
+
+Résultat obligatoire :
+
+```text
+identique
+```
+
+---
+
+# 26. TESTS OBLIGATOIRES
+
+Remplacer/adapter les tests actuels afin qu'ils testent le nouveau contrat.
+
+## TEST 1 — EMPTY PLAN
+
+Input :
+
+```text
+site sans configuration réseau
+```
+
+Attendu :
+
+```text
+Status = PLANNED
+Tasks = 0
+```
+
+---
+
+## TEST 2 — CISCO INTERFACES
+
+Device :
+
+```text
+R1
+Cisco
+IOS XE
+CSR1000V
+2 interfaces
+```
+
+Attendu :
+
+```text
+Target = R1
+Action = configure_interfaces
+```
+
+---
+
+## TEST 3 — METHOD
+
+Si :
+
+```text
+Provisioning.Method = netconf
+```
+
+attendu :
+
+```text
+Method = netconf
+```
+
+Sans en déduire :
+
+```text
+Verified = true
+```
+
+---
+
+## TEST 4 — MULTI-DEVICE ORDER
+
+Input volontairement désordonné :
+
+```text
+R3
+R1
+R2
+```
+
+Attendu :
+
+```text
+ordre déterministe
+```
+
+---
+
+## TEST 5 — SAME INPUT / SAME PLAN
+
+Deux constructions successives :
+
+```text
+Build(input)
+Build(input)
+```
+
+doivent être identiques.
+
+---
+
+## TEST 6 — NO FAKE ACTION
+
+Un site sans network intent ne doit pas produire :
+
+```text
+generate_inventory
+generate_topology
+configure_interfaces
+provision_device
+```
+
+simplement parce que le site/device existe.
+
+---
+
+## TEST 7 — LIFECYCLE
+
+Après planning :
 
 ```text
 Desired   = true
@@ -439,31 +1169,35 @@ Observed  = false
 
 ---
 
-## Test 6 — plan != execution
+## TEST 8 — PLAN != EXECUTION
 
-Construire un plan ne doit jamais :
+Le test doit démontrer qu'aucune exécution n'a lieu.
 
-```text
-Executed = true
-```
-
-et ne doit lancer aucune commande externe.
-
----
-
-## Test 7 — plan != verification
-
-Construire un plan ne doit jamais :
+Pas de :
 
 ```text
-Verified = true
+exec.Command
+os/exec
+ssh
+netconf
+REST mutation
 ```
 
 ---
 
-## Test 8 — inferred != observed
+## TEST 9 — PLAN != VERIFICATION
 
-Si une information utilisée par le planner est `INFERRED`, elle ne doit jamais devenir :
+Après planning :
+
+```text
+Verified == false
+```
+
+---
+
+## TEST 10 — INFERRED != OBSERVED
+
+Une information inférée ne doit jamais provoquer :
 
 ```text
 Observed = true
@@ -471,39 +1205,103 @@ Observed = true
 
 ---
 
-# 13. Sécurité
+## TEST 11 — DETERMINISTIC IDS
 
-Le planner ne doit jamais exécuter :
+Même input :
 
 ```text
-exec.Command
-os/exec
-ssh
-telnet
-netconf
-HTTP mutation
-REST API mutation
+Task.ID
 ```
 
-Aucune connexion réseau ne doit être ouverte.
+identique entre deux builds.
 
-Le planner est une étape pure :
+---
+
+## TEST 12 — EXPLICIT INTERFACE ROLE
+
+Tester par exemple :
+
+```yaml
+role: wan
+```
+
+et vérifier que le planner ne crée aucune action implicite :
 
 ```text
-Input
-  ↓
-Validation
-  ↓
-Planning
-  ↓
-ExecutionPlan
+NAT
+DHCP
+VLAN
+routing
 ```
 
 ---
 
-# 14. Ce qui est explicitement interdit dans ce step
+# 27. SÉCURITÉ — INTERDICTION ABSOLUE
 
-NE PAS implémenter :
+Le package planner ne doit introduire aucune dépendance d'exécution réseau.
+
+Interdit :
+
+```go
+exec.Command(...)
+```
+
+```go
+os/exec
+```
+
+```text
+ssh
+telnet
+NETCONF connection
+RESTCONF mutation
+HTTP mutation
+TCP connection
+UDP connection
+```
+
+Aucune connexion réseau.
+
+Le planner doit être une transformation pure :
+
+```text
+Desired Infrastructure
+        ↓
+      Planner
+        ↓
+   Execution Plan
+```
+
+---
+
+# 28. VÉRIFICATION DES FICHIERS EXISTANTS
+
+Avant modification, inspecter notamment :
+
+```bash
+sed -n '1,240p' internal/domain/plan.go
+sed -n '1,320p' internal/application/planner/planner.go
+sed -n '1,360p' internal/application/planner/planner_test.go
+```
+
+Puis rechercher les consommateurs :
+
+```bash
+grep -R "\.Tasks" -n --include='*.go' .
+grep -R "domain.Plan" -n --include='*.go' .
+grep -R "domain.Task" -n --include='*.go' .
+grep -R "planner.Build" -n --include='*.go' .
+```
+
+**Ne pas casser les consommateurs existants.**
+
+Si une modification de modèle est nécessaire, adapter proprement les consommateurs concernés.
+
+---
+
+# 29. NE PAS TOUCHER AUX DOMAINES FUTURS
+
+Dans ce Step, ne pas implémenter :
 
 ```text
 SSH
@@ -512,52 +1310,117 @@ RESTCONF
 REST API execution
 Telnet
 GNS3
+EVE-NG
 ZTP
+Cisco autoinstall
 PXE
 iPXE
 DHCP
 TFTP
 FTP
 Proxmox
-real execution
+Terraform execution
+Ansible execution
+real device execution
 retry
-BFS deployment
-DFS deployment
+BFS
+DFS
 parallel deployment
 worker pool
+scheduler
 drift
 reconciliation
-Web
+Web UI
 TUI
-agent
+agent communication
 API
+offline synchronization
+metrics
+observability
 ```
 
-Ne pas modifier le comportement des providers pour exécuter réellement les actions.
+Ces sujets appartiennent à des étapes futures.
 
 ---
 
-# 15. Recherche préalable obligatoire
+# 30. NE PAS MODIFIER INUTILEMENT
 
-Avant de coder :
+Ne pas réécrire :
 
-```bash
-grep -R "type .*Plan" -n internal pkg
-grep -R "PLANNED" -n internal pkg
-grep -R "Transition(" -n internal pkg
-grep -R "GenerateAnsible" -n internal pkg
-grep -R "Artifact" -n internal pkg
+```text
+vendor_ansible.go
+Cisco renderer
+MikroTik renderer
+FortiGate renderer
+reconcile
+capability registry
+template registry
 ```
 
-Identifier les modèles et fonctions existants.
+sauf si une adaptation minimale est strictement nécessaire pour compiler ou intégrer le nouveau modèle.
 
-Réutiliser l'architecture existante lorsqu'elle couvre déjà le besoin.
+Le Step 01.5 concerne :
+
+```text
+domain plan model
+planner
+planner tests
+```
+
+principalement.
 
 ---
 
-# 16. Validation obligatoire
+# 31. COMPATIBILITÉ AVEC LA GÉNÉRATION EXISTANTE
 
-Exécuter :
+Le planner peut connaître l'existence des artefacts générés.
+
+Mais conserver strictement :
+
+```text
+PLANNED
+    !=
+GENERATED
+```
+
+Donc si le planner référence :
+
+```text
+vendor-playbook.yml
+```
+
+cela ne doit pas modifier :
+
+```text
+Generated
+```
+
+dans le lifecycle.
+
+La génération réelle sera une étape séparée.
+
+---
+
+# 32. RÈGLE ANTI-HALLUCINATION
+
+Le code doit respecter :
+
+```text
+MOCK != REAL
+TODO != DONE
+GENERATED != EXECUTED
+EXECUTED != VERIFIED
+VERIFIED != LAB-TESTED
+INFERRED != OBSERVED
+```
+
+Aucune sortie du planner ne doit donner l'impression qu'un équipement réel a été modifié.
+
+---
+
+# 33. VALIDATION FINALE
+
+Après modification :
 
 ```bash
 gofmt -w <fichiers-modifiés>
@@ -567,41 +1430,78 @@ go test ./... -count=1
 git diff --check
 
 git status --short
-```
 
-Puis inspecter :
-
-```bash
 git diff
 ```
 
-Vérifier particulièrement qu'aucune exécution réelle n'a été introduite.
-
-Recherche de sécurité :
+Puis rechercher les appels d'exécution dans les fichiers modifiés :
 
 ```bash
-grep -R "exec.Command\|os/exec\|ssh\|netconf\|restconf\|http.NewRequest" -n <fichiers-modifiés>
+grep -R "exec.Command\|os/exec\|ssh\|telnet\|netconf\|restconf\|http.NewRequest\|net.Dial\|net.Listen" -n <fichiers-modifiés>
 ```
 
-Aucune nouvelle exécution externe ne doit apparaître dans le planner.
+Toute nouvelle exécution réelle introduite dans le planner = **STEP REFUSÉ**.
 
 ---
 
-# 17. Rapport final obligatoire
+# 34. RAPPORT FINAL OBLIGATOIRE
 
-Répondre uniquement :
+Répondre uniquement avec :
 
 ```text
 Fichiers modifiés:
-Modèle ExecutionPlan réutilisé ou créé:
-Planner ajouté:
+Modèle canonique de plan:
+Pourquoi ce modèle a été conservé/adapté:
+Planner:
 Actions supportées:
+Actions supprimées car artificielles:
 Déterminisme:
+ID du plan:
+ID des tasks:
+Méthode/provider:
+Capability non transformée en vérification:
+Dependencies:
+Artifacts:
 Lifecycle PLANNED:
-Execution réelle introduite: oui/non
+Generated après planning: oui/non
+Executed après planning: oui/non
+Verified après planning: oui/non
+Observed après planning: oui/non
+Exécution réelle introduite: oui/non
 Tests ajoutés/modifiés:
-Résultat des tests:
+Résultat de go test ./... -count=1:
+Résultat de git diff --check:
 Commit:
 ```
 
-Ne rien implémenter au-delà de ce Step 01.5.
+## CRITÈRE DE VALIDATION
+
+Le Step 01.5 est validé uniquement si :
+
+```text
+[ ] un seul modèle canonique de plan existe
+[ ] planner.Build() produit un Execution Plan
+[ ] aucune task artificielle n'est créée
+[ ] configure_interfaces fonctionne à partir d'une vraie intention réseau
+[ ] aucun comportement WAN/LAN implicite n'est créé
+[ ] provider/method reste descriptif
+[ ] capability != verification
+[ ] ordre déterministe
+[ ] IDs déterministes
+[ ] dependencies représentables
+[ ] artifacts uniquement référencés
+[ ] lifecycle = PLANNED uniquement
+[ ] Generated = false
+[ ] Executed = false
+[ ] Verified = false
+[ ] Observed = false
+[ ] aucun fake data
+[ ] aucune connexion réseau
+[ ] aucune exécution réelle
+[ ] tests unitaires complets
+[ ] go test ./... passe
+[ ] git diff --check passe
+[ ] aucune modification inutile des providers
+```
+
+**Ne rien implémenter au-delà du Step 01.5.**

@@ -38,8 +38,8 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 		t.Fatalf("plan failed: %s", stderr.String())
 	}
 	var plan domain.Plan
-	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil || plan.Status != "blocked" {
-		t.Fatalf("unsupported device should remain blocked: %#v, %v", plan, err)
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil || plan.Status != "PLANNED" {
+		t.Fatalf("unsupported device should still produce a planned task model: %#v, %v", plan, err)
 	}
 
 	outputPath := filepath.Join(t.TempDir(), "artifacts")
@@ -228,8 +228,8 @@ func TestApplyCreatesBlockedPlanningJobAndAuditEvent(t *testing.T) {
 	if err != nil || len(eventFiles) != 1 {
 		t.Fatalf("expected one audit event store, got %d files: %v", len(eventFiles), err)
 	}
-	if !strings.Contains(stdout.String(), "job=") || !strings.Contains(stdout.String(), "status=blocked") {
-		t.Fatalf("apply did not report persisted blocked job: %s", stdout.String())
+	if !strings.Contains(stdout.String(), "job=") || !strings.Contains(stdout.String(), "status=planned") {
+		t.Fatalf("apply did not report persisted planned job: %s", stdout.String())
 	}
 }
 
