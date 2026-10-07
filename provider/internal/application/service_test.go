@@ -301,6 +301,57 @@ sites:
 	}
 }
 
+func TestServiceBuildsEvidenceBasedCapabilityMatrix(t *testing.T) {
+	service := NewService(nil, nil, nil, testDependencies())
+	input := []byte(`capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: LAB-VERIFIED
+        evidence: lab test 2026-10-07
+      ssh:
+        method: ssh
+        state: UNVERIFIED
+        evidence: no adapter execution evidence
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: audited sandbox manifest
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`)
+	matrix, err := service.CapabilityMatrix(input)
+	if err != nil {
+		t.Fatalf("capability matrix failed: %v", err)
+	}
+	if len(matrix) != 2 {
+		t.Fatalf("expected two capability matrix rows, got %d: %#v", len(matrix), matrix)
+	}
+	if matrix[0].Method != "netconf" || matrix[0].State != domain.CapabilityLabVerified || !matrix[0].Ready {
+		t.Fatalf("unexpected verified matrix row: %#v", matrix[0])
+	}
+	if matrix[1].Method != "ssh" || matrix[1].State != domain.CapabilityUnverified || matrix[1].Ready {
+		t.Fatalf("unexpected unverified matrix row: %#v", matrix[1])
+	}
+}
+
 func testDependencies() Dependencies {
 	return Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
 }

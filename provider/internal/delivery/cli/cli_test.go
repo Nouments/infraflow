@@ -158,6 +158,51 @@ sites:
 	}
 }
 
+func TestCapabilityMatrixCommandReportsEvidenceAndReadiness(t *testing.T) {
+	inputPath := writeInput(t, `capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: LAB-VERIFIED
+        evidence: lab test 2026-10-07
+      ssh:
+        method: ssh
+        state: UNVERIFIED
+        evidence: no adapter execution evidence
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: audited sandbox manifest
+
+sites:
+  - name: sandbox
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+`)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"capability-matrix", "-f", inputPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("capability-matrix failed: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "state=LAB-VERIFIED status=ready") || !strings.Contains(stdout.String(), "state=UNVERIFIED status=not-ready") {
+		t.Fatalf("capability-matrix did not report evidence-based states: %s", stdout.String())
+	}
+}
+
 func TestTemplateInfoCommandReportsSelectionAndBlocking(t *testing.T) {
 	input := `capability_registry:
   entries:

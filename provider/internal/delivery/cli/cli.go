@@ -46,7 +46,10 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "capability-summary" {
 		return runCapabilitySummary(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" {
+	if command == "capability-matrix" {
+		return runCapabilityMatrix(arguments[1:], stdout, stderr)
+	}
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -221,6 +224,39 @@ func runCapabilitySummary(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runCapabilityMatrix(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("capability-matrix", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: capability-matrix requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	rows, err := service.CapabilityMatrix(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, row := range rows {
+		status := "not-ready"
+		if row.Ready {
+			status = "ready"
+		}
+		fmt.Fprintf(stdout, "%s/%s %s/%s/%s method=%s state=%s status=%s template=%s version=%s evidence=%s\n",
+			row.Site, row.Device, row.Vendor, row.Family, row.Model, row.Method, row.State, status, row.TemplateID, row.TemplateVersion, row.Evidence)
+	}
+	return 0
+}
+
 func runServe(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -373,7 +409,8 @@ Usage:
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
 	infraflow-provider template-info -f <infra.yaml>
 	infraflow-provider capability-summary -f <infra.yaml>
+	infraflow-provider capability-matrix -f <infra.yaml>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. Template inspection reports selected metadata and capability state without executing anything. Capability summaries provide an evidence-only readiness snapshot and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
+Validation is side-effect free. Planning does not execute tasks. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
 }

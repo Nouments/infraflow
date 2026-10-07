@@ -60,6 +60,20 @@ type CapabilitySummary struct {
 	Ready           bool
 }
 
+type CapabilityMatrixRow struct {
+	Site            string
+	Device          string
+	Vendor          string
+	Family          string
+	Model           string
+	Method          string
+	State           domain.CapabilityState
+	Evidence        string
+	TemplateID      string
+	TemplateVersion string
+	Ready           bool
+}
+
 type Dependencies struct {
 	Parser      ports.InfrastructureParser
 	PlanBuilder ports.PlanBuilder
@@ -183,6 +197,51 @@ func (service *Service) CapabilitySummary(input []byte) ([]CapabilitySummary, er
 		}
 	}
 	return results, nil
+}
+
+func (service *Service) CapabilityMatrix(input []byte) ([]CapabilityMatrixRow, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	matrix := make([]CapabilityMatrixRow, 0)
+	contextKey := func(device domain.Device) string {
+		return strings.ToLower(strings.TrimSpace(device.Vendor) + ":" + strings.TrimSpace(device.Family) + ":" + strings.TrimSpace(device.Model))
+	}
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			methods, ok := infrastructure.CapabilityRegistry.Entries[contextKey(device)]
+			if !ok {
+				continue
+			}
+			for method, capability := range methods {
+				row := CapabilityMatrixRow{
+					Site:     site.Name,
+					Device:   device.Name,
+					Vendor:   strings.TrimSpace(device.Vendor),
+					Family:   strings.TrimSpace(device.Family),
+					Model:    strings.TrimSpace(device.Model),
+					Method:   method,
+					State:    capability.State,
+					Evidence: strings.TrimSpace(capability.Evidence),
+				}
+				if capability.State.IsUsable() && strings.TrimSpace(capability.Evidence) == "" {
+					row.State = domain.CapabilityUnknown
+					row.Evidence = "usable capability requires recorded evidence of real verification"
+				}
+				if strings.TrimSpace(device.Provisioning.TemplateVersion) != "" {
+					template, templateErr := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+					if templateErr == nil {
+						row.TemplateID = template.ID
+						row.TemplateVersion = template.Version
+					}
+				}
+				row.Ready = row.State.IsUsable() && row.TemplateID != ""
+				matrix = append(matrix, row)
+			}
+		}
+	}
+	return matrix, nil
 }
 
 func (service *Service) Preview(input []byte) (domain.Infrastructure, domain.Plan, error) {
