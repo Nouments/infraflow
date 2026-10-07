@@ -110,9 +110,6 @@ func (s *LifecycleState) Transition(next LifecycleStateName) error {
 		if s.Observed {
 			return nil
 		}
-		if !s.Verified {
-			return fmt.Errorf("observed state requires prior verified state")
-		}
 		s.Observed = true
 		return nil
 	default:
@@ -135,9 +132,6 @@ func (s *LifecycleState) RecordObservation(value, evidence string, provenance Pr
 		return obs, nil
 	}
 	if provenance == ProvenanceObserved {
-		if !s.Verified {
-			return nil, fmt.Errorf("real observation requires explicit verification first")
-		}
 		s.Observed = true
 		s.LastObservation = obs
 		return obs, nil

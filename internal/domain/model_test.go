@@ -87,16 +87,43 @@ func TestExecutionDoesNotAutoVerify(t *testing.T) {
 	}
 }
 
+func TestObservedStateDoesNotRequireVerification(t *testing.T) {
+	state := NewLifecycleState()
+	obs, err := state.RecordObservation("GigabitEthernet1", "show ip interface", ProvenanceObserved, "cisco-r1")
+	if err != nil {
+		t.Fatalf("real observation without prior verification should be accepted: %v", err)
+	}
+	if !state.Observed || !state.HasObserved() {
+		t.Fatalf("real observation should mark state as observed: %#v", state)
+	}
+	if state.Executed || state.Verified {
+		t.Fatalf("real observation must not imply execution or verification: %#v", state)
+	}
+	if obs == nil || obs.Provenance != ProvenanceObserved {
+		t.Fatalf("expected observed provenance, got %#v", obs)
+	}
+}
+
 func TestInferredStateIsNotObserved(t *testing.T) {
 	state := NewLifecycleState()
 	if _, err := state.RecordObservation("GigabitEthernet1", "192.168.100.10/24", ProvenanceInferred, "derived from desired configuration"); err != nil {
 		t.Fatalf("inferred observation should be accepted as metadata, not as real observation: %v", err)
 	}
-	if state.HasObserved() {
+	if state.Observed || state.HasObserved() {
 		t.Fatal("inferred data must not be considered observed")
 	}
-	if state.LastObservation.Provenance != ProvenanceInferred {
-		t.Fatalf("expected inferred provenance, got %q", state.LastObservation.Provenance)
+	if state.LastObservation == nil || state.LastObservation.Provenance != ProvenanceInferred {
+		t.Fatalf("expected inferred provenance, got %#v", state.LastObservation)
+	}
+}
+
+func TestRealObservationDoesNotAutoVerify(t *testing.T) {
+	state := NewLifecycleState()
+	if _, err := state.RecordObservation("GigabitEthernet1", "show ip interface", ProvenanceObserved, "cisco-r1"); err != nil {
+		t.Fatalf("real observation should be accepted without verified state: %v", err)
+	}
+	if state.Observed != true || state.Verified {
+		t.Fatalf("real observation should not create verified state: %#v", state)
 	}
 }
 
@@ -115,7 +142,13 @@ func TestInvalidTransitionsAreRejected(t *testing.T) {
 	if err := state.Transition(StateVerified); err == nil {
 		t.Fatal("generated-to-verified transition should be rejected without execution")
 	}
-	if err := state.Transition(StateObserved); err == nil {
-		t.Fatal("observed state should require prior verification")
+	if err := state.Transition(StateExecuted); err != nil {
+		t.Fatalf("executed transition should be valid after generation: %v", err)
+	}
+	if err := state.Transition(StateVerified); err != nil {
+		t.Fatalf("executed-to-verified transition should remain explicit and valid: %v", err)
+	}
+	if err := state.Transition(StateObserved); err != nil {
+		t.Fatalf("observed transition should be allowed independently of verified state: %v", err)
 	}
 }
