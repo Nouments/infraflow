@@ -1,8 +1,15 @@
 package domain
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type CapabilityState string
+
+type LifecycleStateName string
+
+type Provenance string
 
 const (
 	CapabilityImplemented  CapabilityState = "IMPLEMENTED"
@@ -13,8 +20,134 @@ const (
 	CapabilityUnknown      CapabilityState = "UNKNOWN"
 )
 
+const (
+	StateDesired   LifecycleStateName = "DESIRED"
+	StatePlanned   LifecycleStateName = "PLANNED"
+	StateGenerated LifecycleStateName = "GENERATED"
+	StateExecuted  LifecycleStateName = "EXECUTED"
+	StateVerified  LifecycleStateName = "VERIFIED"
+	StateObserved  LifecycleStateName = "OBSERVED"
+)
+
+const (
+	ProvenanceDesired  Provenance = "DESIRED"
+	ProvenanceObserved Provenance = "OBSERVED"
+	ProvenanceInferred Provenance = "INFERRED"
+)
+
 func (state CapabilityState) IsUsable() bool {
 	return state == CapabilityImplemented || state == CapabilityLabVerified
+}
+
+type Observation struct {
+	Source     string     `json:"source,omitempty"`
+	Provenance Provenance `json:"provenance"`
+	Value      string     `json:"value,omitempty"`
+	Evidence   string     `json:"evidence,omitempty"`
+}
+
+type LifecycleState struct {
+	Desired         bool         `json:"desired"`
+	Planned         bool         `json:"planned"`
+	Generated       bool         `json:"generated"`
+	Executed        bool         `json:"executed"`
+	Verified        bool         `json:"verified"`
+	Observed        bool         `json:"observed"`
+	LastObservation *Observation `json:"last_observation,omitempty"`
+}
+
+func NewLifecycleState() LifecycleState {
+	return LifecycleState{Desired: true}
+}
+
+func (s *LifecycleState) HasObserved() bool {
+	return s != nil && s.Observed && s.LastObservation != nil && s.LastObservation.Provenance == ProvenanceObserved
+}
+
+func (s *LifecycleState) Transition(next LifecycleStateName) error {
+	if s == nil {
+		return nil
+	}
+
+	switch next {
+	case StatePlanned:
+		if s.Planned {
+			return nil
+		}
+		if !s.Desired {
+			return fmt.Errorf("planned state requires desired state to exist")
+		}
+		s.Planned = true
+		return nil
+	case StateGenerated:
+		if s.Generated {
+			return nil
+		}
+		if !s.Planned {
+			return fmt.Errorf("generated state requires prior planned state")
+		}
+		s.Generated = true
+		return nil
+	case StateExecuted:
+		if s.Executed {
+			return nil
+		}
+		if !s.Generated {
+			return fmt.Errorf("executed state requires prior generated state")
+		}
+		s.Executed = true
+		return nil
+	case StateVerified:
+		if s.Verified {
+			return nil
+		}
+		if !s.Executed {
+			return fmt.Errorf("verified state requires prior executed state")
+		}
+		s.Verified = true
+		return nil
+	case StateObserved:
+		if s.Observed {
+			return nil
+		}
+		if !s.Verified {
+			return fmt.Errorf("observed state requires prior verified state")
+		}
+		s.Observed = true
+		return nil
+	default:
+		return fmt.Errorf("unsupported lifecycle state %q", next)
+	}
+}
+
+func (s *LifecycleState) RecordObservation(value, evidence string, provenance Provenance, source string) (*Observation, error) {
+	if s == nil {
+		return nil, fmt.Errorf("lifecycle state is nil")
+	}
+
+	if provenance == "" {
+		return nil, fmt.Errorf("observation provenance is required")
+	}
+
+	obs := &Observation{Source: source, Provenance: provenance, Value: value, Evidence: evidence}
+	if provenance == ProvenanceInferred {
+		s.LastObservation = obs
+		return obs, nil
+	}
+	if provenance == ProvenanceObserved {
+		if !s.Verified {
+			return nil, fmt.Errorf("real observation requires explicit verification first")
+		}
+		s.Observed = true
+		s.LastObservation = obs
+		return obs, nil
+	}
+	if provenance == ProvenanceDesired {
+		s.LastObservation = obs
+		return obs, nil
+	}
+
+	return nil, fmt.Errorf("unsupported observation provenance %q", provenance)
 }
 
 type DeviceCapability struct {

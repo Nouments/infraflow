@@ -5,9 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gopkg.in/yaml.v3"
 	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestRenderCiscoInterfacesMultipleInterfacesFromDeviceNetwork(t *testing.T) {

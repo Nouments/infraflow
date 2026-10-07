@@ -1,224 +1,487 @@
-# Step 01.3 — Vérification de l'artefact Cisco généré
+# Step 01.4 — Modèle d'état d'exécution et de vérification
 
 ## Objectif
 
-Tester le chemin réel de génération jusqu'au fichier final :
+Préparer InfraFlow à distinguer clairement :
 
 ```text
-DeviceNetwork.Interfaces
-→ buildVendorTasks()
-→ playbook Cisco
-→ génération vendor-playbook.yml
-→ contenu final
+DESIRED
+PLANNED
+GENERATED
+EXECUTED
+VERIFIED
+OBSERVED
 ```
 
-Le renderer Cisco et son intégration dans `buildVendorTasks()` sont déjà testés.
+Ce step ne doit PAS exécuter de configuration réseau réelle.
 
-Ce step doit maintenant vérifier que les interfaces sont réellement présentes dans **l'artefact Ansible final généré par InfraFlow**.
+Il doit uniquement construire la base de données/modèle d'état nécessaire pour que les prochaines étapes puissent distinguer ce qui est demandé, généré, exécuté et réellement observé.
 
-## Règle principale
+---
 
-Ne pas modifier le renderer Cisco si son comportement actuel est correct.
+# Principe fondamental
 
-Ne pas ajouter de nouvelle fonctionnalité réseau.
-
-## Travail demandé
-
-Identifier la fonction existante qui génère les fichiers :
+InfraFlow ne doit jamais confondre :
 
 ```text
-vendor-inventory.yml
+GENERATED != EXECUTED
+EXECUTED != VERIFIED
+VERIFIED != LAB_TESTED
+```
+
+Un fichier Ansible généré avec succès ne signifie pas que la configuration a été appliquée.
+
+Une exécution réussie d'une commande ne signifie pas que l'état réel du device a été vérifié.
+
+---
+
+# Travail demandé
+
+## 1. Inspecter l'architecture existante
+
+Avant toute modification :
+
+```bash
+find internal -maxdepth 4 -type f | sort
+```
+
+Identifier les structures existantes concernant :
+
+```text
+domain
+generation
+plan
+execution
+deployment
+state
+status
+audit
+```
+
+Réutiliser les structures existantes lorsque c'est possible.
+
+Ne pas créer un deuxième système de status parallèle si un modèle existe déjà.
+
+---
+
+# 2. Définir les états
+
+Créer ou compléter le modèle de domaine nécessaire pour représenter au minimum :
+
+```text
+DESIRED
+PLANNED
+GENERATED
+EXECUTED
+VERIFIED
+OBSERVED
+```
+
+Les valeurs doivent être typées et explicites.
+
+Éviter les chaînes dispersées dans tout le code.
+
+Exemple conceptuel :
+
+```text
+DesiredState
+PlanState
+GenerationState
+ExecutionState
+VerificationState
+ObservedState
+```
+
+Mais utiliser l'architecture réellement présente dans le repository plutôt que d'imposer exactement ces noms.
+
+---
+
+# 3. Séparer les responsabilités
+
+Le modèle doit permettre de distinguer :
+
+### Desired
+
+Ce que l'utilisateur demande dans `infra.yaml`.
+
+Exemple :
+
+```text
+GigabitEthernet1
+192.168.100.10/24
+```
+
+### Planned
+
+Ce qu'InfraFlow prévoit de faire.
+
+Exemple :
+
+```text
+configure interface GigabitEthernet1
+```
+
+### Generated
+
+L'artefact produit par InfraFlow.
+
+Exemple :
+
+```text
 vendor-playbook.yml
-requirements.yml
-vendor-template.json
 ```
 
-et utiliser cette génération réelle dans un test.
+### Executed
 
-Construire un site contenant au minimum un device Cisco IOS-XE avec :
+Ce qu'InfraFlow a réellement tenté d'exécuter.
+
+Important :
 
 ```text
-R1
-vendor: cisco
-family: iosxe
+EXECUTED
 ```
 
-et les interfaces :
+ne doit pas automatiquement signifier :
 
 ```text
-GigabitEthernet1 → management → 192.168.100.10/24
-GigabitEthernet2 → wan        → 10.0.0.1/30
-GigabitEthernet3 → lan        → 10.10.10.1/24
-GigabitEthernet4 → transit    → 10.0.0.5/30
+VERIFIED
 ```
 
-## Vérifications obligatoires
+### Verified
 
-Récupérer le contenu de l'artefact :
+Résultat d'une vérification explicite.
+
+Exemple :
 
 ```text
-vendor-playbook.yml
+interface GigabitEthernet1
+has IPv4 192.168.100.10/24
 ```
 
-puis vérifier structurellement que le playbook contient :
+### Observed
+
+État réellement observé depuis une source externe.
+
+Exemple :
 
 ```text
-Render Cisco interface configuration
+device → show running-config
+device → show ip interface
 ```
 
-puis :
+Pour le moment aucune connexion réelle n'est nécessaire.
+
+---
+
+# 4. Aucun faux résultat
+
+Interdiction absolue de créer :
 
 ```text
-cisco.ios.ios_l3_interfaces
+fake device
+fake execution
+fake success
+fake observed state
+fake command output
+fake metrics
+fake verification
 ```
 
-puis :
+Ne pas ajouter de données comme :
 
 ```text
-state: merged
+status: success
+execution: completed
+observed: true
 ```
 
-et les quatre interfaces avec leurs adresses exactes.
+si aucune opération réelle ne les justifie.
 
-Vérifier notamment :
+---
+
+# 5. État initial
+
+Lorsqu'une infrastructure est seulement chargée depuis YAML, elle doit représenter uniquement l'état désiré.
+
+Exemple conceptuel :
 
 ```text
-GigabitEthernet1 → 192.168.100.10/24
-GigabitEthernet2 → 10.0.0.1/30
-GigabitEthernet3 → 10.10.10.1/24
-GigabitEthernet4 → 10.0.0.5/30
+DESIRED = présent
+PLANNED = absent
+GENERATED = absent
+EXECUTED = absent
+VERIFIED = absent
+OBSERVED = absent
 ```
 
-## Anti-hallucination
+Ne pas considérer une génération réussie comme une exécution.
 
-Le test doit vérifier que le fichier final ne contient pas de configuration automatiquement créée à partir du rôle :
+---
+
+# 6. Transitions
+
+Définir des transitions cohérentes.
+
+Exemple :
 
 ```text
-NAT
-ip nat inside
-ip nat outside
-OSPF
-BGP
-static route
-default route
-DHCP
-VLAN
+DESIRED
+   ↓
+PLANNED
+   ↓
+GENERATED
+   ↓
+EXECUTED
+   ↓
+VERIFIED
+   ↓
+OBSERVED
 ```
 
-Les rôles :
+Mais ne pas permettre de transition automatique sans opération correspondante.
+
+Par exemple :
 
 ```text
-management
-wan
-lan
-transit
+GENERATED → VERIFIED
 ```
 
-restent descriptifs.
+ne doit pas être possible simplement parce que le YAML généré est valide.
 
-## Important
-
-Ne pas utiliser uniquement :
-
-```go
-strings.Contains(...)
-```
-
-pour considérer le test comme suffisant.
-
-Parser/décoder le YAML généré et inspecter la structure correspondant à :
+De même :
 
 ```text
-plays
-tasks
-cisco.ios.ios_l3_interfaces
-config
+GENERATED → EXECUTED
 ```
 
-Les assertions doivent porter sur les champs structurés.
+ne doit pas être automatique.
 
-## Cas supplémentaire
+---
 
-Ajouter un cas où Cisco possède une interface :
+# 7. Erreurs
+
+Le modèle doit pouvoir représenter un échec sans le transformer en succès.
+
+Exemple conceptuel :
 
 ```text
-GigabitEthernet5
-IPv4Address: ""
-IPv4Mode: dhcp
+EXECUTION_FAILED
+VERIFICATION_FAILED
 ```
 
-Le fichier final doit contenir l'interface mais ne doit pas inventer d'adresse IPv4.
+Si le repository possède déjà un modèle d'erreur/status adapté, le réutiliser.
 
-## Fichiers autorisés
+Ne pas créer inutilement une hiérarchie complexe.
 
-Priorité :
+---
+
+# 8. Provenance
+
+Chaque état qui représente une information externe doit pouvoir être associé à sa provenance.
+
+Préparer le modèle pour distinguer :
 
 ```text
-internal/adapters/generation/vendor_ansible.go
-internal/adapters/generation/vendor_ansible_test.go
+DESIRED
+OBSERVED
+INFERRED
 ```
 
-Modifier uniquement les autres fichiers si strictement nécessaire pour le test.
-
-Ne toucher à aucun autre vendor.
-
-## Interdit
-
-Ne pas implémenter :
+Règle :
 
 ```text
-OSPF
-BGP
-NAT
-routing
-VLAN
-DHCP
-ZTP
-Autoinstall
+INFERRED != OBSERVED
+```
+
+Une information déduite par InfraFlow ne doit jamais être présentée comme une information réellement observée sur un équipement.
+
+---
+
+# 9. Tests unitaires
+
+Ajouter des tests unitaires ciblés pour vérifier :
+
+### Test 1
+
+Un état initial provenant uniquement du YAML ne contient pas :
+
+```text
+EXECUTED
+VERIFIED
+OBSERVED
+```
+
+### Test 2
+
+Une génération d'artefact ne transforme pas automatiquement l'état en :
+
+```text
+EXECUTED
+```
+
+### Test 3
+
+Une exécution ne transforme pas automatiquement l'état en :
+
+```text
+VERIFIED
+```
+
+### Test 4
+
+Une information `INFERRED` n'est jamais considérée comme `OBSERVED`.
+
+### Test 5
+
+Les transitions invalides sont refusées.
+
+Exemple :
+
+```text
+GENERATED → VERIFIED
+```
+
+sans exécution/vérification correspondante.
+
+---
+
+# 10. Ne pas implémenter maintenant
+
+NE PAS implémenter :
+
+```text
+drift detection
+reconciliation
+real device execution
+SSH
+NETCONF
+RESTCONF
+GNS3
+Cisco ZTP
 PXE
 iPXE
+DHCP
+TFTP
+FTP
 Proxmox
+OSPF
+BGP
+NAT
+VLAN
 MikroTik
 FortiGate
-Web
+Web UI
 TUI
-API
-agent
 ```
 
-## Validation
+Ces fonctionnalités viendront dans des steps séparés.
+
+---
+
+# 11. Ne pas modifier inutilement la génération Cisco
+
+Le renderer Cisco déjà implémenté doit rester fonctionnel.
+
+Ne pas modifier :
+
+```text
+renderCiscoInterfaces()
+renderCiscoTasks()
+```
+
+sauf si une adaptation minimale est strictement nécessaire pour intégrer le nouveau modèle d'état.
+
+Ne pas ajouter de configuration réseau.
+
+---
+
+# 12. Validation
 
 Exécuter :
 
 ```bash
-gofmt -w internal/adapters/generation/vendor_ansible.go \
-        internal/adapters/generation/vendor_ansible_test.go
+gofmt -w <fichiers Go modifiés>
 
-go test ./internal/adapters/generation/... -count=1
+go test ./... -count=1
 
 git diff --check
 
 git status --short
 ```
 
-Puis inspecter :
+Puis vérifier :
 
 ```bash
-git diff -- internal/adapters/generation/vendor_ansible.go \
-           internal/adapters/generation/vendor_ansible_test.go
+git diff
 ```
 
-## Rapport final
+Rechercher également les éventuelles données fictives ajoutées :
+
+```bash
+grep -RniE \
+'fake|mock|dummy|sample|placeholder|simulat|synthetic' \
+internal \
+--exclude='*_test.go'
+```
+
+Cette commande ne signifie pas que tout résultat est interdit : analyser chaque résultat et vérifier qu'aucune donnée fictive n'a été introduite dans le comportement réel.
+
+---
+
+# 13. Contraintes de modification
+
+Modifier uniquement les fichiers nécessaires.
+
+Priorité aux packages existants :
+
+```text
+internal/domain/
+internal/application/
+internal/adapters/
+```
+
+Ne pas refactorer toute l'architecture.
+
+Ne pas renommer massivement les packages ou structures existantes.
+
+Ne pas ajouter de dépendance externe sauf nécessité absolue.
+
+---
+
+# 14. Critère de réussite
+
+Le step est terminé uniquement si InfraFlow peut représenter explicitement la différence entre :
+
+```text
+ce que je veux
+      ↓
+ce que je prévois
+      ↓
+ce que j'ai généré
+      ↓
+ce que j'ai réellement exécuté
+      ↓
+ce que j'ai vérifié
+      ↓
+ce que j'ai réellement observé
+```
+
+et si les tests empêchent de présenter un état non exécuté ou non observé comme un succès réel.
+
+---
+
+# Rapport final
 
 Répondre uniquement :
 
 ```text
 Fichiers modifiés:
+Modèle d'état ajouté/modifié:
+Transitions ajoutées:
 Tests ajoutés/modifiés:
-Artefact final testé:
-Chemin testé:
+Faux états empêchés:
 Résultat des tests:
-Modification du renderer: oui/non
+Dépendances ajoutées:
 Commit:
 ```
 
