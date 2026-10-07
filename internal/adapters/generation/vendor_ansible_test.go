@@ -161,3 +161,144 @@ func TestRenderCiscoInterfacesUsesExactIPv4AddressFromInput(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildVendorTasksRendersCiscoInterfacesIntegration(t *testing.T) {
+	device := domain.Device{
+		Name:   "R1",
+		Vendor: "cisco",
+		Family: "iosxe",
+		Network: &domain.DeviceNetwork{
+			Interfaces: []domain.NetworkInterface{
+				{Name: "GigabitEthernet1", Role: "management", IPv4Mode: "static", IPv4Address: "192.168.100.10/24"},
+				{Name: "GigabitEthernet2", Role: "wan", IPv4Mode: "static", IPv4Address: "10.0.0.1/30"},
+				{Name: "GigabitEthernet3", Role: "lan", IPv4Mode: "static", IPv4Address: "10.10.10.1/24"},
+				{Name: "GigabitEthernet4", Role: "transit", IPv4Mode: "static", IPv4Address: "10.0.0.5/30"},
+			},
+		},
+	}
+
+	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if len(tasks) < 2 {
+		t.Fatalf("expected Cisco tasks plus safety assertion, got %d", len(tasks))
+	}
+
+	configTask, ok := tasks[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second task to be a map, got %#v", tasks[1])
+	}
+	if got := configTask["name"]; got != "Render Cisco interface configuration" {
+		t.Fatalf("expected task name %q, got %#v", "Render Cisco interface configuration", got)
+	}
+
+	iosTask, ok := configTask["cisco.ios.ios_l3_interfaces"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cisco.ios.ios_l3_interfaces task payload, got %#v", configTask["cisco.ios.ios_l3_interfaces"])
+	}
+	if got := iosTask["state"]; got != "merged" {
+		t.Fatalf("expected interface state to be merged, got %#v", got)
+	}
+
+	configEntries, ok := iosTask["config"].([]any)
+	if !ok || len(configEntries) != 4 {
+		t.Fatalf("expected 4 config entries, got %#v", iosTask["config"])
+	}
+
+	expected := map[string]string{
+		"GigabitEthernet1": "192.168.100.10/24",
+		"GigabitEthernet2": "10.0.0.1/30",
+		"GigabitEthernet3": "10.10.10.1/24",
+		"GigabitEthernet4": "10.0.0.5/30",
+	}
+	for _, item := range configEntries {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected config entry to be a map, got %#v", item)
+		}
+		name := entry["name"].(string)
+		if got, ok := entry["enabled"].(bool); !ok || !got {
+			t.Fatalf("expected interface %q enabled=true, got %#v", name, entry["enabled"])
+		}
+		wantIP, exists := expected[name]
+		if !exists {
+			t.Fatalf("unexpected interface %q in generated config", name)
+		}
+		ipv4Value, ok := entry["ipv4"].([]any)
+		if !ok || len(ipv4Value) != 1 {
+			t.Fatalf("expected interface %q to have a single ipv4 entry, got %#v", name, entry["ipv4"])
+		}
+		addr := ipv4Value[0].(map[string]any)["address"]
+		if addr != wantIP {
+			t.Fatalf("expected interface %q address=%q, got %#v", name, wantIP, addr)
+		}
+	}
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+		for _, item := range configEntries {
+			entry := item.(map[string]any)
+			if _, exists := entry[forbidden]; exists {
+				t.Fatalf("unexpected automatic %q field in generated Cisco config: %#v", forbidden, entry)
+			}
+		}
+	}
+}
+
+func TestBuildVendorTasksOmitsCiscoInterfaceTaskWhenNoInterfaces(t *testing.T) {
+	device := domain.Device{
+		Name:    "R1",
+		Vendor:  "cisco",
+		Family:  "iosxe",
+		Network: &domain.DeviceNetwork{},
+	}
+
+	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if len(tasks) != 1 {
+		t.Fatalf("expected only the safety assertion when Cisco network intent is empty, got %d tasks", len(tasks))
+	}
+	entry, ok := tasks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first task to be a map, got %#v", tasks[0])
+	}
+	if got := entry["name"]; got != "Require explicit safety opt-in" {
+		t.Fatalf("expected safety assertion task, got %#v", got)
+	}
+	if _, exists := entry["cisco.ios.ios_l3_interfaces"]; exists {
+		t.Fatalf("unexpected interface task for empty Cisco network intent: %#v", entry)
+	}
+}
+
+func TestBuildVendorTasksKeepsCiscoInterfaceWithoutIPv4ButNoInventedData(t *testing.T) {
+	device := domain.Device{
+		Name:   "R1",
+		Vendor: "cisco",
+		Family: "iosxe",
+		Network: &domain.DeviceNetwork{
+			Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet5", Role: "management", IPv4Mode: "dhcp"}},
+		},
+	}
+
+	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if len(tasks) != 2 {
+		t.Fatalf("expected safety assertion plus interface task, got %d", len(tasks))
+	}
+
+	configTask := tasks[1].(map[string]any)
+	iosTask := configTask["cisco.ios.ios_l3_interfaces"].(map[string]any)
+	configEntries := iosTask["config"].([]any)
+	if len(configEntries) != 1 {
+		t.Fatalf("expected one config entry without IPv4, got %#v", iosTask["config"])
+	}
+	entry := configEntries[0].(map[string]any)
+	if got := entry["name"]; got != "GigabitEthernet5" {
+		t.Fatalf("expected interface name GigabitEthernet5, got %#v", got)
+	}
+	if got, ok := entry["enabled"].(bool); !ok || !got {
+		t.Fatalf("expected explicit enabled=true for interface without IP, got %#v", entry["enabled"])
+	}
+	if _, exists := entry["ipv4"]; exists {
+		t.Fatalf("unexpected ipv4 field invented for interface without IP: %#v", entry)
+	}
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+		if _, exists := entry[forbidden]; exists {
+			t.Fatalf("unexpected automatic %q field for interface without IP: %#v", forbidden, entry)
+		}
+	}
+}
