@@ -1,7 +1,9 @@
 package toolrunner
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,6 +61,25 @@ func TestRunAnsibleHonorsTimeout(t *testing.T) {
 	}
 	if time.Since(started) > time.Second {
 		t.Fatal("Ansible runner did not enforce its timeout")
+	}
+}
+
+func TestRunAnsibleReportsExitCodeAndRedactsSensitiveOutput(t *testing.T) {
+	stateDirectory := t.TempDir()
+	writeArtifact(t, stateDirectory, "lab/ansible/inventory.yml", testInventory)
+	writeArtifact(t, stateDirectory, "lab/ansible/site.yml", testPlaybook)
+	installFakeTool(t, "ansible-playbook", "printf 'token=secret-value\\n'; exit 7\n")
+
+	result, err := RunAnsible(t.Context(), stateDirectory, "lab", time.Second)
+	if err == nil || !strings.Contains(err.Error(), "exit code 7") {
+		t.Fatalf("expected a sanitized non-zero process result, got %#v, %v", result, err)
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		t.Fatalf("raw process error should not escape the runner: %v", err)
+	}
+	if strings.Contains(err.Error(), "secret-value") || strings.Contains(result.Output, "secret-value") || !strings.Contains(result.Output, "[REDACTED]") {
+		t.Fatalf("sensitive process output was not redacted: output=%q error=%q", result.Output, err)
 	}
 }
 

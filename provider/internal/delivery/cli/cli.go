@@ -338,7 +338,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
-	dependencies := application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
+	dependencies := application.Dependencies{
+		Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{},
+		ArtifactDirectory: settings.ArtifactDirectory,
+	}
 	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {

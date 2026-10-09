@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -16,6 +17,7 @@ type Backend interface {
 	CurrentUser(context.Context) (providerhttp.User, error)
 	Jobs(context.Context) ([]providerhttp.JobSummary, error)
 	Agents(context.Context) ([]providerhttp.AgentSummary, error)
+	Events(context.Context) ([]providerhttp.EventSummary, error)
 }
 
 // Run starts the line-oriented Linux TUI. It deliberately uses standard
@@ -43,7 +45,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, backend Backend
 	if err := refresh(ctx, output, backend, user.Role == "admin"); err != nil {
 		return err
 	}
-	if _, err := io.WriteString(output, "\nCommands: r refresh | j jobs | a agents | q quit | h help\n> "); err != nil {
+	if _, err := io.WriteString(output, "\nCommands: r refresh | j jobs | a agents | e events | q quit | h help\n> "); err != nil {
 		return err
 	}
 	scanner := bufio.NewScanner(input)
@@ -72,8 +74,14 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, backend Backend
 			} else if err := printAgents(ctx, output, backend); err != nil {
 				return err
 			}
+		case "e", "events":
+			if user.Role != "admin" {
+				_, _ = io.WriteString(output, "Permission denied: admin role required.\n")
+			} else if err := printEvents(ctx, output, backend); err != nil {
+				return err
+			}
 		case "h", "help":
-			_, _ = io.WriteString(output, "Commands: r refresh | j jobs | a agents | q quit | h help\n")
+			_, _ = io.WriteString(output, "Commands: r refresh | j jobs | a agents | e events | q quit | h help\n")
 		default:
 			_, _ = io.WriteString(output, "Unknown command. Use h for help.\n")
 		}
@@ -89,9 +97,51 @@ func refresh(ctx context.Context, output io.Writer, backend Backend, admin bool)
 		return err
 	}
 	if admin {
-		return printAgents(ctx, output, backend)
+		if err := printAgents(ctx, output, backend); err != nil {
+			return err
+		}
+		return printEvents(ctx, output, backend)
 	}
 	return nil
+}
+
+func printEvents(ctx context.Context, output io.Writer, backend Backend) error {
+	events, err := backend.Events(ctx)
+	if err != nil {
+		return fmt.Errorf("load events: %w", err)
+	}
+	_, _ = io.WriteString(output, "\nRECENT RESULTS\n")
+	if len(events) == 0 {
+		_, _ = io.WriteString(output, "  no generation or execution results\n")
+		return nil
+	}
+	start := len(events) - 10
+	if start < 0 {
+		start = 0
+	}
+	for index := len(events) - 1; index >= start; index-- {
+		event := events[index]
+		var result struct {
+			PlanID             string `json:"plan_id"`
+			GenerationStatus   string `json:"generation_status"`
+			ExecutionStatus    string `json:"execution_status"`
+			VerificationStatus string `json:"verification_status"`
+		}
+		_ = json.Unmarshal(event.Payload, &result)
+		if _, err := fmt.Fprintf(output, "  %s %s generation=%s execution=%s verification=%s\n",
+			event.Timestamp.UTC().Format("2006-01-02 15:04:05"), event.Type,
+			valueOrUnknown(result.GenerationStatus), valueOrUnknown(result.ExecutionStatus), valueOrUnknown(result.VerificationStatus)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "not-reported"
+	}
+	return value
 }
 
 func printJobs(ctx context.Context, output io.Writer, backend Backend) error {

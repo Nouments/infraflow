@@ -62,6 +62,11 @@ type previewPlanResponse struct {
 	Plan           domain.Plan           `json:"plan"`
 }
 
+type planGenerationErrorResponse struct {
+	Error  string                           `json:"error"`
+	Result application.PlanGenerationResult `json:"result"`
+}
+
 type registerAgentRequest struct {
 	AgentID      string   `json:"agent_id"`
 	SiteID       string   `json:"site_id"`
@@ -148,6 +153,18 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.previewPlan(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/v1/plan/generate" {
+		if identity.agent {
+			writeError(writer, http.StatusForbidden, "user session required")
+			return
+		}
+		if request.Method != http.MethodPost {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		handler.generatePlan(writer, request)
 		return
 	}
 
@@ -536,6 +553,32 @@ func (handler *Handler) previewPlan(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(writer, http.StatusOK, previewPlanResponse{Infrastructure: infrastructure, Plan: plan})
+}
+
+func (handler *Handler) generatePlan(writer http.ResponseWriter, request *http.Request) {
+	var input createJobRequest
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		writeError(writer, http.StatusBadRequest, "request body must contain a JSON input string")
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		writeError(writer, http.StatusBadRequest, "request body must contain one JSON object")
+		return
+	}
+	result, err := handler.service.PlanAndGenerate([]byte(input.Input))
+	if err != nil {
+		if result.Plan.ID == "" {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusUnprocessableEntity, planGenerationErrorResponse{Error: err.Error(), Result: result})
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) getJob(writer http.ResponseWriter, id string) {

@@ -1,12 +1,16 @@
 package generator
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 
@@ -17,12 +21,56 @@ type vendorProfile struct {
 }
 
 type vendorTemplateManifest struct {
-	TemplateVersion string   `json:"template_version"`
-	InputHash       string   `json:"input_hash"`
-	ExecutionMode   string   `json:"execution_mode"`
-	Devices         []string `json:"devices"`
-	Status          string   `json:"status"`
-	Evidence        string   `json:"evidence"`
+	TemplateVersion string            `json:"template_version"`
+	InputHash       string            `json:"input_hash"`
+	ExecutionMode   string            `json:"execution_mode"`
+	Devices         []string          `json:"devices"`
+	Methods         map[string]string `json:"methods"`
+	Status          string            `json:"status"`
+	Evidence        string            `json:"evidence"`
+}
+
+// GenerateVendorAnsible writes only the existing vendor configuration bundle.
+func GenerateVendorAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	canonical := canonicalize(infrastructure)
+	canonicalInput, err := json.Marshal(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized input: %w", err)
+	}
+	inputHash := protocol.SHA256(canonicalInput)
+	var files []pendingFile
+	var artifacts []Artifact
+	for _, site := range canonical.Sites {
+		siteFiles, siteArtifacts, err := vendorAnsibleFiles(site, inputHash)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, siteFiles...)
+		artifacts = append(artifacts, siteArtifacts...)
+	}
+	if len(files) == 0 {
+		return artifacts, nil
+	}
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	for _, file := range files {
+		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+			return nil, fmt.Errorf("write vendor Ansible artifact %q: %w", file.path, err)
+		}
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return artifacts, nil
 }
 
 func hasVendorNetworkIntent(site domain.Site) bool {
@@ -37,6 +85,7 @@ func hasVendorNetworkIntent(site domain.Site) bool {
 func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Artifact, error) {
 	profiles := make(map[string]vendorProfile)
 	hosts := make(map[string]any)
+	methods := make(map[string]string)
 	deviceNames := make([]string, 0)
 	for _, device := range site.Devices {
 		if device.Network == nil {
@@ -47,8 +96,10 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 			return nil, nil, err
 		}
 		profiles[device.Name] = profile
+		methods[device.Name] = device.Provisioning.Method
 		hosts[device.Name] = map[string]any{
 			"ansible_host":     device.Management.IPv4,
+			"infraflow_method": device.Provisioning.Method,
 			"infraflow_vendor": device.Vendor,
 			"infraflow_family": device.Family,
 			"infraflow_model":  device.Model,
@@ -94,6 +145,7 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 		InputHash:       inputHash,
 		ExecutionMode:   "manual-only; check mode by default; INFRAFLOW_APPLY=true is required for mutation",
 		Devices:         deviceNames,
+		Methods:         methods,
 		Status:          "UNVERIFIED",
 		Evidence:        "Rendered from validated desired-state input; no device execution or lab verification occurred",
 	}

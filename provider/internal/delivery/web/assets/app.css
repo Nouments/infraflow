@@ -227,6 +227,10 @@ td:first-child { color: var(--ink); font-weight: 650; }
 .yaml-punctuation { color: #d4d4d4; }
 .editor-error { min-height: 0; margin: 8px 0 0; color: var(--red); font-family: "IBM Plex Mono", Consolas, monospace; font-size: 10px; white-space: pre-wrap; }
 .plan-preview { margin-top: 12px; }
+.generation-summary { margin: 12px 0 4px; color: var(--ink-soft); font-family: "IBM Plex Mono", Consolas, monospace; font-size: 10px; }
+.generation-artifact { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(180px, 1fr) minmax(0, 2fr) auto; align-items: center; gap: 7px 12px; padding: 9px 1px; border-top: 1px solid var(--line); font-size: 10px; }
+.generation-artifact .mono { overflow-wrap: anywhere; }
+.generation-artifact b { font-family: "IBM Plex Mono", Consolas, monospace; }
 .preview-task-list { display: grid; margin-top: 11px; border-top: 1px solid var(--line); }
 .preview-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; padding: 10px 1px; border-bottom: 1px solid var(--line); }
 .preview-task b, .preview-task span { display: block; }
@@ -283,6 +287,7 @@ td:first-child { color: var(--ink); font-weight: 650; }
   .editor-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .editor-tools .button { padding: 0 7px; font-size: 10px; }
   .editor-workbench { grid-template-columns: 1fr; }
+  .generation-artifact { grid-template-columns: minmax(0, 1fr); align-items: start; }
   .topology-panel, .inspector-panel, .source-panel, .plan-preview { padding: 12px; }
   .topology-stage { min-height: 280px; }
   #editor-topology { height: 310px; }

@@ -13,6 +13,7 @@ import (
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
+	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 )
@@ -102,6 +103,63 @@ func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
 	}
 }
 
+func TestPlanGenerateEndpointReturnsAndAuditsRealArtifacts(t *testing.T) {
+	root := t.TempDir()
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := application.Dependencies{
+		Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}, ArtifactDirectory: root,
+	}
+	service := application.NewServiceWithJobsAgentsEvents(
+		filesystem.NewArtifactRepository(root), nil, generation.Generator{}, nil, nil, events, dependencies,
+	)
+	agentToken := strings.Repeat("g", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: Gi1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`
+	body, err := json.Marshal(createJobRequest{Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/generate", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("generation returned %d: %s", response.Code, response.Body.String())
+	}
+	var result application.PlanGenerationResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.GenerationStatus != "GENERATED" || result.ExecutionStatus != "NOT_REQUESTED" || result.VerificationStatus != "NOT_PERFORMED" {
+		t.Fatalf("unexpected generation result states: %#v", result)
+	}
+	if len(result.Tasks) != 1 || len(result.Tasks[0].Artifacts) == 0 || result.Tasks[0].Artifacts[0].Device != "R1" || result.AuditStatus != "RECORDED" {
+		t.Fatalf("response did not include device-level artifact provenance: %#v", result.Tasks)
+	}
+	storedEvents := service.Events()
+	if len(storedEvents) != 1 || storedEvents[0].Type != "plan.generation.result" {
+		t.Fatalf("generation result was not recorded in the event store: %#v", storedEvents)
+	}
+	if !strings.Contains(string(storedEvents[0].Payload), result.Tasks[0].Artifacts[0].SHA256) {
+		t.Fatalf("audit event omitted artifact hash provenance: %s", storedEvents[0].Payload)
+	}
+}
+
 func TestAgentTokenIsForbiddenFromUserPlanningRoutes(t *testing.T) {
 	root := t.TempDir()
 	jobs, err := filesystem.NewJobStore(root)
@@ -122,6 +180,7 @@ func TestAgentTokenIsForbiddenFromUserPlanningRoutes(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/jobs", ""},
 		{http.MethodPost, "/api/v1/jobs", `{"input":"sites:\n  - name: lab\n"}`},
+		{http.MethodPost, "/api/v1/plan/generate", `{"input":"sites:\n  - name: lab\n"}`},
 		{http.MethodGet, "/api/v1/jobs/job-missing", ""},
 		{http.MethodPost, "/api/v1/jobs/job-missing/cancel", ""},
 		{http.MethodPost, "/api/v1/jobs/job-missing/retry", ""},

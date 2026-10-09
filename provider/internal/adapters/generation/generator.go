@@ -20,6 +20,10 @@ func (Generator) GenerateAnsible(infrastructure domain.Infrastructure, outputDir
 	return coregeneration.GenerateAnsible(infrastructure, outputDirectory)
 }
 
+func (Generator) GenerateVendorAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
+	return coregeneration.GenerateVendorAnsible(infrastructure, outputDirectory)
+}
+
 func (Generator) GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
 	return coregeneration.GenerateTerraform(infrastructure, outputDirectory)
 }

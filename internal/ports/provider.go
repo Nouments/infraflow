@@ -40,6 +40,10 @@ type AnsibleArtifactGenerator interface {
 	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+type VendorArtifactGenerator interface {
+	GenerateVendorAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
+}
+
 type TerraformArtifactGenerator interface {
 	GenerateTerraform(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }

@@ -1,12 +1,14 @@
 package generator
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
+	"infraflow/pkg/protocol"
 
 	"gopkg.in/yaml.v3"
 )
@@ -434,6 +436,73 @@ func TestGenerateAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
 		if seen[expectedName] != expectedAddr {
 			t.Fatalf("expected %q=%q in generated artifact, got %q", expectedName, expectedAddr, seen[expectedName])
 		}
+	}
+}
+
+func TestGenerateVendorAnsibleWritesOnlyTraceableVendorArtifacts(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        provisioning:
+          method: netconf
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outputDirectory := t.TempDir()
+	artifacts, err := GenerateVendorAnsible(infrastructure, outputDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 4 {
+		t.Fatalf("expected exactly four vendor artifacts, got %#v", artifacts)
+	}
+	wantPaths := map[string]string{
+		"lab/ansible/vendor-inventory.yml": "ansible_vendor_inventory",
+		"lab/ansible/vendor-playbook.yml":  "ansible_playbook",
+		"lab/ansible/requirements.yml":     "ansible_requirements",
+		"lab/ansible/vendor-template.json": "ansible_vendor_manifest",
+	}
+	for _, artifact := range artifacts {
+		if wantType, exists := wantPaths[artifact.Path]; !exists || wantType != artifact.Type {
+			t.Fatalf("unexpected artifact metadata: %#v", artifact)
+		}
+		data, err := os.ReadFile(filepath.Join(outputDirectory, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatalf("generated artifact %q is missing: %v", artifact.Path, err)
+		}
+		if got := protocol.SHA256(data); got != artifact.OutputHash {
+			t.Fatalf("artifact %q output hash mismatch: got %s want %s", artifact.Path, got, artifact.OutputHash)
+		}
+		delete(wantPaths, artifact.Path)
+	}
+	if len(wantPaths) != 0 {
+		t.Fatalf("vendor artifacts missing: %#v", wantPaths)
+	}
+	if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "inventory.json")); !os.IsNotExist(err) {
+		t.Fatalf("targeted generation wrote an unrelated inventory: %v", err)
+	}
+	manifestData, err := os.ReadFile(filepath.Join(outputDirectory, "lab", "ansible", "vendor-template.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest vendorTemplateManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.TemplateVersion != TemplateVersion || manifest.Status != "UNVERIFIED" || manifest.Methods["R1"] != "netconf" {
+		t.Fatalf("generated manifest overstated provenance: %#v", manifest)
 	}
 }
 

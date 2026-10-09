@@ -89,9 +89,11 @@ go run ./agent/cmd tui \
   -ca-file /etc/infraflow/provider-ca.crt
 ```
 
-Use `r`, `j`, `a`, `h`, or `q` to refresh jobs, inspect jobs or agents, show
-help, or quit. The server address and port are command-line editable. The TUI
-never displays the full session token or password.
+Use `r`, `j`, `a`, `e`, `h`, or `q` to refresh jobs, inspect jobs, agents, or
+recent backend-reported generation/execution/verification results, show help,
+or quit. Event inspection is admin-only. The server address and port are
+command-line editable. The TUI never displays the full session token or
+password. A generation result is not an execution or verification result.
 
 Edit `examples/agent-config.yaml` for the provider host/port, optional loopback
 HTTP API address, site identity, local state directory, and TLS CA. When

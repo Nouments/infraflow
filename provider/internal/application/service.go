@@ -76,35 +76,37 @@ type CapabilityMatrixRow struct {
 }
 
 type Dependencies struct {
-	Parser      ports.InfrastructureParser
-	PlanBuilder ports.PlanBuilder
+	Parser            ports.InfrastructureParser
+	PlanBuilder       ports.PlanBuilder
+	ArtifactDirectory string
 }
 
 type Service struct {
-	artifacts   ports.ArtifactRepository
-	reports     ports.ReportRepository
-	generator   ports.ArtifactGenerator
-	jobs        ports.JobRepository
-	agents      ports.AgentRepository
-	events      ports.EventRepository
-	parser      ports.InfrastructureParser
-	planBuilder ports.PlanBuilder
+	artifacts         ports.ArtifactRepository
+	reports           ports.ReportRepository
+	generator         ports.ArtifactGenerator
+	jobs              ports.JobRepository
+	agents            ports.AgentRepository
+	events            ports.EventRepository
+	parser            ports.InfrastructureParser
+	planBuilder       ports.PlanBuilder
+	artifactDirectory string
 }
 
 func NewService(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
 }
 
 func NewServiceWithJobs(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
 }
 
 func NewServiceWithJobsAndAgents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
 }
 
 func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, events ports.EventRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
 }
 
 func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {

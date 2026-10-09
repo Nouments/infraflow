@@ -69,7 +69,11 @@
       currentUser = null;
       showLogin("Your session expired. Please sign in again.");
     }
-    if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(result.error || `Request failed (${response.status})`);
+      error.payload = result;
+      throw error;
+    }
     return result;
   }
 
@@ -239,6 +243,7 @@
     $("#editor-error").textContent = "";
     $("#editor-plan").classList.add("hidden");
     $("#editor-submit").disabled = true;
+    $("#editor-generate").disabled = true;
   }
 
   function scheduleEditorPreview(delay = 650) {
@@ -523,6 +528,19 @@
     title.append(node("p", "eyebrow", "PLAN PREVIEW"), node("h3", "", `${result.plan.status} · ${result.plan.tasks.length} tasks`));
     heading.append(title, statusTag(result.plan.status));
     panel.append(heading);
+    if (result.generation_status) {
+      panel.append(node("p", "generation-summary", `Generation ${result.generation_status} · Execution ${result.execution_status} · Verification ${result.verification_status}`));
+      (result.tasks || []).forEach((task) => {
+        (task.artifacts || []).forEach((artifact) => {
+          const row = node("div", "generation-artifact");
+          row.append(node("b", "", `${artifact.device} · ${artifact.type}`));
+          row.append(node("span", "mono", artifact.path));
+          row.append(node("span", "mono", `SHA-256 ${artifact.sha256}`));
+          row.append(node("span", "quiet-label", `template ${artifact.template_version} · ${artifact.status}`));
+          panel.append(row);
+        });
+      });
+    }
     const list = node("div", "preview-task-list");
     (result.plan.tasks || []).forEach((task) => {
       const row = node("div", "preview-task");
@@ -547,6 +565,7 @@
         $("#editor-status").textContent = "Draft changed during validation";
         $("#editor-error").textContent = "The source changed while validation was running. Validate the current draft again.";
         $("#editor-submit").disabled = true;
+        $("#editor-generate").disabled = true;
         $("#editor-plan").classList.add("hidden");
         return;
       }
@@ -557,12 +576,14 @@
       $("#editor-status").textContent = `Valid · ${result.plan.tasks.length} tasks`;
       $("#editor-source-state").textContent = "VALIDATED BY PROVIDER";
       $("#editor-submit").disabled = false;
+      $("#editor-generate").disabled = false;
       renderEditor();
       renderPlanPreview(result);
     } catch (error) {
       $("#editor-status").textContent = "Validation failed";
       $("#editor-error").textContent = error.message;
       $("#editor-submit").disabled = true;
+      $("#editor-generate").disabled = true;
       $("#editor-plan").classList.add("hidden");
     }
   }
@@ -622,6 +643,37 @@
     } catch (error) {
       showNotice(error.message, true);
       button.disabled = false;
+    }
+  }
+
+  async function generateEditorArtifacts() {
+    if (!previewSource || previewSource !== $("#editor-source").value) {
+      showNotice("Validate the current draft before generating artifacts.", true);
+      return;
+    }
+    const button = $("#editor-generate");
+    button.disabled = true;
+    $("#editor-status").textContent = "Generating planned artifacts…";
+    try {
+      const source = previewSource;
+      const result = await request("/plan/generate", { method: "POST", body: JSON.stringify({ input: source }) });
+      if ($("#editor-source").value !== source) {
+        $("#editor-status").textContent = "Draft changed during generation";
+        $("#editor-error").textContent = "The source changed while artifacts were being generated. Validate the current draft again.";
+        return;
+      }
+      $("#editor-status").textContent = `Generation ${result.generation_status}`;
+      $("#editor-source-state").textContent = "GENERATION RESULT FROM PROVIDER";
+      renderPlanPreview(result);
+      showNotice(`Generation ${result.generation_status}; execution was not requested and verification was not performed.`);
+    } catch (error) {
+      const result = error.payload?.result;
+      if (result?.plan) renderPlanPreview(result);
+      $("#editor-status").textContent = result ? `Generation ${result.generation_status}` : "Generation failed";
+      $("#editor-error").textContent = error.payload?.error || error.message;
+      showNotice(error.payload?.error || error.message, true);
+    } finally {
+      button.disabled = !previewSource || previewSource !== $("#editor-source").value;
     }
   }
 
@@ -926,6 +978,7 @@
   $("#editor-add-device").addEventListener("click", addEditorDevice);
   $("#editor-add-link").addEventListener("click", addEditorLink);
   $("#editor-example").addEventListener("click", loadExampleInfrastructure);
+  $("#editor-generate").addEventListener("click", generateEditorArtifacts);
   $("#editor-submit").addEventListener("click", createEditorPlan);
   $("#editor-source").addEventListener("input", () => {
     updateYamlHighlight();
