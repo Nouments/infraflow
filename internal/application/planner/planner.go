@@ -14,10 +14,7 @@ import (
 )
 
 func Build(infrastructure domain.Infrastructure) domain.Plan {
-	lifecycle := domain.NewLifecycleState()
-	if err := lifecycle.Transition(domain.StatePlanned); err != nil {
-		panic(err)
-	}
+	lifecycle := domain.LifecycleState{Desired: true, Planned: true}
 	sites := canonicalSites(infrastructure.Sites)
 	canonicalIntent, _ := json.Marshal(struct {
 		Sites []domain.Site `json:"sites,omitempty"`
@@ -43,9 +40,6 @@ func Build(infrastructure domain.Infrastructure) domain.Plan {
 				if profile, ok := domain.VendorProfileFor(device); ok {
 					method = profile.DefaultMethod
 				}
-			}
-			if method == "" {
-				method = ""
 			}
 			taskID := "plan/" + url.PathEscape(site.Name) + "/" + url.PathEscape(device.Name) + "/configure_interfaces"
 			plan.Tasks = append(plan.Tasks, domain.Task{
