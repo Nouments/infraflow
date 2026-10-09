@@ -12,6 +12,10 @@ import (
 
 type fakeBackend struct{}
 
+func (fakeBackend) Logs(context.Context) ([]providerhttp.TechnicalLogEntry, error) {
+	return []providerhttp.TechnicalLogEntry{{ID: "log-1", Timestamp: time.Unix(0, 0).UTC(), Level: "ERROR", Service: "agent", Message: "process exit code 7"}}, nil
+}
+
 func (fakeBackend) Login(context.Context, string, string) (providerhttp.UserSession, error) {
 	return providerhttp.UserSession{Token: "session-token", ExpiresAt: time.Now().Add(time.Hour), User: providerhttp.User{Username: "admin", Role: "admin"}}, nil
 }
@@ -46,5 +50,19 @@ func TestRunDisplaysBackendStateWithoutExposingToken(t *testing.T) {
 	}
 	if strings.Contains(result, "session-token") {
 		t.Fatalf("full session token leaked to terminal: %s", result)
+	}
+}
+
+func TestRunDisplaysTechnicalLogs(t *testing.T) {
+	var output strings.Builder
+	if err := Run(context.Background(), strings.NewReader("l\nq\n"), &output, fakeBackend{}, "admin", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	result := output.String()
+	if !strings.Contains(result, "TECHNICAL LOGS") {
+		t.Fatalf("technical logs view missing: %s", result)
+	}
+	if !strings.Contains(result, "process exit code 7") {
+		t.Fatalf("technical log payload missing: %s", result)
 	}
 }

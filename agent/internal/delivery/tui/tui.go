@@ -18,6 +18,7 @@ type Backend interface {
 	Jobs(context.Context) ([]providerhttp.JobSummary, error)
 	Agents(context.Context) ([]providerhttp.AgentSummary, error)
 	Events(context.Context) ([]providerhttp.EventSummary, error)
+	Logs(context.Context) ([]providerhttp.TechnicalLogEntry, error)
 }
 
 // Run starts the line-oriented Linux TUI. It deliberately uses standard
@@ -45,7 +46,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, backend Backend
 	if err := refresh(ctx, output, backend, user.Role == "admin"); err != nil {
 		return err
 	}
-	if _, err := io.WriteString(output, "\nCommands: r refresh | j jobs | a agents | e events | q quit | h help\n> "); err != nil {
+	if _, err := io.WriteString(output, "\nCommands: r refresh | j jobs | a agents | e events | l logs | q quit | h help\n> "); err != nil {
 		return err
 	}
 	scanner := bufio.NewScanner(input)
@@ -80,8 +81,14 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, backend Backend
 			} else if err := printEvents(ctx, output, backend); err != nil {
 				return err
 			}
+		case "l", "logs":
+			if user.Role != "admin" {
+				_, _ = io.WriteString(output, "Permission denied: admin role required.\n")
+			} else if err := printTechnicalLogs(ctx, output, backend); err != nil {
+				return err
+			}
 		case "h", "help":
-			_, _ = io.WriteString(output, "Commands: r refresh | j jobs | a agents | e events | q quit | h help\n")
+			_, _ = io.WriteString(output, "Commands: r refresh | j jobs | a agents | e events | l logs | q quit | h help\n")
 		default:
 			_, _ = io.WriteString(output, "Unknown command. Use h for help.\n")
 		}
@@ -142,6 +149,38 @@ func valueOrUnknown(value string) string {
 		return "not-reported"
 	}
 	return value
+}
+
+func printTechnicalLogs(ctx context.Context, output io.Writer, backend Backend) error {
+	logs, err := backend.Logs(ctx)
+	if err != nil {
+		return fmt.Errorf("load technical logs: %w", err)
+	}
+	_, _ = io.WriteString(output, "\nTECHNICAL LOGS\n")
+	if len(logs) == 0 {
+		_, _ = io.WriteString(output, "  no technical logs\n")
+		return nil
+	}
+	for _, log := range logs {
+		message := firstNonEmpty(log.Message, log.Error, log.Line, log.Event, "n/a")
+		if _, err := fmt.Fprintf(output, "  %s %-5s %-12s %s\n",
+			log.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			strings.ToUpper(log.Level),
+			strings.TrimSpace(log.Service),
+			message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func printJobs(ctx context.Context, output io.Writer, backend Backend) error {

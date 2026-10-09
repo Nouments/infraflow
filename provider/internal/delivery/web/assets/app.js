@@ -4,6 +4,8 @@
   let jobs = [];
   let agents = [];
   let events = [];
+  let technicalLogs = [];
+  let technicalLogsStream = null;
   let editorConfig = { sites: [] };
   let selectedSiteIndex = 0;
   let selectedResource = null;
@@ -103,8 +105,10 @@
       jobs: "Plans & jobs",
       agents: "Registered agents",
       activity: "Audit trail",
+      logs: "Technical logs",
       users: "Access management",
     };
+    stopTechnicalLogsStream();
     document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
     $(`#${name}-view`)?.classList.remove("hidden");
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
@@ -119,7 +123,102 @@
     }
     if (name === "agents") loadAgents();
     if (name === "activity") loadEvents();
+    if (name === "logs") loadTechnicalLogs();
     if (name === "users") loadUsers();
+  }
+
+  function stopTechnicalLogsStream() {
+    if (technicalLogsStream) {
+      technicalLogsStream.abort();
+      technicalLogsStream = null;
+    }
+  }
+
+  function logMessageFromEntry(entry) {
+    return [entry.message, entry.error, entry.line, entry.event].find((value) => value && String(value).trim()) || "—";
+  }
+
+  function renderTechnicalLogs() {
+    const table = $("#logs-table");
+    table.replaceChildren();
+    $("#logs-empty").classList.toggle("hidden", technicalLogs.length > 0);
+    technicalLogs.forEach((entry) => {
+      const row = node("tr");
+      row.append(
+        node("td", "mono", entry.id || "—"),
+        node("td", "mono", entry.timestamp ? formatDate(entry.timestamp) : "—"),
+        node("td", "", statusTag(entry.level || "info")),
+        node("td", "mono", entry.service || "—"),
+        node("td", "mono", entry.run_id || "—"),
+        node("td", "mono", logMessageFromEntry(entry)),
+      );
+      table.append(row);
+    });
+  }
+
+  async function loadTechnicalLogs() {
+    if (currentUser.role !== "admin") return;
+    const params = new URLSearchParams();
+    const query = $("#logs-query")?.value?.trim() || "";
+    const runID = $("#logs-run-id")?.value?.trim() || "";
+    const level = $("#logs-level")?.value || "";
+    if (query) params.set("q", query);
+    if (runID) params.set("run_id", runID);
+    if (level) params.set("level", level);
+    params.set("limit", "100");
+    try {
+      const result = await request(`/logs?${params.toString()}`);
+      technicalLogs = Array.isArray(result.events) ? result.events : [];
+      renderTechnicalLogs();
+      startTechnicalLogsStream();
+    } catch (error) {
+      showNotice(error.message, true);
+    }
+  }
+
+  async function startTechnicalLogsStream() {
+    if (currentUser.role !== "admin") return;
+    stopTechnicalLogsStream();
+    const params = new URLSearchParams();
+    const query = $("#logs-query")?.value?.trim() || "";
+    const runID = $("#logs-run-id")?.value?.trim() || "";
+    const level = $("#logs-level")?.value || "";
+    if (query) params.set("q", query);
+    if (runID) params.set("run_id", runID);
+    if (level) params.set("level", level);
+    const controller = new AbortController();
+    technicalLogsStream = controller;
+    try {
+      const response = await fetch(`/api/v1/logs/stream?${params.toString()}`, { headers: { Authorization: `Bearer ${token.value}` }, signal: controller.signal });
+      if (!response.ok) throw new Error(`Stream unavailable (${response.status})`);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Event stream reader is unavailable");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        chunks.forEach((chunk) => {
+          const dataLine = chunk.split("\n").find((line) => line.startsWith("data: "));
+          if (!dataLine) return;
+          const raw = dataLine.slice(6).trim();
+          if (!raw || raw === ": keep-alive") return;
+          try {
+            const event = JSON.parse(raw);
+            if (!event.id) return;
+            technicalLogs = [event, ...technicalLogs.filter((current) => current.id !== event.id)].slice(0, 100);
+            renderTechnicalLogs();
+          } catch (_) { /* ignore malformed SSE frames */ }
+        });
+      }
+    } catch (error) {
+      if (error.name !== "AbortError") showNotice(error.message, true);
+    } finally {
+      if (technicalLogsStream === controller) technicalLogsStream = null;
+    }
   }
 
   function formatDate(value) {
@@ -915,8 +1014,13 @@
     const action = control?.dataset.action;
     if (action === "new-plan") selectView("editor");
     if (action === "refresh") refreshData();
+    if (action === "refresh-logs") loadTechnicalLogs();
     if (action === "cancel-job" || action === "retry-job") changeJob(control.dataset.id, action === "cancel-job" ? "cancel" : "retry");
     if (action === "toggle-user") toggleUser(control.dataset.id, control.dataset.disabled === "true");
+  });
+
+  $("#logs-apply")?.addEventListener("click", () => {
+    loadTechnicalLogs();
   });
 
   async function changeJob(id, operation) {

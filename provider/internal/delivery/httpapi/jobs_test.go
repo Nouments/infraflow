@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -212,6 +213,50 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("non-admin user read technical logs: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestTechnicalLogStreamProducesSSEFramesAndStopsOnContextCancel(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-02", SiteID: "site-02"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.IngestAgentLogs("agent-02", []observability.Event{{
+		ID: "event-02", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "WARN",
+		Event: "process.exit", Message: "warning: temp reset", Service: "agent", Source: "process-runner",
+		AgentID: "agent-02", SiteID: "site-02", RunID: "run-02", TaskID: "task-02",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentToken := strings.Repeat("s", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream?limit=10", nil)
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	ctx, cancel := context.WithCancel(request.Context())
+	request = request.WithContext(ctx)
+	response := httptest.NewRecorder()
+
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		cancel()
+	}()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("stream returned %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "event: log") {
+		t.Fatalf("stream did not emit SSE log events: %s", response.Body.String())
 	}
 }
 

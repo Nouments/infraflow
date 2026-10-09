@@ -58,6 +58,24 @@ type EventSummary struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
+type TechnicalLogEntry struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Service   string    `json:"service"`
+	Hostname  string    `json:"hostname"`
+	SiteID    string    `json:"site_id"`
+	AgentID   string    `json:"agent_id"`
+	RunID     string    `json:"run_id"`
+	JobID     string    `json:"job_id"`
+	TaskID    string    `json:"task_id"`
+	Event     string    `json:"event"`
+	Message   string    `json:"message"`
+	Error     string    `json:"error"`
+	Line      string    `json:"line"`
+	Source    string    `json:"source"`
+}
+
 func NewUserClient(address, caFile string) (*UserClient, error) {
 	parsed, err := url.Parse(address)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -142,6 +160,16 @@ func (client *UserClient) Events(ctx context.Context) ([]EventSummary, error) {
 		return nil, err
 	}
 	return events, nil
+}
+
+func (client *UserClient) Logs(ctx context.Context) ([]TechnicalLogEntry, error) {
+	var payload struct {
+		Events []TechnicalLogEntry `json:"events"`
+	}
+	if err := client.request(ctx, http.MethodGet, "/api/v1/logs?limit=25", nil, &payload, true); err != nil {
+		return nil, err
+	}
+	return payload.Events, nil
 }
 
 func (client *UserClient) request(ctx context.Context, method, endpoint string, payload any, target any, authenticated bool) error {
