@@ -12,6 +12,7 @@ import (
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
@@ -157,6 +158,60 @@ func TestPlanGenerateEndpointReturnsAndAuditsRealArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(storedEvents[0].Payload), result.Tasks[0].Artifacts[0].SHA256) {
 		t.Fatalf("audit event omitted artifact hash provenance: %s", storedEvents[0].Payload)
+	}
+}
+
+func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-01", SiteID: "site-01"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.IngestAgentLogs("agent-01", []observability.Event{{
+		ID: "event-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "ERROR",
+		Event: "process.exit", Message: "exit code 7", Service: "agent", Source: "process-runner",
+		AgentID: "agent-01", SiteID: "site-01", RunID: "run-01", TaskID: "task-01",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentToken := strings.Repeat("l", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	for _, test := range []struct {
+		path string
+		want int
+	}{
+		{path: "/api/v1/logs?run_id=run-01&level=ERROR", want: http.StatusOK},
+		{path: "/api/v1/logs/runs/run-01", want: http.StatusOK},
+		{path: "/api/v1/logs?limit=0", want: http.StatusBadRequest},
+	} {
+		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		request.Header.Set("Authorization", "Bearer "+userToken)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Errorf("GET %s returned %d, want %d: %s", test.path, response.Code, test.want, response.Body.String())
+		}
+		if test.want == http.StatusOK && !strings.Contains(response.Body.String(), "event-01") {
+			t.Errorf("log result missing from %s: %s", test.path, response.Body.String())
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs?run_id=run-01", nil)
+	request.Header.Set("Authorization", "Bearer "+agentToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-admin user read technical logs: %d %s", response.Code, response.Body.String())
 	}
 }
 

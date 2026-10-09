@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -19,6 +20,15 @@ const maxConfigBytes = 64 << 10
 type Config struct {
 	Agent    AgentConfig    `yaml:"agent"`
 	Provider ProviderConfig `yaml:"provider"`
+	Logging  LoggingConfig  `yaml:"logging,omitempty"`
+}
+
+type LoggingConfig struct {
+	Directory string `yaml:"directory,omitempty"`
+	Level     string `yaml:"level,omitempty"`
+	Format    string `yaml:"format,omitempty"`
+	MaxBytes  int64  `yaml:"max_bytes,omitempty"`
+	MaxFiles  int    `yaml:"max_files,omitempty"`
 }
 
 type AgentConfig struct {
@@ -62,6 +72,25 @@ func Load(path string) (Config, error) {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return Config{}, fmt.Errorf("agent config must contain exactly one YAML document")
+	}
+	defaults, err := observability.DefaultConfig("agent")
+	if err != nil {
+		return Config{}, fmt.Errorf("configure local agent logs: %w", err)
+	}
+	if config.Logging.Directory == "" {
+		config.Logging.Directory = defaults.Directory
+	}
+	if config.Logging.Level == "" {
+		config.Logging.Level = defaults.Level
+	}
+	if config.Logging.Format == "" {
+		config.Logging.Format = defaults.Format
+	}
+	if config.Logging.MaxBytes == 0 {
+		config.Logging.MaxBytes = defaults.MaxBytes
+	}
+	if config.Logging.MaxFiles == 0 {
+		config.Logging.MaxFiles = defaults.MaxFiles
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err

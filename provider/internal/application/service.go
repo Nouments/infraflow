@@ -14,6 +14,7 @@ import (
 
 	"infraflow/internal/domain"
 	"infraflow/internal/ports"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -79,6 +80,7 @@ type Dependencies struct {
 	Parser            ports.InfrastructureParser
 	PlanBuilder       ports.PlanBuilder
 	ArtifactDirectory string
+	Logs              ports.LogRepository
 }
 
 type Service struct {
@@ -88,25 +90,63 @@ type Service struct {
 	jobs              ports.JobRepository
 	agents            ports.AgentRepository
 	events            ports.EventRepository
+	logs              ports.LogRepository
 	parser            ports.InfrastructureParser
 	planBuilder       ports.PlanBuilder
 	artifactDirectory string
 }
 
 func NewService(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobs(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobsAndAgents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, events ports.EventRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+}
+
+func (service *Service) IngestAgentLogs(agentID string, input []observability.Event) (observability.AppendResult, error) {
+	if service.logs == nil {
+		return observability.AppendResult{}, fmt.Errorf("technical log repository is not configured")
+	}
+	if len(input) == 0 || len(input) > observability.MaxIngestBatch {
+		return observability.AppendResult{}, fmt.Errorf("log batch must contain between 1 and %d events", observability.MaxIngestBatch)
+	}
+	agent, err := service.Agent(agentID)
+	if err != nil {
+		return observability.AppendResult{}, fmt.Errorf("authenticate log agent identity: %w", err)
+	}
+	events := make([]observability.Event, 0, len(input))
+	for _, event := range input {
+		if event.AgentID != "" && event.AgentID != agent.ID {
+			return observability.AppendResult{}, fmt.Errorf("log event agent identity does not match authenticated agent")
+		}
+		if event.SiteID != "" && event.SiteID != agent.SiteID {
+			return observability.AppendResult{}, fmt.Errorf("log event site identity does not match registered agent site")
+		}
+		event.AgentID = agent.ID
+		event.SiteID = agent.SiteID
+		normalized, err := observability.NormalizeEvent(event)
+		if err != nil {
+			return observability.AppendResult{}, err
+		}
+		events = append(events, normalized)
+	}
+	return service.logs.Append(events)
+}
+
+func (service *Service) Logs(query observability.Query) (observability.Page, error) {
+	if service.logs == nil {
+		return observability.Page{}, fmt.Errorf("technical log repository is not configured")
+	}
+	return service.logs.List(query)
 }
 
 func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {

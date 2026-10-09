@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -12,6 +13,10 @@ type Provider interface {
 	Catalog(context.Context) ([]protocol.Artifact, error)
 	Download(context.Context, protocol.Artifact, io.Writer) error
 	Report(context.Context, protocol.AgentReport) error
+}
+
+type LogReporter interface {
+	ReportLogs(context.Context, string, []observability.Event) error
 }
 
 // StateStore persists artifacts and execution reports on the agent.

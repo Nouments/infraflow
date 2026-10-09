@@ -50,8 +50,19 @@ message ReportAck {
   bool duplicate = 2;
 }
 
+message AgentLogBatch {
+  string agent_id = 1;
+  repeated bytes events_json = 2;
+}
+
+message AgentLogAck {
+  uint32 accepted_count = 1;
+  uint32 duplicate_count = 2;
+}
+
 service AgentProvider {
   rpc ListArtifacts(Empty) returns (ArtifactCatalog);
   rpc DownloadArtifact(DownloadRequest) returns (stream ArtifactChunk);
   rpc ReportState(AgentStateReport) returns (ReportAck);
+  rpc ReportLogs(AgentLogBatch) returns (AgentLogAck);
 }

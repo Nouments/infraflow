@@ -10,10 +10,13 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/config"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
@@ -313,9 +316,56 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "infraflow-provider: serve requires -config")
 		return 2
 	}
+	defaultLogConfig, err := observability.DefaultConfig("provider")
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: configure local logs: %v\n", err)
+		return 2
+	}
+	bootstrapLogger, err := observability.New(defaultLogConfig)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize bootstrap logger: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "INFO", Event: "provider.config.loading", Message: "loading provider configuration", Operation: "configuration", Status: "RUNNING"})
 	settings, err := config.Load(*configPath)
 	if err != nil {
+		_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "ERROR", Event: "provider.config.invalid", Message: "provider configuration validation failed", Operation: "configuration", Status: "FAILED", Error: err.Error()})
+		_ = bootstrapLogger.Close()
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Close()
+	logger, err := observability.New(observability.Config{
+		Service: "provider", Directory: settings.Logging.Directory,
+		Level: settings.Logging.Level, Format: settings.Logging.Format,
+		MaxBytes: settings.Logging.MaxBytes, MaxFiles: settings.Logging.MaxFiles,
+		Console: true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize configured logger: %v\n", err)
+		return 2
+	}
+	defer func() {
+		if err := logger.Close(); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: close logger: %v\n", err)
+		}
+	}()
+	emit := func(event, message, operation, result string, eventErr error) error {
+		entry := observability.Event{Level: "INFO", Event: event, Message: message, Service: "provider", Source: "provider-cli", Operation: operation, Status: result}
+		if result == "FAILED" {
+			entry.Level = "ERROR"
+		}
+		if eventErr != nil {
+			entry.Error = eventErr.Error()
+		}
+		return logger.Emit(context.Background(), entry)
+	}
+	if err := emit("provider.config.loaded", "provider configuration validated", "configuration", "COMPLETED", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log configuration result: %v\n", err)
+		return 2
+	}
+	if err := emit("provider.starting", "provider initialization started", "startup", "RUNNING", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log startup: %v\n", err)
 		return 2
 	}
 	reportStore, err := filesystem.NewReportStore(settings.ArtifactDirectory)
@@ -338,9 +388,19 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
+	logStore, err := observability.NewStore(settings.Logging.Directory, observability.DefaultCentralLogLimit)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
+		return 2
+	}
+	if err := emit("provider.repositories.ready", "provider repositories initialized", "initialization", "COMPLETED", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log repository initialization: %v\n", err)
+		return 2
+	}
 	dependencies := application.Dependencies{
 		Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{},
 		ArtifactDirectory: settings.ArtifactDirectory,
+		Logs:              logStore,
 	}
 	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
@@ -351,7 +411,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials)
+	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
@@ -394,6 +454,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 			return 2
 		}
+		handler.SetLogger(logger)
 		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
@@ -411,10 +472,12 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		}
 		go func() {
 			if err := webApp.Listener(apiListener); err != nil && !errors.Is(err, net.ErrClosed) {
+				_ = emit("provider.http.stopped", "HTTP server stopped with an error", "http", "FAILED", err)
 				fmt.Fprintf(stderr, "infraflow-provider: API serve: %v\n", err)
 			}
 		}()
 		defer func() {
+			_ = emit("provider.http.stopping", "HTTP server stopping", "http", "STOPPING", nil)
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = webApp.ShutdownWithContext(shutdownContext)
@@ -424,6 +487,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			apiScheme = "https"
 		}
 		fmt.Fprintf(stdout, "InfraFlow provider %s API listening on %s\n", apiScheme, settings.APIListenAddress)
+		if err := emit("provider.http.started", "HTTP API listener started", "http", "RUNNING", nil); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: log HTTP listener: %v\n", err)
+			return 2
+		}
 		if settings.WebUIEnabled {
 			fmt.Fprintf(stdout, "InfraFlow web console available at %s://%s/\n", apiScheme, settings.APIListenAddress)
 		}
@@ -436,11 +503,27 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: listen: %v\n", err)
 		return 1
 	}
+	if err := emit("provider.grpc.started", "gRPC listener started", "grpc", "RUNNING", nil); err != nil {
+		_ = listener.Close()
+		fmt.Fprintf(stderr, "infraflow-provider: log gRPC listener: %v\n", err)
+		return 2
+	}
 	fmt.Fprintf(stdout, "InfraFlow provider gRPC listening on %s; agent token is read from %s\n", settings.ListenAddress, settings.TokenEnv)
-	if err := server.Serve(listener); err != nil {
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	go func() {
+		<-signalContext.Done()
+		_ = emit("provider.shutdown.requested", "provider shutdown requested", "shutdown", "STOPPING", nil)
+		server.GracefulStop()
+	}()
+	if err := <-serveDone; err != nil {
+		_ = emit("provider.grpc.stopped", "gRPC server stopped with an error", "grpc", "FAILED", err)
 		fmt.Fprintf(stderr, "infraflow-provider: serve: %v\n", err)
 		return 1
 	}
+	_ = emit("provider.stopped", "provider stopped", "shutdown", "STOPPED", nil)
 	return 0
 }
 

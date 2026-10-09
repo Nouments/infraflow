@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/provider/internal/application"
 	userdomain "infraflow/provider/internal/domain"
 )
@@ -23,6 +25,35 @@ type Handler struct {
 	service       *application.Service
 	agentToken    []byte
 	authenticator *application.Authenticator
+	logger        *observability.Logger
+}
+
+type responseStatusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (writer *responseStatusWriter) WriteHeader(status int) {
+	if writer.status == 0 {
+		writer.status = status
+	}
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *responseStatusWriter) Write(data []byte) (int, error) {
+	if writer.status == 0 {
+		writer.status = http.StatusOK
+	}
+	return writer.ResponseWriter.Write(data)
+}
+
+func (writer *responseStatusWriter) Flush() {
+	if writer.status == 0 {
+		writer.status = http.StatusOK
+	}
+	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 type principal struct {
@@ -81,6 +112,11 @@ type heartbeatRequest struct {
 	QueueDepth   int      `json:"queue_depth"`
 }
 
+type agentLogRequest struct {
+	AgentID string                `json:"agent_id"`
+	Events  []observability.Event `json:"events"`
+}
+
 func NewHandler(service *application.Service, token string, authenticators ...*application.Authenticator) (*Handler, error) {
 	if service == nil {
 		return nil, fmt.Errorf("provider application service is required")
@@ -98,7 +134,35 @@ func NewHandler(service *application.Service, token string, authenticators ...*a
 	return &Handler{service: service, agentToken: []byte(token), authenticator: authenticator}, nil
 }
 
+func (handler *Handler) SetLogger(logger *observability.Logger) { handler.logger = logger }
+
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	started := time.Now()
+	statusWriter := &responseStatusWriter{ResponseWriter: writer}
+	writer = statusWriter
+	defer func() {
+		if handler.logger == nil {
+			return
+		}
+		status := statusWriter.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		level := "INFO"
+		if status >= 500 {
+			level = "ERROR"
+		} else if status >= 400 {
+			level = "WARN"
+		}
+		duration := time.Since(started).Milliseconds()
+		if err := handler.logger.Emit(request.Context(), observability.Event{
+			Level: level, Event: "provider.http.request", Message: "HTTP request completed",
+			Service: "provider", Source: "httpapi", Operation: request.Method,
+			Status: strconv.Itoa(status), DurationMS: &duration, Line: request.URL.Path,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "infraflow-provider: persist HTTP log event: %v\n", err)
+		}
+	}()
 	if request.URL.Path == "/api/v1/auth/login" {
 		if request.Method != http.MethodPost {
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
@@ -165,6 +229,54 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.generatePlan(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/v1/agent/logs" {
+		if !identity.agent {
+			writeError(writer, http.StatusForbidden, "agent authentication required")
+			return
+		}
+		if request.Method != http.MethodPost {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		handler.ingestAgentLogs(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/v1/logs" || request.URL.Path == "/api/v1/logs/stream" || strings.HasPrefix(request.URL.Path, "/api/v1/logs/runs/") {
+		if identity.agent || identity.user.Role != userdomain.UserRoleAdmin {
+			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
+		switch request.URL.Path {
+		case "/api/v1/logs":
+			if request.Method != http.MethodGet {
+				writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			handler.listTechnicalLogs(writer, request)
+		case "/api/v1/logs/stream":
+			if request.Method != http.MethodGet {
+				writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			handler.streamTechnicalLogs(writer, request)
+		default:
+			if request.Method != http.MethodGet {
+				writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			prefix := "/api/v1/logs/runs/"
+			runID := strings.TrimPrefix(request.URL.Path, prefix)
+			if runID == "" || strings.Contains(runID, "/") {
+				writeError(writer, http.StatusBadRequest, "run id is invalid")
+				return
+			}
+			query := request.URL.Query()
+			query.Set("run_id", runID)
+			request.URL.RawQuery = query.Encode()
+			handler.listTechnicalLogs(writer, request)
+		}
 		return
 	}
 

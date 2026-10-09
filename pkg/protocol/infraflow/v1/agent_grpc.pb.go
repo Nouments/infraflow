@@ -22,6 +22,7 @@ const (
 	AgentProvider_ListArtifacts_FullMethodName    = "/infraflow.v1.AgentProvider/ListArtifacts"
 	AgentProvider_DownloadArtifact_FullMethodName = "/infraflow.v1.AgentProvider/DownloadArtifact"
 	AgentProvider_ReportState_FullMethodName      = "/infraflow.v1.AgentProvider/ReportState"
+	AgentProvider_ReportLogs_FullMethodName       = "/infraflow.v1.AgentProvider/ReportLogs"
 )
 
 // AgentProviderClient is the client API for AgentProvider service.
@@ -31,6 +32,7 @@ type AgentProviderClient interface {
 	ListArtifacts(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ArtifactCatalog, error)
 	DownloadArtifact(ctx context.Context, in *DownloadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArtifactChunk], error)
 	ReportState(ctx context.Context, in *AgentStateReport, opts ...grpc.CallOption) (*ReportAck, error)
+	ReportLogs(ctx context.Context, in *AgentLogBatch, opts ...grpc.CallOption) (*AgentLogAck, error)
 }
 
 type agentProviderClient struct {
@@ -80,6 +82,16 @@ func (c *agentProviderClient) ReportState(ctx context.Context, in *AgentStateRep
 	return out, nil
 }
 
+func (c *agentProviderClient) ReportLogs(ctx context.Context, in *AgentLogBatch, opts ...grpc.CallOption) (*AgentLogAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentLogAck)
+	err := c.cc.Invoke(ctx, AgentProvider_ReportLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentProviderServer is the server API for AgentProvider service.
 // All implementations must embed UnimplementedAgentProviderServer
 // for forward compatibility.
@@ -87,6 +99,7 @@ type AgentProviderServer interface {
 	ListArtifacts(context.Context, *Empty) (*ArtifactCatalog, error)
 	DownloadArtifact(*DownloadRequest, grpc.ServerStreamingServer[ArtifactChunk]) error
 	ReportState(context.Context, *AgentStateReport) (*ReportAck, error)
+	ReportLogs(context.Context, *AgentLogBatch) (*AgentLogAck, error)
 	mustEmbedUnimplementedAgentProviderServer()
 }
 
@@ -105,6 +118,9 @@ func (UnimplementedAgentProviderServer) DownloadArtifact(*DownloadRequest, grpc.
 }
 func (UnimplementedAgentProviderServer) ReportState(context.Context, *AgentStateReport) (*ReportAck, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportState not implemented")
+}
+func (UnimplementedAgentProviderServer) ReportLogs(context.Context, *AgentLogBatch) (*AgentLogAck, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportLogs not implemented")
 }
 func (UnimplementedAgentProviderServer) mustEmbedUnimplementedAgentProviderServer() {}
 func (UnimplementedAgentProviderServer) testEmbeddedByValue()                       {}
@@ -174,6 +190,24 @@ func _AgentProvider_ReportState_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentProvider_ReportLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentLogBatch)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentProviderServer).ReportLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentProvider_ReportLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentProviderServer).ReportLogs(ctx, req.(*AgentLogBatch))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentProvider_ServiceDesc is the grpc.ServiceDesc for AgentProvider service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -188,6 +222,10 @@ var AgentProvider_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportState",
 			Handler:    _AgentProvider_ReportState_Handler,
+		},
+		{
+			MethodName: "ReportLogs",
+			Handler:    _AgentProvider_ReportLogs_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

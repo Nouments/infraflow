@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"infraflow/internal/domain"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -69,4 +70,9 @@ type AgentRepository interface {
 type EventRepository interface {
 	Append(domain.Event) (domain.Event, bool, error)
 	List() []domain.Event
+}
+
+type LogRepository interface {
+	Append([]observability.Event) (observability.AppendResult, error)
+	List(observability.Query) (observability.Page, error)
 }
