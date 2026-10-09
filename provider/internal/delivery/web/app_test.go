@@ -55,6 +55,10 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "/auth/login") {
 		t.Fatalf("console JavaScript was not served: %d %q", asset.Code, asset.Body.String())
 	}
+	streamAsset := fiberRequest(t, app, http.MethodGet, "/assets/log-stream.js", nil, "")
+	if streamAsset.Code != http.StatusOK || !strings.Contains(streamAsset.Body.String(), "decodeFrame") {
+		t.Fatalf("technical log stream JavaScript was not served: %d %q", streamAsset.Code, streamAsset.Body.String())
+	}
 	unauthorized := fiberRequest(t, app, http.MethodGet, "/api/v1/jobs", nil, "")
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("Fiber API route bypassed existing auth: %d %s", unauthorized.Code, unauthorized.Body.String())

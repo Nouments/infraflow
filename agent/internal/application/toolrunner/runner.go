@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"infraflow/internal/infrastructure/safefs"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 
 	"github.com/hashicorp/hcl/v2"
@@ -24,11 +25,12 @@ import (
 )
 
 const (
-	defaultTimeout   = 5 * time.Minute
-	maxTimeout       = 30 * time.Minute
-	maxArtifactBytes = 16 << 20
-	maxOutputBytes   = 64 << 10
-	debugMessage     = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
+	defaultTimeout     = 5 * time.Minute
+	maxTimeout         = 30 * time.Minute
+	maxArtifactBytes   = 16 << 20
+	maxOutputBytes     = 64 << 10
+	maxOutputLineBytes = 8 << 10
+	debugMessage       = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
 )
 
 var sensitiveOutputPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
@@ -52,6 +54,15 @@ type ProcessResult struct {
 	Error     string
 	Truncated bool
 }
+
+type ProcessOutput struct {
+	Stream    string
+	Text      string
+	Started   bool
+	Truncated bool
+}
+
+type OutputObserver func(ProcessOutput)
 
 func (result ProcessResult) Combined() string {
 	if result.Stdout == "" {
@@ -101,6 +112,16 @@ type cappedBuffer struct {
 	truncated bool
 }
 
+type processOutputWriter struct {
+	stream    string
+	buffer    *cappedBuffer
+	observer  OutputObserver
+	notifyMu  *sync.Mutex
+	mu        sync.Mutex
+	pending   []byte
+	truncated bool
+}
+
 func (buffer *cappedBuffer) Write(data []byte) (int, error) {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
@@ -127,7 +148,70 @@ func (buffer *cappedBuffer) String() string {
 	return value
 }
 
+func (buffer *cappedBuffer) Truncated() bool {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.truncated
+}
+
+func (writer *processOutputWriter) Write(data []byte) (int, error) {
+	if _, err := writer.buffer.Write(data); err != nil {
+		return 0, err
+	}
+	if writer.observer == nil {
+		return len(data), nil
+	}
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	for _, value := range data {
+		if value == '\n' {
+			if len(writer.pending) < maxOutputLineBytes-64 {
+				writer.pending = append(writer.pending, value)
+			} else {
+				writer.truncated = true
+			}
+			writer.emitPending()
+			continue
+		}
+		if len(writer.pending) < maxOutputLineBytes-64 {
+			writer.pending = append(writer.pending, value)
+		} else {
+			writer.truncated = true
+		}
+	}
+	return len(data), nil
+}
+
+func (writer *processOutputWriter) Flush() {
+	if writer.observer == nil {
+		return
+	}
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if len(writer.pending) > 0 || writer.truncated {
+		writer.emitPending()
+	}
+}
+
+func (writer *processOutputWriter) emitPending() {
+	text := string(writer.pending)
+	lineTruncated := writer.truncated
+	if lineTruncated {
+		text = strings.TrimSuffix(text, "\n") + "[output line truncated]\n"
+	}
+	text = observability.Redact(text)
+	writer.notifyMu.Lock()
+	writer.observer(ProcessOutput{Stream: writer.stream, Text: text, Truncated: lineTruncated})
+	writer.notifyMu.Unlock()
+	writer.pending = writer.pending[:0]
+	writer.truncated = false
+}
+
 func RunAnsible(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
+	return RunAnsibleWithOutput(ctx, stateDirectory, site, timeout, nil)
+}
+
+func RunAnsibleWithOutput(ctx context.Context, stateDirectory, site string, timeout time.Duration, observer OutputObserver) (Result, error) {
 	result := Result{Tool: "ansible"}
 	if ctx == nil {
 		return result, fmt.Errorf("Ansible context is required")
@@ -177,10 +261,10 @@ func RunAnsible(ctx context.Context, stateDirectory, site string, timeout time.D
 		return result, fmt.Errorf("create Ansible temp directory: %w", err)
 	}
 	result.Steps = append(result.Steps, "ansible-playbook --check (debug-only playbook)")
-	output, err := runCommand(ctx, timeout, workDirectory, []string{
+	output, err := runCommandWithOutput(ctx, timeout, workDirectory, []string{
 		"PATH=" + os.Getenv("PATH"), "HOME=" + homeDirectory, "ANSIBLE_CONFIG=" + configPath,
 		"ANSIBLE_LOCAL_TEMP=" + localTemp, "ANSIBLE_NOCOLOR=1", "ANSIBLE_RETRY_FILES_ENABLED=False",
-	}, "ansible-playbook", "--inventory", "inventory.yml", "--limit", "network", "--check", "--forks", "1", "--timeout", "10", "site.yml")
+	}, observer, "ansible-playbook", "--inventory", "inventory.yml", "--limit", "network", "--check", "--forks", "1", "--timeout", "10", "site.yml")
 	result.Output = output
 	if err != nil {
 		return result, fmt.Errorf("run read-only Ansible playbook: %w", err)
@@ -189,6 +273,10 @@ func RunAnsible(ctx context.Context, stateDirectory, site string, timeout time.D
 }
 
 func RunTerraform(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
+	return RunTerraformWithOutput(ctx, stateDirectory, site, timeout, nil)
+}
+
+func RunTerraformWithOutput(ctx context.Context, stateDirectory, site string, timeout time.Duration, observer OutputObserver) (Result, error) {
 	result := Result{Tool: "terraform"}
 	if ctx == nil {
 		return result, fmt.Errorf("Terraform context is required")
@@ -235,7 +323,7 @@ func RunTerraform(ctx context.Context, stateDirectory, site string, timeout time
 	} {
 		result.Steps = append(result.Steps, "terraform "+strings.Join(step, " "))
 		arguments := append([]string{"-chdir=" + workDirectory, step[0]}, step[1:]...)
-		output, err := runCommand(ctx, timeout, workDirectory, environment, "terraform", arguments...)
+		output, err := runCommandWithOutput(ctx, timeout, workDirectory, environment, observer, "terraform", arguments...)
 		if output != "" {
 			if result.Output != "" {
 				result.Output += "\n"
@@ -381,11 +469,22 @@ func runCommand(parent context.Context, timeout time.Duration, directory string,
 }
 
 func runCommandDetailed(parent context.Context, timeout time.Duration, directory string, environment []string, executable string, arguments ...string) (ProcessResult, error) {
+	return runCommandDetailedWithOutput(parent, timeout, directory, environment, nil, executable, arguments...)
+}
+
+func runCommandWithOutput(parent context.Context, timeout time.Duration, directory string, environment []string, observer OutputObserver, executable string, arguments ...string) (string, error) {
+	result, err := runCommandDetailedWithOutput(parent, timeout, directory, environment, observer, executable, arguments...)
+	return result.Combined(), err
+}
+
+func runCommandDetailedWithOutput(parent context.Context, timeout time.Duration, directory string, environment []string, observer OutputObserver, executable string, arguments ...string) (ProcessResult, error) {
 	result := ProcessResult{Command: executable, Started: time.Now().UTC()}
 	commandPath, err := exec.LookPath(executable)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("%s is not installed or not on PATH", executable)
+		result.Finished = time.Now().UTC()
+		result.Duration = result.Finished.Sub(result.Started)
 		return result, fmt.Errorf("%s is not installed or not on PATH", executable)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
@@ -395,15 +494,38 @@ func runCommandDetailed(parent context.Context, timeout time.Duration, directory
 	command.Env = environment
 	stdout := &cappedBuffer{}
 	stderr := &cappedBuffer{}
-	command.Stdout = stdout
-	command.Stderr = stderr
-	err = command.Run()
+	var notifyMu sync.Mutex
+	stdoutWriter := &processOutputWriter{stream: "stdout", buffer: stdout, observer: observer, notifyMu: &notifyMu}
+	stderrWriter := &processOutputWriter{stream: "stderr", buffer: stderr, observer: observer, notifyMu: &notifyMu}
+	command.Stdout = stdoutWriter
+	command.Stderr = stderrWriter
+	notifyMu.Lock()
+	if err := command.Start(); err != nil {
+		notifyMu.Unlock()
+		result.Finished = time.Now().UTC()
+		result.Duration = result.Finished.Sub(result.Started)
+		if ctx.Err() != nil {
+			result.Status = "timeout"
+			result.Error = ctx.Err().Error()
+			return result, ctx.Err()
+		}
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s failed to start", executable)
+		return result, fmt.Errorf("%s failed to start", executable)
+	}
+	if observer != nil {
+		observer(ProcessOutput{Started: true})
+	}
+	notifyMu.Unlock()
+	err = command.Wait()
+	stdoutWriter.Flush()
+	stderrWriter.Flush()
 	result.Finished = time.Now().UTC()
 	result.Duration = result.Finished.Sub(result.Started)
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
 	result.Output = result.Combined()
-	result.Truncated = stdout.truncated || stderr.truncated
+	result.Truncated = stdout.Truncated() || stderr.Truncated()
 	if ctx.Err() != nil {
 		result.Status = "timeout"
 		result.Error = ctx.Err().Error()

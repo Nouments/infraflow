@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"infraflow/agent/internal/adapters/providerhttp"
+	"infraflow/pkg/observability"
 )
 
 type Backend interface {
@@ -165,9 +166,9 @@ func printTechnicalLogs(ctx context.Context, output io.Writer, backend Backend) 
 		message := firstNonEmpty(log.Message, log.Error, log.Line, log.Event, "n/a")
 		if _, err := fmt.Fprintf(output, "  %s %-5s %-12s %s\n",
 			log.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			strings.ToUpper(log.Level),
-			strings.TrimSpace(log.Service),
-			message); err != nil {
+			observability.Redact(strings.ToUpper(log.Level)),
+			observability.Redact(strings.TrimSpace(log.Service)),
+			observability.Redact(message)); err != nil {
 			return err
 		}
 	}

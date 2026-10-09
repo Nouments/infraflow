@@ -178,7 +178,7 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 	}
 	_, err = service.IngestAgentLogs("agent-01", []observability.Event{{
 		ID: "event-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "ERROR",
-		Event: "process.exit", Message: "exit code 7", Service: "agent", Source: "process-runner",
+		Event: "process.exit", Message: "token=secret-value", Service: "agent", Source: "process-runner",
 		AgentID: "agent-01", SiteID: "site-01", RunID: "run-01", TaskID: "task-01",
 	}})
 	if err != nil {
@@ -194,6 +194,7 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 		{path: "/api/v1/logs?run_id=run-01&level=ERROR", want: http.StatusOK},
 		{path: "/api/v1/logs/runs/run-01", want: http.StatusOK},
 		{path: "/api/v1/logs?limit=0", want: http.StatusBadRequest},
+		{path: "/api/v1/logs?since=not-a-timestamp", want: http.StatusBadRequest},
 	} {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
 		request.Header.Set("Authorization", "Bearer "+userToken)
@@ -202,8 +203,8 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 		if response.Code != test.want {
 			t.Errorf("GET %s returned %d, want %d: %s", test.path, response.Code, test.want, response.Body.String())
 		}
-		if test.want == http.StatusOK && !strings.Contains(response.Body.String(), "event-01") {
-			t.Errorf("log result missing from %s: %s", test.path, response.Body.String())
+		if test.want == http.StatusOK && (!strings.Contains(response.Body.String(), "event-01") || !strings.Contains(response.Body.String(), "[REDACTED]") || strings.Contains(response.Body.String(), "secret-value")) {
+			t.Errorf("log response missing the redacted event contract for %s: %s", test.path, response.Body.String())
 		}
 	}
 
@@ -213,6 +214,27 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("non-admin user read technical logs: %d %s", response.Code, response.Body.String())
+	}
+
+	created := authRequest(t, handler, http.MethodPost, "/api/v1/users", `{"username":"reader","password":"reader password 123","role":"user"}`, userToken)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create regular user returned %d: %s", created.Code, created.Body.String())
+	}
+	login := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"reader","password":"reader password 123"}`, "")
+	var userSession struct {
+		Token string `json:"token"`
+	}
+	if login.Code != http.StatusOK || json.Unmarshal(login.Body.Bytes(), &userSession) != nil || userSession.Token == "" {
+		t.Fatalf("regular user login failed: %d %s", login.Code, login.Body.String())
+	}
+	for _, path := range []string{"/api/v1/logs", "/api/v1/logs/stream", "/api/v1/logs/runs/run-01"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer "+userSession.Token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Errorf("regular user accessed %s: status=%d body=%s", path, response.Code, response.Body.String())
+		}
 	}
 }
 
@@ -232,7 +254,7 @@ func TestTechnicalLogStreamProducesSSEFramesAndStopsOnContextCancel(t *testing.T
 	}
 	_, err = service.IngestAgentLogs("agent-02", []observability.Event{{
 		ID: "event-02", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "WARN",
-		Event: "process.exit", Message: "warning: temp reset", Service: "agent", Source: "process-runner",
+		Event: "process.exit", Message: "token=secret-stream", Service: "agent", Source: "process-runner",
 		AgentID: "agent-02", SiteID: "site-02", RunID: "run-02", TaskID: "task-02",
 	}})
 	if err != nil {
@@ -257,6 +279,50 @@ func TestTechnicalLogStreamProducesSSEFramesAndStopsOnContextCancel(t *testing.T
 	}
 	if !strings.Contains(response.Body.String(), "event: log") {
 		t.Fatalf("stream did not emit SSE log events: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "id: event-02") || !strings.Contains(response.Body.String(), `"event_id":"event-02"`) {
+		t.Fatalf("SSE frame does not match its id and JSON event_id contract: %s", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "secret-stream") || !strings.Contains(response.Body.String(), "[REDACTED]") {
+		t.Fatalf("SSE exposed an unredacted secret: %s", response.Body.String())
+	}
+
+	resumed := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream?limit=10", nil)
+	resumed.Header.Set("Authorization", "Bearer "+userToken)
+	resumed.Header.Set("Last-Event-ID", "event-02")
+	resumeContext, cancelResume := context.WithCancel(resumed.Context())
+	resumed = resumed.WithContext(resumeContext)
+	resumeResponse := httptest.NewRecorder()
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		cancelResume()
+	}()
+	handler.ServeHTTP(resumeResponse, resumed)
+	if resumeResponse.Code != http.StatusOK || strings.Contains(resumeResponse.Body.String(), "event: log") {
+		t.Fatalf("Last-Event-ID did not resume after the existing event: status=%d body=%s", resumeResponse.Code, resumeResponse.Body.String())
+	}
+}
+
+func TestTechnicalLogAPIReportsUnavailableStoreRatherThanEmptyResult(t *testing.T) {
+	root := t.TempDir()
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, nil, application.Dependencies{})
+	agentToken := strings.Repeat("u", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), `"events":[]`) {
+		t.Fatalf("unavailable log store was represented as an empty successful page: status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	streamRequest := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream", nil)
+	streamRequest.Header.Set("Authorization", "Bearer "+userToken)
+	streamResponse := httptest.NewRecorder()
+	handler.ServeHTTP(streamResponse, streamRequest)
+	if streamResponse.Code != http.StatusOK || !strings.Contains(streamResponse.Body.String(), "event: error") || !strings.Contains(streamResponse.Body.String(), "log_store_unavailable") {
+		t.Fatalf("SSE did not signal storage failure: status=%d body=%s", streamResponse.Code, streamResponse.Body.String())
 	}
 }
 

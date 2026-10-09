@@ -1,36 +1,45 @@
 # InfraFlow — current engineering status
 
-## Verified status
+Updated: 2026-10-09. Working branch: `develop`.
 
-The repository includes a verified structured logger, a central log store with admin-only access, log query filtering, a real SSE stream endpoint, and process execution capture that keeps stdout and stderr separated while redacting secrets. The web dashboard and the agent TUI now expose the existing technical-log contract without inventing new API fields or behaviors.
+## Audit results
 
-## Implemented and verified
+| Feature | Code present | Tests present | Tests executed | Result |
+|---|---|---|---|---|
+| Log ingest, list, run filter, admin RBAC | Yes | HTTP API and gRPC tests | Yes | Contract and role checks pass; no new route or field added |
+| SSE stream and resume cursor | Yes | HTTP API tests | Yes | `id:` and JSON `event_id` match; `Last-Event-ID`, reset/error frames and cancellation are handled |
+| Dashboard technical logs | Yes | Node parser tests and browser scenario | Yes | Filtering, cursor pagination, deduplication, safe text rendering and HTTP error state verified; browser scenario used controlled test responses |
+| TUI log query | Yes | HTTP client and TUI tests | Yes | Admin-only, point-in-time query; malformed, denied, empty and secret cases are distinct |
+| Process stdout/stderr capture | Yes | Toolrunner tests | Yes | Streams are drained concurrently, bounded, redacted, and final unterminated output is retained |
+| Process output to provider | Yes, with `-config` | CLI integration test | Yes | Local process output reached a local authenticated gRPC test server before the process exited; not a live provider deployment |
 
-- Central log store and query support are present in the provider HTTP API.
-- Admin-only protection is enforced for `/api/v1/logs`, `/api/v1/logs/stream`, and `/api/v1/logs/runs/{run_id}`.
-- The log query contract accepts `after`, `before`, `limit`, `level`, `service`, `hostname`, `site_id`, `agent_id`, `run_id`, `job_id`, `task_id`, `since`, `until`, and `q`.
-- Stream responses use SSE framing with `event: log` payloads and keep-alive comments.
-- The provider web dashboard includes a Technical logs admin view backed by the real `/api/v1/logs` and `/api/v1/logs/stream` endpoints.
-- The agent TUI includes an admin-only `l` / `logs` command that renders the technical-log payload.
-- Process execution capture keeps stdout and stderr separate, preserves exit metadata, and redacts sensitive values from both streams and the combined output.
-- Regression tests cover admin access, invalid pagination, stream interruption, and secret redaction.
+## Evidence categories
 
-## Not claimed as implemented
+- **Implemented:** `execute-ansible` and `validate-terraform` capture output incrementally and display stdout/stderr on their respective CLI streams. A `process.started` event is emitted only after `exec.Start` succeeds. With `-config`, redacted process events enter the existing local logger/outbox and use the existing gRPC `ReportLogs` contract with periodic synchronization.
+- **Automatically tested:** toolrunner, provider HTTP/gRPC, TUI, Fiber asset serving, and the Node SSE parser tests listed below.
+- **Executed:** the integration test ran a local fake executable and exchanged logs with a local authenticated gRPC test server. It holds the process until the server receives `process.output`. This is test execution, not a live provider or device run.
+- **Verified:** Go assertions, native Node tests, and an isolated browser scenario confirmed event ID resume, duplicate suppression, filter/pagination requests, error state, and text-only rendering. The browser scenario used controlled API responses and was not a live-provider test.
+- **Lab-tested:** no.
+- **Blocked / remaining:** no production-provider process-log session or network device was exercised; the TUI remains a one-shot HTTP query rather than a streaming client; frontend connection behavior has browser validation plus unit tests for the SSE parser, but no committed full browser automation framework.
 
-The following remain outside the verified scope of this repository and are not presented as implemented:
+## Reproduction commands
 
-- Real device provisioning, configuration changes, or remote automation against live hardware
-- Lab-verified network workflows beyond local validation and repository tests
-- Any new backend endpoint, response shape, or field that is not already present in the codebase
+Repository root: `/home/noums/Projects/infraflow`. `go version` observed `go1.27.1-X:nodwarf5 linux/amd64`; the sole `go.mod` is `infraflow`, declaring Go `1.25.0`.
 
-## Evidence
+Commands executed after the final code changes:
 
-The project was validated with:
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+make fmt-check
+node --test provider/internal/delivery/web/assets/log-stream.test.cjs
+node --check provider/internal/delivery/web/assets/app.js
+node --check provider/internal/delivery/web/assets/log-stream.js
+```
 
-`cd /home/noums/Projects/infraflow && go test ./...`
+Observed results: `go test ./...` passed; `go test -race ./...` passed; `go vet ./...` passed; `make fmt-check` passed; Node reported 4 tests passed and 0 failed; both `node --check` commands passed. The isolated browser scenario was run with mock API responses, not a shell command reproducible from this repository. `current_step.md` was not edited because it contained pre-existing user changes.
 
-This command exited successfully with exit code 0.
+## Safety boundary
 
-## Scope boundary
-
-No real infrastructure changes were executed during this task. All verified changes are limited to local observability, log exposure, and repository-level validation.
+No real equipment was configured, no provisioning was started, and no commit or push was made. Generated, process-executed, provider-reported, independently verified, and lab-tested states remain distinct.

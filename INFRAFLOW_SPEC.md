@@ -46,6 +46,10 @@ The repository includes:
 - structured event normalization and redaction of password-like fields;
 - central log storage, query filters, and SSE-compatible streaming endpoints;
 - local outbox handling for delayed log synchronization.
+- an admin-only dashboard technical-log view and an admin-only point-in-time TUI
+	query using the existing HTTP log contract;
+- bounded incremental process stdout/stderr capture, with optional local outbox
+	persistence and synchronization over the existing agent gRPC log reporter.
 
 ## 3. Explicitly planned or blocked behavior
 

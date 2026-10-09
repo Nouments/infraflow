@@ -106,7 +106,10 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Generic DHCP/DNS/TFTP/PXE/iPXE bootstrap artifact generation (without agent execution)
 - [x] Provider SQLite user accounts, bcrypt passwords, expiring sessions, and admin/user authorization
 - [x] Linux TUI client for authenticated planning jobs and agent state
-- [x] Provider Fiber web console for planning jobs, agents, audit events, and admin user access
+- [x] Provider Fiber web console for planning jobs, agents, audit events, technical logs, and admin user access
+- [x] Admin technical-log dashboard with query filters, cursor pagination, SSE resume/deduplication, and explicit stream errors
+- [x] Agent TUI point-in-time technical log query (`l` / `logs`), restricted to administrators
+- [x] Incremental bounded stdout/stderr capture and optional process log synchronization through the existing agent gRPC contract
 - [x] Experimental agent DHCP/TFTP/bootstrap HTTP services and fake end-to-end artifact transfer/report test
 - [ ] Device provisioning adapters, execution job API, and remaining bootstrap services
 

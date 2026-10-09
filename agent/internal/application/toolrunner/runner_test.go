@@ -1,6 +1,7 @@
 package toolrunner
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -109,6 +110,148 @@ func TestRunCommandCapturesStdoutAndStderrSeparately(t *testing.T) {
 	}
 	if strings.Contains(result.Output, "secret-value") {
 		t.Fatalf("sensitive process output leaked into the combined output: %q", result.Output)
+	}
+}
+
+func TestRunCommandStreamsRedactedOutputBeforeExitAndKeepsFinalLine(t *testing.T) {
+	directory := t.TempDir()
+	release := filepath.Join(directory, "release")
+	filename := filepath.Join(directory, "stream.sh")
+	script := "#!/bin/sh\n" +
+		"printf 'token=secret-value\\n'\n" +
+		"while [ ! -f '" + release + "' ]; do :; done\n" +
+		"printf 'last line without newline'\n"
+	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var received []ProcessOutput
+	started := false
+	result, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+		if output.Started {
+			started = true
+			return
+		}
+		received = append(received, output)
+		if strings.Contains(output.Text, "[REDACTED]") {
+			if strings.Contains(output.Text, "secret-value") || !strings.Contains(output.Text, "[REDACTED]") {
+				t.Errorf("observer received unredacted output: %#v", output)
+			}
+			if err := os.WriteFile(release, nil, 0o600); err != nil {
+				t.Errorf("release waiting process: %v", err)
+			}
+		}
+	}, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started {
+		t.Fatal("observer did not report successful process start")
+	}
+	if len(received) != 2 {
+		t.Fatalf("observer received %d chunks, want streamed line plus final line: %#v", len(received), received)
+	}
+	if received[0].Stream != "stdout" || !strings.Contains(received[0].Text, "[REDACTED]") {
+		t.Fatalf("unexpected streamed output: %#v", received[0])
+	}
+	if !strings.Contains(received[1].Text, "last line without newline") {
+		t.Fatalf("final unterminated line was lost: %#v", received)
+	}
+	if !strings.Contains(result.Stdout, "last line without newline") || strings.Contains(result.Stdout, "secret-value") {
+		t.Fatalf("final captured output is incomplete or exposed a secret: %#v", result)
+	}
+}
+
+func TestRunCommandReportsTruncationAndStartupFailure(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "large.sh")
+	if err := os.WriteFile(filename, []byte("#!/bin/sh\ndd if=/dev/zero bs=70000 count=1 2>/dev/null | tr '\\000' x\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runCommandDetailed(t.Context(), time.Second, directory, nil, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Truncated || !strings.Contains(result.Stdout, "[output truncated]") {
+		t.Fatalf("large output was not marked as truncated: %#v", result)
+	}
+
+	started := false
+	missing, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+		started = started || output.Started
+	}, filepath.Join(directory, "missing"))
+	if err == nil || missing.Status != "failed" || started {
+		t.Fatalf("missing executable was not reported as a startup failure: result=%#v err=%v", missing, err)
+	}
+}
+
+func TestRunCommandDrainsLargeStdoutAndStderrConcurrently(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "large-streams.sh")
+	script := "#!/bin/sh\n" +
+		"head -c 131072 /dev/zero | tr '\\000' o &\n" +
+		"head -c 131072 /dev/zero | tr '\\000' e >&2 &\n" +
+		"wait\n"
+	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runCommandDetailed(t.Context(), 3*time.Second, directory, nil, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Stdout, "o") || !strings.Contains(result.Stderr, "e") || !result.Truncated {
+		t.Fatalf("large simultaneous output was lost or not marked truncated: %#v", result)
+	}
+}
+
+func TestRunCommandMarksLongStreamLineAsTruncated(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "long-line.sh")
+	if err := os.WriteFile(filename, []byte("#!/bin/sh\nhead -c 12000 /dev/zero | tr '\\000' x\nprintf '\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var streamed ProcessOutput
+	result, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+		if !output.Started {
+			streamed = output
+		}
+	}, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed.Stream != "stdout" || !streamed.Truncated || !strings.Contains(streamed.Text, "[output line truncated]") || result.Truncated {
+		t.Fatalf("line truncation was not distinguished from full retained output: streamed=%#v result=%#v", streamed, result)
+	}
+}
+
+func TestRunCommandHonorsCancellation(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "wait.sh")
+	if err := os.WriteFile(filename, []byte("#!/bin/sh\nwhile :; do :; done\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, err := runCommandDetailed(ctx, time.Second, directory, nil, filename)
+	if err == nil || result.Status != "timeout" {
+		t.Fatalf("cancelled command was not marked interrupted: result=%#v err=%v", result, err)
+	}
+}
+
+func TestRunCommandStopsAfterRunningContextIsCancelled(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "cancel-after-start.sh")
+	if err := os.WriteFile(filename, []byte("#!/bin/sh\nprintf 'started\\n'\nwhile :; do :; done\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result, err := runCommandDetailedWithOutput(ctx, time.Second, directory, nil, func(output ProcessOutput) {
+		if strings.Contains(output.Text, "started") {
+			cancel()
+		}
+	}, filename)
+	if err == nil || result.Status != "timeout" {
+		t.Fatalf("running command ignored context cancellation: result=%#v err=%v", result, err)
 	}
 }
 

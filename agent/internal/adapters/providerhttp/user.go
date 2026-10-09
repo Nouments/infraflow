@@ -13,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"infraflow/pkg/observability"
 )
 
 const maxUserResponseBytes = 2 << 20
@@ -59,7 +61,7 @@ type EventSummary struct {
 }
 
 type TechnicalLogEntry struct {
-	ID        string    `json:"id"`
+	ID        string    `json:"event_id"`
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
 	Service   string    `json:"service"`
@@ -169,6 +171,26 @@ func (client *UserClient) Logs(ctx context.Context) ([]TechnicalLogEntry, error)
 	if err := client.request(ctx, http.MethodGet, "/api/v1/logs?limit=25", nil, &payload, true); err != nil {
 		return nil, err
 	}
+	if payload.Events == nil || len(payload.Events) > 25 {
+		return nil, fmt.Errorf("TUI server returned an invalid technical logs response")
+	}
+	for index := range payload.Events {
+		entry := &payload.Events[index]
+		if entry.Timestamp.IsZero() {
+			return nil, fmt.Errorf("TUI server returned an invalid technical log entry")
+		}
+		normalized, err := observability.NormalizeEvent(observability.Event{
+			ID: entry.ID, Timestamp: entry.Timestamp.UTC().Format(time.RFC3339Nano),
+			Level: entry.Level, Event: entry.Event, Message: entry.Message,
+			Service: entry.Service, Hostname: entry.Hostname, SiteID: entry.SiteID,
+			AgentID: entry.AgentID, RunID: entry.RunID, JobID: entry.JobID, TaskID: entry.TaskID,
+			Error: entry.Error, Source: entry.Source, Line: entry.Line,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("TUI server returned an invalid technical log entry")
+		}
+		entry.Message, entry.Error, entry.Line = normalized.Message, normalized.Error, normalized.Line
+	}
 	return payload.Events, nil
 }
 
@@ -181,7 +203,11 @@ func (client *UserClient) request(ctx context.Context, method, endpoint string, 
 		}
 		body = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, client.baseURL.ResolveReference(&url.URL{Path: endpoint}).String(), body)
+	reference, err := url.Parse(endpoint)
+	if err != nil || reference.IsAbs() || reference.Host != "" {
+		return fmt.Errorf("invalid TUI server endpoint")
+	}
+	request, err := http.NewRequestWithContext(ctx, method, client.baseURL.ResolveReference(reference).String(), body)
 	if err != nil {
 		return fmt.Errorf("create TUI request: %w", err)
 	}
@@ -204,7 +230,7 @@ func (client *UserClient) request(ctx context.Context, method, endpoint string, 
 		return fmt.Errorf("TUI server response exceeds %d bytes", maxUserResponseBytes)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("TUI server returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(data)))
+		return fmt.Errorf("TUI server returned HTTP %d: %s", response.StatusCode, observability.Redact(strings.TrimSpace(string(data))))
 	}
 	if target != nil && len(data) > 0 {
 		if err := json.Unmarshal(data, target); err != nil {

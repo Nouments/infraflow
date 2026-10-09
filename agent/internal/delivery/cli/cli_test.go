@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 )
@@ -275,12 +277,108 @@ func TestToolCommandsRunProviderGeneratedArtifacts(t *testing.T) {
 	}
 }
 
+func TestAnsibleProcessOutputIsStreamedRedactedAndReportedOverGRPC(t *testing.T) {
+	token := strings.Repeat("v", security.MinAgentTokenBytes)
+	releasePath := filepath.Join(t.TempDir(), "received")
+	server := &fakeAgentProvider{token: token, releasePath: releasePath}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grpcServer := grpc.NewServer()
+	infrav1.RegisterAgentProviderServer(grpcServer, server)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
+
+	stateDirectory := t.TempDir()
+	writeCLIArtifact(t, stateDirectory, "lab/ansible/inventory.yml", "all:\n  children:\n    network:\n      hosts:\n        R1:\n          ansible_host: 192.0.2.10\n")
+	writeCLIArtifact(t, stateDirectory, "lab/ansible/site.yml", `[{
+	"name":"Inspect declared InfraFlow devices","hosts":"network","gather_facts":false,
+	"tasks":[{"name":"Display declared device metadata","ansible.builtin.debug":{"msg":"device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"}}]}]`)
+	toolDirectory := t.TempDir()
+	toolPath := filepath.Join(toolDirectory, "ansible-playbook")
+	script := "#!/bin/sh\n" +
+		"printf 'token=secret-value\\n'\n" +
+		"while [ ! -f '" + releasePath + "' ]; do :; done\n" +
+		"printf 'stderr marker\\n' >&2\n"
+	if err := os.WriteFile(toolPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", toolDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("INFRAFLOW_TEST_PROCESS_TOKEN", token)
+	configPath := filepath.Join(t.TempDir(), "agent.yaml")
+	logDirectory := filepath.Join(t.TempDir(), "logs")
+	configuration := strings.Join([]string{
+		"agent:", "  id: agent-01", "  site_id: site-01", "  state_directory: " + stateDirectory,
+		"provider:", "  address: " + listener.Addr().String(), "  token_env: INFRAFLOW_TEST_PROCESS_TOKEN",
+		"  tls:", "    enabled: false",
+		"logging:", "  directory: " + logDirectory, "  level: DEBUG", "  format: json", "",
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(configuration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"execute-ansible", "-directory", stateDirectory, "-site", "lab", "-config", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("configured process command failed: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "secret-value") || !strings.Contains(stdout.String(), "[REDACTED]") || !strings.Contains(stderr.String(), "stderr marker") {
+		t.Fatalf("process output was not separated and redacted: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if len(server.logBatches) == 0 {
+		t.Fatal("process logs were not reported to the authenticated gRPC server")
+	}
+	var startedEvent, outputEvent, errorStreamEvent, completionEvent *observability.Event
+	for _, batch := range server.logBatches {
+		for _, encoded := range batch.GetEventsJson() {
+			var event observability.Event
+			if err := json.Unmarshal(encoded, &event); err != nil {
+				t.Fatalf("reported log event is malformed: %v", err)
+			}
+			if event.Event == "process.started" {
+				copy := event
+				startedEvent = &copy
+			}
+			if event.Event == "process.output" && event.Stream == "stdout" {
+				copy := event
+				outputEvent = &copy
+			}
+			if event.Event == "process.output" && event.Stream == "stderr" {
+				copy := event
+				errorStreamEvent = &copy
+			}
+			if event.Event == "process.completed" {
+				copy := event
+				completionEvent = &copy
+			}
+			if strings.Contains(string(encoded), "secret-value") {
+				t.Fatalf("reported process log leaked a secret: %s", encoded)
+			}
+		}
+	}
+	if outputEvent == nil || outputEvent.RunID == "" || !strings.Contains(outputEvent.Line, "[REDACTED]") {
+		t.Fatalf("server did not receive a redacted, run-correlated stdout event: %#v", outputEvent)
+	}
+	if startedEvent == nil || startedEvent.RunID != outputEvent.RunID || startedEvent.Status != "RUNNING" {
+		t.Fatalf("server did not receive a matching process start event: %#v output=%#v", startedEvent, outputEvent)
+	}
+	if errorStreamEvent == nil || errorStreamEvent.RunID != outputEvent.RunID || !strings.Contains(errorStreamEvent.Line, "stderr marker") {
+		t.Fatalf("server did not receive stderr as a distinct event: %#v", errorStreamEvent)
+	}
+	if completionEvent == nil || completionEvent.RunID != outputEvent.RunID || completionEvent.Status != "COMPLETED" {
+		t.Fatalf("server did not receive the matching process completion: %#v output=%#v", completionEvent, outputEvent)
+	}
+}
+
 type fakeAgentProvider struct {
 	infrav1.UnimplementedAgentProviderServer
-	token    string
-	artifact protocol.Artifact
-	data     []byte
-	report   *infrav1.AgentStateReport
+	token       string
+	artifact    protocol.Artifact
+	data        []byte
+	report      *infrav1.AgentStateReport
+	logBatches  []*infrav1.AgentLogBatch
+	releasePath string
 }
 
 func (server *fakeAgentProvider) authorize(ctx context.Context) error {
@@ -325,6 +423,16 @@ func (server *fakeAgentProvider) ReportLogs(ctx context.Context, batch *infrav1.
 	}
 	if batch.GetAgentId() != "agent-01" {
 		return nil, status.Error(codes.FailedPrecondition, "agent identity mismatch")
+	}
+	server.logBatches = append(server.logBatches, batch)
+	if server.releasePath != "" {
+		for _, encoded := range batch.GetEventsJson() {
+			var event observability.Event
+			if json.Unmarshal(encoded, &event) == nil && event.Event == "process.output" {
+				_ = os.WriteFile(server.releasePath, nil, 0o600)
+				break
+			}
+		}
 	}
 	return &infrav1.AgentLogAck{AcceptedCount: uint32(len(batch.GetEventsJson()))}, nil
 }

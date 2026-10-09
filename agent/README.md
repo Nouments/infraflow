@@ -67,17 +67,25 @@ resource, module, and data blocks, then runs `init -backend=false` and
 ```sh
 go run ./agent/cmd execute-ansible \
   -directory /var/lib/infraflow-agent \
-  -site lab
+  -site lab \
+  -config /etc/infraflow/agent.yaml
 
 go run ./agent/cmd validate-terraform \
   -directory /var/lib/infraflow-agent \
-  -site lab
+  -site lab \
+  -config /etc/infraflow/agent.yaml
 ```
 
 Both commands require the corresponding provider-generated artifacts to have
 been downloaded by `agent run`. They time out and stage only the expected
 files in a temporary workspace. Install `ansible-playbook` and `terraform` on
-the agent host to use them.
+the agent host to use them. stdout and stderr are captured and displayed
+incrementally on their respective CLI streams, with bounded memory and secret
+redaction. `-config` is optional; when supplied, its configured agent identity,
+token, logger, outbox, and existing gRPC `ReportLogs` call are used to persist
+and synchronize process events. The agent must already be registered with the
+provider. Without `-config`, process output is local to the command and is not
+sent to the dashboard.
 
 The Linux TUI is a separate human client of the provider HTTP API:
 
@@ -89,11 +97,12 @@ go run ./agent/cmd tui \
   -ca-file /etc/infraflow/provider-ca.crt
 ```
 
-Use `r`, `j`, `a`, `e`, `h`, or `q` to refresh jobs, inspect jobs, agents, or
-recent backend-reported generation/execution/verification results, show help,
-or quit. Event inspection is admin-only. The server address and port are
-command-line editable. The TUI never displays the full session token or
-password. A generation result is not an execution or verification result.
+Use `r`, `j`, `a`, `e`, `l`, `h`, or `q` to refresh jobs, inspect jobs, agents,
+recent backend-reported results, or a point-in-time page of technical logs,
+show help, or quit. Event and technical-log inspection are admin-only. The TUI
+does not stream continuously. The server address and port are command-line
+editable. The TUI never displays the full session token or password. A
+generation result is not an execution or verification result.
 
 Edit `examples/agent-config.yaml` for the provider host/port, optional loopback
 HTTP API address, site identity, local state directory, and TLS CA. When

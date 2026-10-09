@@ -1,105 +1,76 @@
-# InfraFlow — Current Engineering Tasks
+2. La prochaine étape après ce prompt
 
-## Objective
+Une fois la phase 1 terminée et vérifiée, je recommande de passer à un premier adaptateur réseau réel, plutôt que d’essayer de supporter simultanément Cisco, FortiGate, MikroTik et Proxmox.
 
-Correct the documentation and complete the technical observability workflow across the Provider Web Dashboard, Agent, and TUI.
+Phase 2 — Premier adaptateur réseau réel
 
-Work on the current feature branch. Do not push directly to `main` or `develop`. Preserve existing architecture and working behavior. Avoid unrelated refactoring.
+Étape suivante
 
-## Mandatory engineering rules
+Choisir un équipement disponible dans ton laboratoire GNS3/EVE-NG, détecter son état réel, exécuter une opération contrôlée, puis vérifier le résultat.
 
-* Do not invent test results, device states, execution results, logs, or capabilities.
-* Do not use mock data in production views. If mock data is used in tests, identify it explicitly.
-* Do not mark a task complete without implementation evidence and test results.
-* Preserve authentication, authorization, input validation, and existing secret redaction.
-* Keep stdout and stderr separate.
-* Do not log passwords, tokens, private keys, credentials, or sensitive configuration values.
-* Do not execute real network changes as part of tests.
-* Never report a generated plan or artifact as an executed deployment.
-* Document limitations and blocked tasks explicitly.
+Phase 3 — Cycle YAML → plan → exécution → vérification
 
-## P0 — Documentation integrity
+Chaque action doit posséder un statut explicite, un résultat observé et une preuve. La génération d’un fichier ne doit jamais être confondue avec l’application de sa configuration.
 
-* [ ] Inspect all README links and verify each target exists.
-* [ ] Resolve the broken `INFRAFLOW_SPEC.md` reference: restore the authoritative specification if available; otherwise update the README to identify the missing source and document the currently verified scope without fabricating requirements.
-* [ ] Create and maintain this `CURRENT.md`.
-* [ ] Verify branch differences before merging or copying changes between branches.
-* [ ] Update documentation only with behavior verified in the source code and tests.
+Phase 4 — Démonstration complète
 
-## P1 — Technical logs in the Web Dashboard
+Afficher dans la TUI et le dashboard les équipements, les jobs, la progression, les logs, les erreurs et l’état réellement vérifié.
 
-* [ ] Inspect existing log models, storage, filtering, authorization, and API handlers.
-* [ ] Add a dedicated Technical Logs view to the Web Dashboard.
-* [ ] Integrate the existing `GET /api/v1/logs` endpoint.
-* [ ] Integrate `GET /api/v1/logs/runs/{id}` where appropriate.
-* [ ] Integrate `GET /api/v1/logs/stream` using its actual protocol and response format.
-* [ ] Display timestamp, severity, component, event, run/job ID, agent/site identifiers when available, and message.
-* [ ] Support filtering and error states only where the backend supports them.
-* [ ] Provide loading, empty, disconnected, unauthorized, and server-error states.
-* [ ] Do not treat the Audit Trail as equivalent to technical logs.
-* [ ] Do not fabricate records when the API returns no data.
+3. Prompt pour préparer la phase 2
 
-## P1 — Real-time process output
+Tu peux le donner aux agents après la validation de la phase 1. Il s’agit d’abord d’un audit et d’une préparation, pas d’une autorisation d’implémenter tous les constructeurs.
 
-* [ ] Inspect the existing toolrunner and job execution lifecycle.
-* [ ] Implement bounded, incremental stdout and stderr capture while a process is running.
-* [ ] Forward output through the existing logging/event infrastructure where supported.
-* [ ] Associate events with the actual run/job ID and component.
-* [ ] Preserve output size limits, cancellation, timeouts, and secret redaction.
-* [ ] Avoid unbounded goroutines, channels, buffers, and database writes.
-* [ ] Define behavior for slow or disconnected log consumers.
-* [ ] Ensure final process results still include exit status, duration, truncation information, and separately captured stdout/stderr.
-* [ ] Do not claim live streaming if events are emitted only after process completion.
+INFRAFLOW — PHASE 2 : PREMIER ADAPTATEUR RÉSEAU RÉEL
+INFRAFLOW — PHASE 2 : PREMIER ADAPTATEUR RÉSEAU RÉEL
 
-## P1 — TUI technical logs
+Travaillez exclusivement sur develop.
 
-* [ ] Inspect the current TUI architecture and navigation before modifying it.
-* [ ] Add a technical log view only if it fits the existing architecture.
-* [ ] Display actual backend or agent log events, not fabricated entries.
-* [ ] Provide refresh, loading, empty, and error states as supported.
-* [ ] Preserve keyboard navigation and existing TUI behavior.
-* [ ] Clearly distinguish historical logs from a live stream.
+Objectif : identifier et implémenter le premier chemin d’exécution réseau réel supporté par InfraFlow, à partir des capacités effectivement présentes dans le dépôt et du laboratoire disponible.
 
-## P1 — Tests and security
+Avant toute modification :
 
-* [ ] Add unit tests for incremental output capture.
-* [ ] Test stdout/stderr separation.
-* [ ] Test output truncation, process failure, cancellation, and timeout.
-* [ ] Test secret redaction before logs leave the process boundary.
-* [ ] Add API tests for authorization and log retrieval.
-* [ ] Add frontend tests for loading, empty, error, and real API data.
-* [ ] Test stream disconnect and reconnect behavior where applicable.
-* [ ] Test that non-admin users cannot access admin-only log endpoints.
-* [ ] Run the repository's documented tests and report actual results.
-* [ ] Do not claim integration, end-to-end, or lab tests were run unless they were actually executed.
+Auditez les interfaces de providers/adapters, le moteur de planification, les jobs, les états d’exécution, les mécanismes de vérification et les tests existants.
+Identifiez les équipements réellement disponibles et leurs moyens d’accès : console, SSH, API ou protocole adapté.
+Vérifiez les capacités effectivement implémentées pour chaque constructeur. Ne déduisez pas le support d’un constructeur de la seule présence de son nom dans un YAML.
+Choisissez un seul équipement cible et justifiez ce choix.
+Proposez un scénario minimal, reproductible, non destructif et vérifiable.
 
-## P2 — README accuracy
+Le premier adaptateur devra distinguer au minimum :
 
-* [ ] Document the actual logs architecture and API endpoints.
-* [ ] Explain the difference between Audit Trail and technical logs.
-* [ ] Document whether process output is buffered or streamed in real time.
-* [ ] Update feature checklists only after implementation and tests.
-* [ ] Identify mock, experimental, generated-only, unverified, and lab-tested functionality accurately.
-* [ ] Verify every documentation link.
+configuration absente ;
+connexion impossible ;
+équipement détecté ;
+capacité non prise en charge ;
+plan généré ;
+action exécutée ;
+action échouée ;
+résultat vérifié ;
+vérification impossible.
 
-## Definition of Done
+Chaque action devra être liée à un équipement, une tâche et un run. Enregistrez les résultats et les erreurs dans les mécanismes d’observabilité existants.
 
-A task is complete only when:
+N’annoncez jamais une configuration appliquée si seule sa génération a été réalisée. Ne marquez jamais une action comme vérifiée sans une lecture ou une preuve indépendante adaptée.
 
-1. The implementation exists.
-2. Relevant automated tests pass.
-3. Security and authorization behavior is tested where applicable.
-4. Documentation matches the implementation.
-5. Limitations are recorded.
-6. The final report lists changed files, commands actually executed, test outcomes, and remaining blockers.
+Exigences de sécurité :
 
-## Final report
+secrets exclus des logs ;
+validation stricte des entrées ;
+délais d’attente ;
+annulation ;
+gestion des erreurs de connexion ;
+privilèges minimaux ;
+opérations non destructives par défaut ;
+tests avec équipements simulés séparés des tests de laboratoire réels.
 
-Provide:
+Livrables attendus :
 
-* Summary of changes.
-* Files changed.
-* Tests executed and their actual outcomes.
-* Features implemented but not lab-tested.
-* Remaining TODOs and blockers.
-* Confirmation that no real network device configuration was changed without explicit authorization.
+état des lieux de l’architecture existante ;
+choix du premier équipement cible et prérequis ;
+scénario de test reproductible ;
+fichiers à modifier ;
+tests unitaires et tests d’intégration ;
+preuves requises pour valider une action réelle ;
+critères d’acceptation ;
+limitations et fonctionnalités non supportées.
+
+Ne commencez pas une prise en charge générique de tous les constructeurs. Aucun déploiement destructif, aucune modification d’équipement réel et aucun push sans autorisation explicite.

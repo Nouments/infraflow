@@ -52,6 +52,14 @@ func NewApp(api http.Handler, enabled bool) *fiber.App {
 			ctx.Type("js", "utf-8")
 			return ctx.Send(data)
 		})
+		app.Get("/assets/log-stream.js", func(ctx *fiber.Ctx) error {
+			data, err := assets.ReadFile("assets/log-stream.js")
+			if err != nil {
+				return fiber.ErrInternalServerError
+			}
+			ctx.Type("js", "utf-8")
+			return ctx.Send(data)
+		})
 	}
 	if api != nil {
 		apiHandler := adaptor.HTTPHandler(api)

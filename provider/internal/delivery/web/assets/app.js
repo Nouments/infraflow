@@ -5,7 +5,10 @@
   let agents = [];
   let events = [];
   let technicalLogs = [];
+  let technicalLogsPage = { next: "", previous: "" };
   let technicalLogsStream = null;
+  let technicalLogCursor = "";
+  let technicalLogsGeneration = 0;
   let editorConfig = { sites: [] };
   let selectedSiteIndex = 0;
   let selectedResource = null;
@@ -128,10 +131,22 @@
   }
 
   function stopTechnicalLogsStream() {
+    technicalLogsGeneration += 1;
     if (technicalLogsStream) {
       technicalLogsStream.abort();
       technicalLogsStream = null;
     }
+    const status = $("#logs-stream-status");
+    if (status && !$("#logs-view")?.classList.contains("hidden")) setTechnicalLogsState("Disconnected");
+  }
+
+  function setTechnicalLogsState(state, message = "") {
+    const status = $("#logs-stream-status");
+    const error = $("#logs-error");
+    if (status) status.textContent = state;
+    if (error) error.textContent = message;
+    const empty = $("#logs-empty");
+    if (empty) empty.classList.toggle("hidden", technicalLogs.length > 0 || Boolean(message) || state === "Loading");
   }
 
   function logMessageFromEntry(entry) {
@@ -144,20 +159,23 @@
     $("#logs-empty").classList.toggle("hidden", technicalLogs.length > 0);
     technicalLogs.forEach((entry) => {
       const row = node("tr");
+      const level = node("td");
+      level.append(statusTag(entry.level || "info"));
       row.append(
-        node("td", "mono", entry.id || "—"),
+        node("td", "mono", entry.event_id || "—"),
         node("td", "mono", entry.timestamp ? formatDate(entry.timestamp) : "—"),
-        node("td", "", statusTag(entry.level || "info")),
+        level,
         node("td", "mono", entry.service || "—"),
         node("td", "mono", entry.run_id || "—"),
         node("td", "mono", logMessageFromEntry(entry)),
       );
       table.append(row);
     });
+    $("#logs-older").disabled = !technicalLogsPage.previous;
+    $("#logs-newer").disabled = !technicalLogsPage.next;
   }
 
-  async function loadTechnicalLogs() {
-    if (currentUser.role !== "admin") return;
+  function technicalLogsQuery() {
     const params = new URLSearchParams();
     const query = $("#logs-query")?.value?.trim() || "";
     const runID = $("#logs-run-id")?.value?.trim() || "";
@@ -166,58 +184,146 @@
     if (runID) params.set("run_id", runID);
     if (level) params.set("level", level);
     params.set("limit", "100");
+    return params;
+  }
+
+  async function loadTechnicalLogs() {
+    if (currentUser?.role !== "admin") return;
+    stopTechnicalLogsStream();
+    const generation = technicalLogsGeneration;
+    technicalLogCursor = "";
+    technicalLogsPage = { next: "", previous: "" };
+    $("#logs-page-state").textContent = "Latest page";
+    setTechnicalLogsState("Loading");
+    const params = technicalLogsQuery();
     try {
       const result = await request(`/logs?${params.toString()}`);
-      technicalLogs = Array.isArray(result.events) ? result.events : [];
+      if (generation !== technicalLogsGeneration || $("#logs-view").classList.contains("hidden")) return;
+      if (!Array.isArray(result.events)) throw new Error("Invalid technical logs response.");
+      technicalLogs = result.events;
+      technicalLogsPage = { next: result.next || "", previous: result.previous || "" };
+      technicalLogCursor = technicalLogs.at(-1)?.event_id || "";
+      setTechnicalLogsState("Connecting");
       renderTechnicalLogs();
-      startTechnicalLogsStream();
+      connectTechnicalLogs(generation, params);
     } catch (error) {
-      showNotice(error.message, true);
+      if (generation !== technicalLogsGeneration) return;
+      setTechnicalLogsState("Error", error.message || "Unable to load technical logs.");
     }
   }
 
-  async function startTechnicalLogsStream() {
-    if (currentUser.role !== "admin") return;
+  async function loadTechnicalLogsPage(direction) {
+    const cursor = direction === "older" ? technicalLogsPage.previous : technicalLogsPage.next;
+    if (!cursor || currentUser?.role !== "admin") return;
     stopTechnicalLogsStream();
-    const params = new URLSearchParams();
-    const query = $("#logs-query")?.value?.trim() || "";
-    const runID = $("#logs-run-id")?.value?.trim() || "";
-    const level = $("#logs-level")?.value || "";
-    if (query) params.set("q", query);
-    if (runID) params.set("run_id", runID);
-    if (level) params.set("level", level);
-    const controller = new AbortController();
-    technicalLogsStream = controller;
+    const generation = technicalLogsGeneration;
+    setTechnicalLogsState("Loading");
+    const params = technicalLogsQuery();
+    params.set(direction === "older" ? "before" : "after", cursor);
     try {
-      const response = await fetch(`/api/v1/logs/stream?${params.toString()}`, { headers: { Authorization: `Bearer ${token.value}` }, signal: controller.signal });
-      if (!response.ok) throw new Error(`Stream unavailable (${response.status})`);
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Event stream reader is unavailable");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() || "";
-        chunks.forEach((chunk) => {
-          const dataLine = chunk.split("\n").find((line) => line.startsWith("data: "));
-          if (!dataLine) return;
-          const raw = dataLine.slice(6).trim();
-          if (!raw || raw === ": keep-alive") return;
-          try {
-            const event = JSON.parse(raw);
-            if (!event.id) return;
-            technicalLogs = [event, ...technicalLogs.filter((current) => current.id !== event.id)].slice(0, 100);
-            renderTechnicalLogs();
-          } catch (_) { /* ignore malformed SSE frames */ }
-        });
+      const result = await request(`/logs?${params.toString()}`);
+      if (generation !== technicalLogsGeneration || $("#logs-view").classList.contains("hidden")) return;
+      if (!Array.isArray(result.events)) throw new Error("Invalid technical logs response.");
+      technicalLogs = result.events;
+      technicalLogsPage = { next: result.next || "", previous: result.previous || "" };
+      technicalLogCursor = technicalLogs.at(-1)?.event_id || "";
+      $("#logs-page-state").textContent = technicalLogsPage.next ? "Historical page" : "Latest page";
+      renderTechnicalLogs();
+      if (technicalLogsPage.next) setTechnicalLogsState("Disconnected");
+      else {
+        setTechnicalLogsState("Connecting");
+        connectTechnicalLogs(generation, technicalLogsQuery());
       }
     } catch (error) {
-      if (error.name !== "AbortError") showNotice(error.message, true);
-    } finally {
+      if (generation === technicalLogsGeneration) setTechnicalLogsState("Error", error.message || "Unable to load technical logs.");
+    }
+  }
+
+  function consumeTechnicalLogFrame(frame) {
+    const decoded = window.InfraFlowLogStream.decodeFrame(frame);
+    if (decoded.type === "reset") {
+      technicalLogCursor = "";
+      return;
+    }
+    if (decoded.type === "error") throw new Error("Log stream reported a server error.");
+    if (decoded.type !== "log") return;
+    technicalLogCursor = decoded.cursor;
+    technicalLogs = window.InfraFlowLogStream.prependUnique(technicalLogs, decoded.entry, 100);
+    renderTechnicalLogs();
+  }
+
+  function waitBeforeReconnect(delay, signal) {
+    return new Promise((resolve) => {
+      if (signal.aborted) { resolve(); return; }
+      let timer;
+      const finish = () => {
+        window.clearTimeout(timer);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      timer = window.setTimeout(finish, delay);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
+  function technicalLogsViewActive(generation) {
+    return generation === technicalLogsGeneration && currentUser?.role === "admin" && !$("#logs-view").classList.contains("hidden");
+  }
+
+  async function connectTechnicalLogs(generation, baseParams) {
+    let retryDelay = 500;
+    let hasConnected = false;
+    while (technicalLogsViewActive(generation)) {
+      const controller = new AbortController();
+      technicalLogsStream = controller;
+      setTechnicalLogsState(hasConnected ? "Reconnecting" : "Connecting");
+      let shouldRetry = false;
+      try {
+        const headers = new Headers({ Authorization: `Bearer ${token.value}` });
+        if (technicalLogCursor) headers.set("Last-Event-ID", technicalLogCursor);
+        const response = await fetch(`/api/v1/logs/stream?${baseParams.toString()}`, { headers, signal: controller.signal });
+        if (!response.ok) {
+          if (response.status === 401) {
+            token.value = "";
+            currentUser = null;
+            showLogin("Your session expired. Please sign in again.");
+            setTechnicalLogsState("Error", "Session expired; sign in again.");
+            return;
+          }
+          if (response.status === 403 || response.status < 500) {
+            setTechnicalLogsState("Error", response.status === 403 ? "Administrator access is required." : `Log stream request failed (${response.status}).`);
+            return;
+          }
+          throw new Error("Log stream is temporarily unavailable.");
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Log stream reader is unavailable.");
+        hasConnected = true;
+        retryDelay = 500;
+        setTechnicalLogsState("Connected");
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (technicalLogsViewActive(generation)) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parsed = window.InfraFlowLogStream.splitFrames(buffer);
+          buffer = parsed.remainder;
+          parsed.frames.forEach(consumeTechnicalLogFrame);
+        }
+        if (!technicalLogsViewActive(generation)) return;
+        throw new Error("Log stream disconnected.");
+      } catch (error) {
+        if (controller.signal.aborted || !technicalLogsViewActive(generation)) return;
+        setTechnicalLogsState("Reconnecting", error.message === "Log stream reported a server error." ? error.message : "Log stream disconnected; reconnecting.");
+        shouldRetry = true;
+      } finally {
+        if (!shouldRetry && technicalLogsStream === controller) technicalLogsStream = null;
+      }
+      if (!shouldRetry) return;
+      await waitBeforeReconnect(retryDelay, controller.signal);
       if (technicalLogsStream === controller) technicalLogsStream = null;
+      retryDelay = Math.min(retryDelay * 2, 10000);
     }
   }
 
@@ -1022,6 +1128,8 @@
   $("#logs-apply")?.addEventListener("click", () => {
     loadTechnicalLogs();
   });
+  $("#logs-older")?.addEventListener("click", () => loadTechnicalLogsPage("older"));
+  $("#logs-newer")?.addEventListener("click", () => loadTechnicalLogsPage("newer"));
 
   async function changeJob(id, operation) {
     try {

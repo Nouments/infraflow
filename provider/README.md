@@ -65,7 +65,10 @@ login endpoint, expiring sessions, and RBAC. User tokens stay in browser-tab
 memory and are not persisted to local storage.
 
 The console reviews planning jobs, task states, registered agents, audit events,
-and user accounts. Its infrastructure editor can compose sites, devices, and
+technical logs, and user accounts. Technical logs are restricted to admins and
+use the existing log list/run and SSE routes, including cursor pagination and
+`Last-Event-ID` resumption. The console shows explicit stream/error state and
+renders log content as text. Its infrastructure editor can compose sites, devices, and
 links visually or edit the source YAML, then request a read-only server-side
 validation and plan preview. The explicit **Generate artifacts** action sends
 that validated input through the planner and existing vendor Ansible renderer;

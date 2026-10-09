@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -399,6 +400,7 @@ func runAnsibleCheck(arguments []string, stdout, stderr io.Writer) int {
 	directory := flags.String("directory", "", "agent state directory containing verified Ansible artifacts")
 	site := flags.String("site", "", "site identifier whose playbook should run")
 	timeout := flags.Duration("timeout", 5*time.Minute, "maximum Ansible execution time")
+	configPath := flags.String("config", "", "agent configuration for local log persistence and provider synchronization")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -408,16 +410,38 @@ func runAnsibleCheck(arguments []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	result, err := toolrunner.RunAnsible(ctx, *directory, *site, *timeout)
+	output := newSynchronizedProcessOutput(stdout, stderr)
+	logSession, err := newProcessLogSession(*configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	if logSession != nil {
+		logSession.Start(ctx)
+	}
+	observer := func(processOutput toolrunner.ProcessOutput) {
+		output.Write(processOutput)
+		logSession.Observe(processOutput)
+	}
+	result, err := toolrunner.RunAnsibleWithOutput(ctx, *directory, *site, *timeout, observer)
+	if output.Started() {
+		logSession.Complete("ansible-check", err)
+	}
+	logSyncErr := logSession.Close()
+	if output.Err() != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: write process output: %v\n", output.Err())
+		return 1
+	}
+	if logSyncErr != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", logSyncErr)
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 1
 	}
 	for _, step := range result.Steps {
 		fmt.Fprintln(stdout, step)
-	}
-	if result.Output != "" {
-		fmt.Fprintln(stdout, result.Output)
 	}
 	return 0
 }
@@ -428,6 +452,7 @@ func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	directory := flags.String("directory", "", "agent state directory containing verified Terraform artifacts")
 	site := flags.String("site", "", "site identifier whose Terraform files should be validated")
 	timeout := flags.Duration("timeout", 5*time.Minute, "maximum Terraform validation time")
+	configPath := flags.String("config", "", "agent configuration for local log persistence and provider synchronization")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -437,7 +462,32 @@ func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	result, err := toolrunner.RunTerraform(ctx, *directory, *site, *timeout)
+	output := newSynchronizedProcessOutput(stdout, stderr)
+	logSession, err := newProcessLogSession(*configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	if logSession != nil {
+		logSession.Start(ctx)
+	}
+	observer := func(processOutput toolrunner.ProcessOutput) {
+		output.Write(processOutput)
+		logSession.Observe(processOutput)
+	}
+	result, err := toolrunner.RunTerraformWithOutput(ctx, *directory, *site, *timeout, observer)
+	if output.Started() {
+		logSession.Complete("terraform-validation", err)
+	}
+	logSyncErr := logSession.Close()
+	if output.Err() != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: write process output: %v\n", output.Err())
+		return 1
+	}
+	if logSyncErr != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", logSyncErr)
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 1
@@ -445,10 +495,48 @@ func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	for _, step := range result.Steps {
 		fmt.Fprintln(stdout, step)
 	}
-	if result.Output != "" {
-		fmt.Fprintln(stdout, result.Output)
-	}
 	return 0
+}
+
+type synchronizedProcessOutput struct {
+	mu      sync.Mutex
+	stdout  io.Writer
+	stderr  io.Writer
+	err     error
+	started bool
+}
+
+func newSynchronizedProcessOutput(stdout, stderr io.Writer) *synchronizedProcessOutput {
+	return &synchronizedProcessOutput{stdout: stdout, stderr: stderr}
+}
+
+func (output *synchronizedProcessOutput) Write(processOutput toolrunner.ProcessOutput) {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	if processOutput.Started {
+		output.started = true
+		return
+	}
+	if output.err != nil {
+		return
+	}
+	destination := output.stdout
+	if processOutput.Stream == "stderr" {
+		destination = output.stderr
+	}
+	_, output.err = io.WriteString(destination, processOutput.Text)
+}
+
+func (output *synchronizedProcessOutput) Started() bool {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.started
+}
+
+func (output *synchronizedProcessOutput) Err() error {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.err
 }
 
 func runTUI(arguments []string, stdout, stderr io.Writer) int {

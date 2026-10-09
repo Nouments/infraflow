@@ -159,6 +159,11 @@ td:first-child { color: var(--ink); font-weight: 650; }
 .event-detail { overflow: hidden; color: var(--ink-soft); text-overflow: ellipsis; white-space: nowrap; }
 .inline-form { display: grid; grid-template-columns: 1fr 1.4fr .75fr auto; align-items: end; gap: 12px; margin: 12px 0 18px; padding: 17px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
 .log-controls { display: grid; grid-template-columns: 1.25fr 1fr .8fr auto; align-items: end; gap: 12px; margin: 12px 0 18px; padding: 17px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.logs-heading-actions { display: flex; align-items: center; gap: 12px; }
+.stream-status { color: var(--quiet); font-family: "IBM Plex Mono", Consolas, monospace; font-size: 10px; }
+.log-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.log-pagination > div { display: flex; gap: 7px; }
+.log-pagination button:disabled { cursor: not-allowed; opacity: .5; }
 .plan-dialog { width: min(720px, calc(100vw - 28px)); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .plan-dialog::backdrop { background: rgb(12 34 29 / 42%); backdrop-filter: blur(2px); }
 .plan-dialog form { display: grid; gap: 14px; padding: 22px; }
