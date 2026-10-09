@@ -4,7 +4,42 @@
   let jobs = [];
   let agents = [];
   let events = [];
+  let editorConfig = { sites: [] };
+  let selectedSiteIndex = 0;
+  let selectedResource = null;
+  let previewSource = "";
+  let editorInitialized = false;
+  let autoPreviewTimer = null;
+  const topologyLayouts = new Map();
+  let topologyDrag = null;
   const $ = (selector) => document.querySelector(selector);
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const exampleInfrastructure = `sites:
+  - name: lab
+    bootstrap:
+      network: 192.168.100.0/24
+    services:
+      dhcp: true
+      tftp: true
+      pxe: true
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        model: csr1000v
+        management:
+          ipv4: 192.168.100.10
+      - name: SW1
+        role: switch
+        vendor: cisco
+        model: ios-xe
+        management:
+          ipv4: 192.168.100.11
+    links:
+      - a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`;
 
   function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -34,7 +69,11 @@
       currentUser = null;
       showLogin("Your session expired. Please sign in again.");
     }
-    if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(result.error || `Request failed (${response.status})`);
+      error.payload = result;
+      throw error;
+    }
     return result;
   }
 
@@ -60,6 +99,7 @@
   function selectView(name) {
     const labels = {
       overview: "Infrastructure overview",
+      editor: "Infrastructure editor",
       jobs: "Plans & jobs",
       agents: "Registered agents",
       activity: "Audit trail",
@@ -70,6 +110,13 @@
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
     $("#page-title").textContent = labels[name] || labels.overview;
     $("#view-label").textContent = name.toUpperCase();
+    if (name === "editor") {
+      renderEditor();
+      if (!editorInitialized) {
+        editorInitialized = true;
+        loadExampleInfrastructure();
+      }
+    }
     if (name === "agents") loadAgents();
     if (name === "activity") loadEvents();
     if (name === "users") loadUsers();
@@ -80,6 +127,554 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
     return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  }
+
+  function yamlScalar(value) {
+    if (typeof value === "string") return JSON.stringify(value);
+    if (value === null) return "null";
+    return String(value);
+  }
+
+  function yamlValue(value, indentation = 0) {
+    const padding = " ".repeat(indentation);
+    if (Array.isArray(value)) {
+      if (!value.length) return `${padding}[]`;
+      return value.map((item) => {
+        if (item && typeof item === "object") {
+          const lines = yamlValue(item, indentation + 2).split("\n");
+          return `${padding}- ${lines[0].slice(indentation + 2)}${lines.length > 1 ? `\n${lines.slice(1).join("\n")}` : ""}`;
+        }
+        return `${padding}- ${yamlScalar(item)}`;
+      }).join("\n");
+    }
+    if (value && typeof value === "object") {
+      const entries = Object.entries(value).filter(([, child]) => child !== undefined);
+      if (!entries.length) return `${padding}{}`;
+      return entries.map(([key, child]) => {
+        const safeKey = /^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) ? key : JSON.stringify(key);
+        const complex = child && typeof child === "object";
+        if (complex && (Array.isArray(child) ? child.length : Object.keys(child).length)) {
+          return `${padding}${safeKey}:\n${yamlValue(child, indentation + 2)}`;
+        }
+        return `${padding}${safeKey}: ${complex ? (Array.isArray(child) ? "[]" : "{}") : yamlScalar(child)}`;
+      }).join("\n");
+    }
+    return `${padding}${yamlScalar(value)}`;
+  }
+
+  function escapeHTML(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+  }
+
+  function yamlCommentOffset(line) {
+    let quote = "";
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (quote === '"' && character === "\\") { index += 1; continue; }
+      if (quote === "'" && character === "'" && line[index + 1] === "'") { index += 1; continue; }
+      if (quote && character === quote) { quote = ""; continue; }
+      if (!quote && (character === '"' || character === "'")) { quote = character; continue; }
+      if (!quote && character === "#" && (index === 0 || /\s/.test(line[index - 1]))) return index;
+    }
+    return line.length;
+  }
+
+  function yamlKeyOffset(line) {
+    let quote = "";
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index];
+      if (quote === '"' && character === "\\") { index += 1; continue; }
+      if (quote === "'" && character === "'" && line[index + 1] === "'") { index += 1; continue; }
+      if (quote && character === quote) { quote = ""; continue; }
+      if (!quote && (character === '"' || character === "'")) { quote = character; continue; }
+      if (!quote && character === ":" && (index === line.length - 1 || /\s/.test(line[index + 1]))) return index;
+    }
+    return -1;
+  }
+
+  function highlightYamlValue(value) {
+    const tokens = /"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|\b(?:true|false|null|yes|no|on|off)\b|-?\d+(?:\.\d+)?(?:\/\d+)?|[{}\[\],]|[^\s{}\[\],]+/gi;
+    let output = "";
+    let offset = 0;
+    for (const match of value.matchAll(tokens)) {
+      output += escapeHTML(value.slice(offset, match.index));
+      const token = match[0];
+      const className = /^['"]/.test(token) ? "yaml-string"
+        : /^(true|false|null|yes|no|on|off)$/i.test(token) ? "yaml-keyword"
+          : /^-?\d/.test(token) ? "yaml-number"
+            : /^[{}\[\],]$/.test(token) ? "yaml-punctuation" : "yaml-string";
+      output += `<span class="${className}">${escapeHTML(token)}</span>`;
+      offset = match.index + token.length;
+    }
+    return output + escapeHTML(value.slice(offset));
+  }
+
+  function highlightYamlLine(line) {
+    const commentOffset = yamlCommentOffset(line);
+    const content = line.slice(0, commentOffset);
+    const comment = line.slice(commentOffset);
+    const keyOffset = yamlKeyOffset(content);
+    let output;
+    if (keyOffset >= 0) {
+      const prefix = content.slice(0, keyOffset);
+      const keyMatch = prefix.match(/^(\s*(?:-\s+)?)(.*?)(\s*)$/);
+      output = `${escapeHTML(keyMatch[1])}<span class="yaml-key">${escapeHTML(keyMatch[2])}</span>${escapeHTML(keyMatch[3])}<span class="yaml-punctuation">:</span>${highlightYamlValue(content.slice(keyOffset + 1))}`;
+    } else output = highlightYamlValue(content);
+    if (comment) output += `<span class="yaml-comment">${escapeHTML(comment)}</span>`;
+    return output;
+  }
+
+  function updateYamlHighlight() {
+    const source = $("#editor-source");
+    const highlight = $("#editor-highlight");
+    highlight.innerHTML = `${source.value.split("\n").map(highlightYamlLine).join("\n")}\n`;
+    highlight.scrollTop = source.scrollTop;
+    highlight.scrollLeft = source.scrollLeft;
+  }
+
+  function currentEditorSite() {
+    return editorConfig.sites[selectedSiteIndex] || null;
+  }
+
+  function invalidateEditorPreview() {
+    previewSource = "";
+    $("#editor-status").textContent = "Preview pending";
+    $("#editor-source-state").textContent = "AUTO PREVIEW QUEUED";
+    $("#editor-error").textContent = "";
+    $("#editor-plan").classList.add("hidden");
+    $("#editor-submit").disabled = true;
+    $("#editor-generate").disabled = true;
+  }
+
+  function scheduleEditorPreview(delay = 650) {
+    window.clearTimeout(autoPreviewTimer);
+    autoPreviewTimer = window.setTimeout(() => { previewEditorPlan(); }, delay);
+  }
+
+  function syncEditorSource() {
+    $("#editor-source").value = `${yamlValue(editorConfig).trim()}\n`;
+    updateYamlHighlight();
+    invalidateEditorPreview();
+    renderEditor(false);
+    scheduleEditorPreview();
+  }
+
+  function svgElement(tag, attributes = {}) {
+    const element = document.createElementNS(SVG_NS, tag);
+    Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, String(value)));
+    return element;
+  }
+
+  function endpointDevice(value) {
+    return String(value || "").split(":", 1)[0];
+  }
+
+  function topologySiteKey(site) {
+    return `${selectedSiteIndex}:${site?.name || "site"}`;
+  }
+
+  function topologyDevicePosition(site, device, index) {
+    const siteKey = topologySiteKey(site);
+    if (!topologyLayouts.has(siteKey)) topologyLayouts.set(siteKey, new Map());
+    const layout = topologyLayouts.get(siteKey);
+    if (layout.has(device.name)) return layout.get(device.name);
+
+    let seed = Array.from(`${siteKey}:${device.name}:${index}`).reduce((value, character) => value + character.charCodeAt(0), 2166136261) >>> 0;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    let position;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const candidate = { x: 110 + random() * 780, y: 65 + random() * 390 };
+      if ([...layout.values()].every((other) => Math.abs(other.x - candidate.x) > 190 || Math.abs(other.y - candidate.y) > 88)) {
+        position = candidate;
+        break;
+      }
+    }
+    if (!position) {
+      const angle = index * 2.39996;
+      const radius = 70 + index * 24;
+      position = {
+        x: Math.max(100, Math.min(900, 500 + Math.cos(angle) * radius)),
+        y: Math.max(55, Math.min(465, 260 + Math.sin(angle) * radius * 0.48)),
+      };
+    }
+    layout.set(device.name, position);
+    return position;
+  }
+
+  function topologyPoint(event, canvas) {
+    const point = canvas.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    return point.matrixTransform(canvas.getScreenCTM().inverse());
+  }
+
+  function renderTopology(site) {
+    const canvas = $("#editor-topology");
+    canvas.replaceChildren();
+    const devices = site?.devices || [];
+    const positions = new Map(devices.map((device, index) => [device.name, topologyDevicePosition(site, device, index)]));
+    (site?.links || []).forEach((link, index) => {
+      const from = positions.get(endpointDevice(link.a));
+      const to = positions.get(endpointDevice(link.b));
+      if (!from || !to) return;
+      const group = svgElement("g", { class: `topology-link${selectedResource?.kind === "link" && selectedResource.index === index ? " selected" : ""}`, role: "button", tabindex: "0", "aria-label": `Edit link ${link.a} to ${link.b}` });
+      group.append(svgElement("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: "topology-link-hit" }));
+      group.append(svgElement("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: "topology-link-visible" }));
+      const label = svgElement("text", { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 9, class: "topology-link-label" });
+      label.textContent = link.network || "Network not set";
+      group.append(label);
+      group.addEventListener("click", () => selectEditorResource({ kind: "link", index }));
+      group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") selectEditorResource({ kind: "link", index }); });
+      canvas.append(group);
+    });
+    devices.forEach((device, index) => {
+      const position = positions.get(device.name);
+      const group = svgElement("g", { class: `topology-device${selectedResource?.kind === "device" && selectedResource.index === index ? " selected" : ""}`, "data-index": index, transform: `translate(${position.x - 88} ${position.y - 34})`, role: "button", tabindex: "0", "aria-label": `Drag or edit device ${device.name}` });
+      group.append(svgElement("rect", { width: 176, height: 68, rx: 5 }));
+      const name = svgElement("text", { x: 12, y: 25, class: "topology-device-name" });
+      name.textContent = device.name || "Unnamed device";
+      group.append(name);
+      const detail = svgElement("text", { x: 12, y: 47, class: "topology-device-detail" });
+      detail.textContent = [device.vendor || "vendor unset", device.model || "model unset"].join(" · ");
+      group.append(detail);
+      group.addEventListener("click", () => selectEditorResource({ kind: "device", index }));
+      group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") selectEditorResource({ kind: "device", index }); });
+      canvas.append(group);
+    });
+    $("#editor-topology-empty").classList.toggle("hidden", devices.length > 0);
+  }
+
+  function propertyField(container, labelText, value, onInput, type = "text") {
+    const label = node("label", "editor-field");
+    label.append(node("span", "", labelText));
+    const input = node("input");
+    input.type = type;
+    input.value = value ?? "";
+    input.addEventListener("input", () => onInput(input.value));
+    label.append(input);
+    container.append(label);
+  }
+
+  function setNestedValue(target, path, value) {
+    const parts = path.split(".");
+    let current = target;
+    parts.slice(0, -1).forEach((part) => { current[part] ||= {}; current = current[part]; });
+    const last = parts[parts.length - 1];
+    if (value === "") {
+      delete current[last];
+      if (parts.length > 1 && Object.keys(current).length === 0) {
+        let parent = target;
+        parts.slice(0, -2).forEach((part) => { parent = parent[part]; });
+        delete parent[parts[parts.length - 2]];
+      }
+    } else current[last] = value;
+  }
+
+  function updateEditorProperty(target, path, value) {
+    if (path === "name" && target.name !== value && currentEditorSite()) {
+      const previousName = target.name;
+      (currentEditorSite().links || []).forEach((link) => {
+        ["a", "b"].forEach((key) => {
+          if (endpointDevice(link[key]) === previousName) link[key] = `${value}:${String(link[key]).split(":").slice(1).join(":")}`;
+        });
+      });
+    }
+    setNestedValue(target, path, value);
+    syncEditorSource();
+  }
+
+  function removeButton(label, onClick) {
+    const button = node("button", "button button-danger", label);
+    button.type = "button";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function renderInspector() {
+    const container = $("#editor-inspector");
+    container.replaceChildren();
+    const site = currentEditorSite();
+    const resource = selectedResource;
+    if (!site) {
+      $("#editor-inspector-title").textContent = "Selection";
+      container.append(node("p", "muted", "Add a site to begin editing."));
+      return;
+    }
+    if (!resource) {
+      $("#editor-inspector-title").textContent = site.name || "Site properties";
+      propertyField(container, "Site name", site.name, (value) => updateEditorProperty(site, "name", value));
+      propertyField(container, "Mode", site.mode, (value) => updateEditorProperty(site, "mode", value));
+      propertyField(container, "Bootstrap network", site.bootstrap?.network, (value) => updateEditorProperty(site, "bootstrap.network", value));
+      propertyField(container, "Bootstrap gateway", site.bootstrap?.gateway, (value) => updateEditorProperty(site, "bootstrap.gateway", value));
+      const services = node("fieldset", "service-fields");
+      services.append(node("legend", "", "Services"));
+      ["dhcp", "tftp", "pxe"].forEach((name) => {
+        const label = node("label", "service-toggle");
+        const input = node("input");
+        input.type = "checkbox";
+        input.checked = site.services?.[name] === true;
+        input.addEventListener("change", () => {
+          site.services ||= {};
+          if (input.checked) site.services[name] = true;
+          else delete site.services[name];
+          if (!Object.keys(site.services).length) delete site.services;
+          syncEditorSource();
+        });
+        label.append(input, node("span", "", name.toUpperCase()));
+        services.append(label);
+      });
+      container.append(services);
+      container.append(removeButton("Remove site", () => {
+        editorConfig.sites.splice(selectedSiteIndex, 1);
+        selectedSiteIndex = Math.max(0, selectedSiteIndex - 1);
+        selectedResource = null;
+        syncEditorSource();
+        renderEditor();
+      }));
+      return;
+    }
+    if (resource.kind === "device") {
+      const device = site.devices?.[resource.index];
+      if (!device) { selectedResource = null; renderInspector(); return; }
+      $("#editor-inspector-title").textContent = device.name || "Device properties";
+      [["Name", "name"], ["Role", "role"], ["Vendor", "vendor"], ["Family", "family"], ["Model", "model"], ["Management IPv4", "management.ipv4"], ["Serial", "identity.serial"], ["Provisioning method", "provisioning.method"]].forEach(([label, path]) => {
+        const value = path.split(".").reduce((current, key) => current?.[key], device);
+        propertyField(container, label, value, (next) => updateEditorProperty(device, path, next));
+      });
+      const macLabel = node("label", "editor-field");
+      macLabel.append(node("span", "", "MAC addresses (one per line)"));
+      const macInput = node("textarea", "editor-small-textarea");
+      macInput.value = (device.identity?.macs || []).join("\n");
+      macInput.addEventListener("input", () => {
+        device.identity ||= {};
+        const values = macInput.value.split("\n").map((value) => value.trim()).filter(Boolean);
+        if (values.length) device.identity.macs = values;
+        else delete device.identity.macs;
+        if (!Object.keys(device.identity).length) delete device.identity;
+        syncEditorSource();
+      });
+      macLabel.append(macInput);
+      container.append(macLabel);
+      container.append(removeButton("Remove device", () => {
+        const name = device.name;
+        site.devices.splice(resource.index, 1);
+        site.links = (site.links || []).filter((link) => endpointDevice(link.a) !== name && endpointDevice(link.b) !== name);
+        selectedResource = null;
+        syncEditorSource();
+        renderEditor();
+      }));
+      return;
+    }
+    const link = site.links?.[resource.index];
+    if (!link) { selectedResource = null; renderInspector(); return; }
+    $("#editor-inspector-title").textContent = "Link properties";
+    [["Endpoint A (device:interface)", "a"], ["Endpoint B (device:interface)", "b"], ["Network CIDR", "network"], ["Link ID", "id"]].forEach(([label, path]) => {
+      propertyField(container, label, link[path], (value) => updateEditorProperty(link, path, value));
+    });
+    container.append(removeButton("Remove link", () => {
+      site.links.splice(resource.index, 1);
+      selectedResource = null;
+      syncEditorSource();
+      renderEditor();
+    }));
+  }
+
+  function selectEditorResource(resource) {
+    selectedResource = resource;
+    renderEditor();
+  }
+
+  function renderEditor(renderProperties = true) {
+    const sites = editorConfig.sites || [];
+    const sitePicker = $("#editor-site");
+    sitePicker.replaceChildren();
+    sites.forEach((site, index) => {
+      const option = node("option", "", site.name || `Site ${index + 1}`);
+      option.value = String(index);
+      sitePicker.append(option);
+    });
+    if (sites.length) {
+      selectedSiteIndex = Math.min(selectedSiteIndex, sites.length - 1);
+      sitePicker.value = String(selectedSiteIndex);
+    } else {
+      sitePicker.append(node("option", "", "No sites"));
+      sitePicker.value = "";
+    }
+    const site = currentEditorSite();
+    const devices = site?.devices || [];
+    const links = site?.links || [];
+    $("#editor-topology-title").textContent = site?.name || "Select a site";
+    $("#editor-count").textContent = `${devices.length} DEVICES · ${links.length} LINKS`;
+    renderTopology(site);
+    const linkList = $("#editor-links");
+    linkList.replaceChildren();
+    links.forEach((link, index) => {
+      const button = node("button", `link-chip${selectedResource?.kind === "link" && selectedResource.index === index ? " active" : ""}`, `${link.a || "?"} to ${link.b || "?"}`);
+      button.type = "button";
+      button.addEventListener("click", () => selectEditorResource({ kind: "link", index }));
+      linkList.append(button);
+    });
+    if (renderProperties) renderInspector();
+  }
+
+  function renderPlanPreview(result) {
+    const panel = $("#editor-plan");
+    panel.replaceChildren();
+    const heading = node("div", "editor-panel-heading");
+    const title = node("div");
+    title.append(node("p", "eyebrow", "PLAN PREVIEW"), node("h3", "", `${result.plan.status} · ${result.plan.tasks.length} tasks`));
+    heading.append(title, statusTag(result.plan.status));
+    panel.append(heading);
+    if (result.generation_status) {
+      panel.append(node("p", "generation-summary", `Generation ${result.generation_status} · Execution ${result.execution_status} · Verification ${result.verification_status}`));
+      (result.tasks || []).forEach((task) => {
+        (task.artifacts || []).forEach((artifact) => {
+          const row = node("div", "generation-artifact");
+          row.append(node("b", "", `${artifact.device} · ${artifact.type}`));
+          row.append(node("span", "mono", artifact.path));
+          row.append(node("span", "mono", `SHA-256 ${artifact.sha256}`));
+          row.append(node("span", "quiet-label", `template ${artifact.template_version} · ${artifact.status}`));
+          panel.append(row);
+        });
+      });
+    }
+    const list = node("div", "preview-task-list");
+    (result.plan.tasks || []).forEach((task) => {
+      const row = node("div", "preview-task");
+      const detail = node("div");
+      detail.append(node("b", "", task.target || task.site), node("span", "", `${task.site} · ${task.action}`));
+      row.append(detail, statusTag(task.status));
+      if (task.reason) row.append(node("p", "preview-reason", task.reason));
+      list.append(row);
+    });
+    if (!result.plan.tasks.length) list.append(node("p", "muted", "No tasks were produced for this configuration."));
+    panel.append(list);
+    panel.classList.remove("hidden");
+  }
+
+  async function previewEditorPlan() {
+    const source = $("#editor-source").value;
+    $("#editor-error").textContent = "";
+    $("#editor-status").textContent = "Validating…";
+    try {
+      const result = await request("/plan/preview", { method: "POST", body: JSON.stringify({ input: source }) });
+      if ($("#editor-source").value !== source) {
+        $("#editor-status").textContent = "Draft changed during validation";
+        $("#editor-error").textContent = "The source changed while validation was running. Validate the current draft again.";
+        $("#editor-submit").disabled = true;
+        $("#editor-generate").disabled = true;
+        $("#editor-plan").classList.add("hidden");
+        return;
+      }
+      editorConfig = result.infrastructure || { sites: [] };
+      selectedSiteIndex = Math.min(selectedSiteIndex, Math.max(0, editorConfig.sites.length - 1));
+      selectedResource = null;
+      previewSource = source;
+      $("#editor-status").textContent = `Valid · ${result.plan.tasks.length} tasks`;
+      $("#editor-source-state").textContent = "VALIDATED BY PROVIDER";
+      $("#editor-submit").disabled = false;
+      $("#editor-generate").disabled = false;
+      renderEditor();
+      renderPlanPreview(result);
+    } catch (error) {
+      $("#editor-status").textContent = "Validation failed";
+      $("#editor-error").textContent = error.message;
+      $("#editor-submit").disabled = true;
+      $("#editor-generate").disabled = true;
+      $("#editor-plan").classList.add("hidden");
+    }
+  }
+
+  function loadExampleInfrastructure() {
+    $("#editor-source").value = exampleInfrastructure;
+    updateYamlHighlight();
+    invalidateEditorPreview();
+    scheduleEditorPreview(80);
+  }
+
+  function addEditorSite() {
+    editorConfig.sites ||= [];
+    const index = editorConfig.sites.length + 1;
+    editorConfig.sites.push({ name: `site-${index}`, devices: [], links: [] });
+    selectedSiteIndex = editorConfig.sites.length - 1;
+    selectedResource = null;
+    syncEditorSource();
+    renderEditor();
+  }
+
+  function addEditorDevice() {
+    const site = currentEditorSite();
+    if (!site) { showNotice("Add a site before adding devices.", true); return; }
+    site.devices ||= [];
+    const index = site.devices.length + 1;
+    site.devices.push({ name: `device-${index}`, role: "router", management: {} });
+    selectedResource = { kind: "device", index: site.devices.length - 1 };
+    syncEditorSource();
+    renderEditor();
+  }
+
+  function addEditorLink() {
+    const site = currentEditorSite();
+    const devices = site?.devices || [];
+    if (devices.length < 2) { showNotice("Add at least two devices before connecting them.", true); return; }
+    site.links ||= [];
+    const index = site.links.length + 1;
+    site.links.push({ a: `${devices[0].name}:eth0`, b: `${devices[1].name}:eth0`, network: `10.10.${index}.0/30` });
+    selectedResource = { kind: "link", index: site.links.length - 1 };
+    syncEditorSource();
+    renderEditor();
+  }
+
+  async function createEditorPlan() {
+    if (!previewSource || previewSource !== $("#editor-source").value) {
+      showNotice("Validate the current draft before creating a plan.", true);
+      return;
+    }
+    const button = $("#editor-submit");
+    button.disabled = true;
+    try {
+      await request("/jobs", { method: "POST", body: JSON.stringify({ input: $("#editor-source").value }) });
+      selectView("jobs");
+      await refreshData();
+      showNotice("Planning job created. No infrastructure changes were executed.");
+    } catch (error) {
+      showNotice(error.message, true);
+      button.disabled = false;
+    }
+  }
+
+  async function generateEditorArtifacts() {
+    if (!previewSource || previewSource !== $("#editor-source").value) {
+      showNotice("Validate the current draft before generating artifacts.", true);
+      return;
+    }
+    const button = $("#editor-generate");
+    button.disabled = true;
+    $("#editor-status").textContent = "Generating planned artifacts…";
+    try {
+      const source = previewSource;
+      const result = await request("/plan/generate", { method: "POST", body: JSON.stringify({ input: source }) });
+      if ($("#editor-source").value !== source) {
+        $("#editor-status").textContent = "Draft changed during generation";
+        $("#editor-error").textContent = "The source changed while artifacts were being generated. Validate the current draft again.";
+        return;
+      }
+      $("#editor-status").textContent = `Generation ${result.generation_status}`;
+      $("#editor-source-state").textContent = "GENERATION RESULT FROM PROVIDER";
+      renderPlanPreview(result);
+      showNotice(`Generation ${result.generation_status}; execution was not requested and verification was not performed.`);
+    } catch (error) {
+      const result = error.payload?.result;
+      if (result?.plan) renderPlanPreview(result);
+      $("#editor-status").textContent = result ? `Generation ${result.generation_status}` : "Generation failed";
+      $("#editor-error").textContent = error.payload?.error || error.message;
+      showNotice(error.payload?.error || error.message, true);
+    } finally {
+      button.disabled = !previewSource || previewSource !== $("#editor-source").value;
+    }
   }
 
   function statusTag(status) {
@@ -318,7 +913,7 @@
   document.body.addEventListener("click", (event) => {
     const control = event.target.closest("[data-action]");
     const action = control?.dataset.action;
-    if (action === "new-plan") $("#plan-dialog").showModal();
+    if (action === "new-plan") selectView("editor");
     if (action === "refresh") refreshData();
     if (action === "cancel-job" || action === "retry-job") changeJob(control.dataset.id, action === "cancel-job" ? "cancel" : "retry");
     if (action === "toggle-user") toggleUser(control.dataset.id, control.dataset.disabled === "true");
@@ -339,25 +934,58 @@
       showNotice(`User ${disabled ? "enabled" : "disabled"}.`);
     } catch (error) { showNotice(error.message, true); }
   }
-  $("#new-plan").addEventListener("click", () => $("#plan-dialog").showModal());
-  $("#close-dialog").addEventListener("click", () => $("#plan-dialog").close());
-  $("#cancel-plan").addEventListener("click", () => $("#plan-dialog").close());
-
-  $("#plan-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    $("#plan-error").textContent = "";
-    const button = event.currentTarget.querySelector("button[type=submit]");
-    button.disabled = true;
-    try {
-      await request("/jobs", { method: "POST", body: JSON.stringify({ input: event.currentTarget.elements.input.value }) });
-      $("#plan-dialog").close();
-      event.currentTarget.reset();
-      selectView("jobs");
-      await refreshData();
-      showNotice("Planning job created. No infrastructure changes were executed.");
-    } catch (error) { $("#plan-error").textContent = error.message; }
-    finally { button.disabled = false; }
+  const topologyCanvas = $("#editor-topology");
+  topologyCanvas.addEventListener("pointerdown", (event) => {
+    const group = event.target.closest(".topology-device");
+    if (!group || event.button !== 0) return;
+    const site = currentEditorSite();
+    const index = Number(group.dataset.index);
+    const device = site?.devices?.[index];
+    if (!device) return;
+    const point = topologyPoint(event, topologyCanvas);
+    const position = topologyDevicePosition(site, device, index);
+    topologyDrag = { device, site, pointerId: event.pointerId, offsetX: position.x - point.x, offsetY: position.y - point.y };
+    selectedResource = { kind: "device", index };
+    group.classList.add("selected");
+    topologyCanvas.setPointerCapture(event.pointerId);
+    renderInspector();
   });
+  topologyCanvas.addEventListener("pointermove", (event) => {
+    if (!topologyDrag || topologyDrag.pointerId !== event.pointerId) return;
+    const point = topologyPoint(event, topologyCanvas);
+    const layout = topologyLayouts.get(topologySiteKey(topologyDrag.site));
+    layout.set(topologyDrag.device.name, {
+      x: Math.max(88, Math.min(912, point.x + topologyDrag.offsetX)),
+      y: Math.max(34, Math.min(486, point.y + topologyDrag.offsetY)),
+    });
+    renderTopology(topologyDrag.site);
+  });
+  const finishTopologyDrag = (event) => {
+    if (!topologyDrag || topologyDrag.pointerId !== event.pointerId) return;
+    topologyDrag = null;
+    if (topologyCanvas.hasPointerCapture(event.pointerId)) topologyCanvas.releasePointerCapture(event.pointerId);
+  };
+  topologyCanvas.addEventListener("pointerup", finishTopologyDrag);
+  topologyCanvas.addEventListener("pointercancel", finishTopologyDrag);
+
+  $("#new-plan").addEventListener("click", () => selectView("editor"));
+  $("#editor-site").addEventListener("change", (event) => {
+    selectedSiteIndex = Number(event.target.value) || 0;
+    selectedResource = null;
+    renderEditor();
+  });
+  $("#editor-add-site").addEventListener("click", addEditorSite);
+  $("#editor-add-device").addEventListener("click", addEditorDevice);
+  $("#editor-add-link").addEventListener("click", addEditorLink);
+  $("#editor-example").addEventListener("click", loadExampleInfrastructure);
+  $("#editor-generate").addEventListener("click", generateEditorArtifacts);
+  $("#editor-submit").addEventListener("click", createEditorPlan);
+  $("#editor-source").addEventListener("input", () => {
+    updateYamlHighlight();
+    invalidateEditorPreview();
+    scheduleEditorPreview();
+  });
+  $("#editor-source").addEventListener("scroll", updateYamlHighlight);
 
   $("#user-form").addEventListener("submit", async (event) => {
     event.preventDefault();

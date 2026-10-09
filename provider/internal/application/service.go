@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"infraflow/internal/domain"
 	"infraflow/internal/ports"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -38,36 +40,113 @@ type AgentHeartbeat struct {
 	QueueDepth   int
 }
 
+type TemplateInspection struct {
+	Site            string
+	Device          string
+	TemplateID      string
+	TemplateHash    string
+	Capability      string
+	CapabilityState domain.CapabilityState
+	CapabilityMsg   string
+	Blocked         bool
+}
+
+type CapabilitySummary struct {
+	Site            string
+	Device          string
+	TemplateID      string
+	TemplateHash    string
+	Capability      string
+	CapabilityState domain.CapabilityState
+	CapabilityMsg   string
+	Ready           bool
+}
+
+type CapabilityMatrixRow struct {
+	Site            string
+	Device          string
+	Vendor          string
+	Family          string
+	Model           string
+	Method          string
+	State           domain.CapabilityState
+	Evidence        string
+	TemplateID      string
+	TemplateVersion string
+	Ready           bool
+}
+
 type Dependencies struct {
-	Parser      ports.InfrastructureParser
-	PlanBuilder ports.PlanBuilder
+	Parser            ports.InfrastructureParser
+	PlanBuilder       ports.PlanBuilder
+	ArtifactDirectory string
+	Logs              ports.LogRepository
 }
 
 type Service struct {
-	artifacts   ports.ArtifactRepository
-	reports     ports.ReportRepository
-	generator   ports.ArtifactGenerator
-	jobs        ports.JobRepository
-	agents      ports.AgentRepository
-	events      ports.EventRepository
-	parser      ports.InfrastructureParser
-	planBuilder ports.PlanBuilder
+	artifacts         ports.ArtifactRepository
+	reports           ports.ReportRepository
+	generator         ports.ArtifactGenerator
+	jobs              ports.JobRepository
+	agents            ports.AgentRepository
+	events            ports.EventRepository
+	logs              ports.LogRepository
+	parser            ports.InfrastructureParser
+	planBuilder       ports.PlanBuilder
+	artifactDirectory string
 }
 
 func NewService(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobs(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobsAndAgents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
 }
 
 func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, events ports.EventRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+}
+
+func (service *Service) IngestAgentLogs(agentID string, input []observability.Event) (observability.AppendResult, error) {
+	if service.logs == nil {
+		return observability.AppendResult{}, fmt.Errorf("technical log repository is not configured")
+	}
+	if len(input) == 0 || len(input) > observability.MaxIngestBatch {
+		return observability.AppendResult{}, fmt.Errorf("log batch must contain between 1 and %d events", observability.MaxIngestBatch)
+	}
+	agent, err := service.Agent(agentID)
+	if err != nil {
+		return observability.AppendResult{}, fmt.Errorf("authenticate log agent identity: %w", err)
+	}
+	events := make([]observability.Event, 0, len(input))
+	for _, event := range input {
+		if event.AgentID != "" && event.AgentID != agent.ID {
+			return observability.AppendResult{}, fmt.Errorf("log event agent identity does not match authenticated agent")
+		}
+		if event.SiteID != "" && event.SiteID != agent.SiteID {
+			return observability.AppendResult{}, fmt.Errorf("log event site identity does not match registered agent site")
+		}
+		event.AgentID = agent.ID
+		event.SiteID = agent.SiteID
+		normalized, err := observability.NormalizeEvent(event)
+		if err != nil {
+			return observability.AppendResult{}, err
+		}
+		events = append(events, normalized)
+	}
+	return service.logs.Append(events)
+}
+
+func (service *Service) Logs(query observability.Query) (observability.Page, error) {
+	if service.logs == nil {
+		return observability.Page{}, fmt.Errorf("technical log repository is not configured")
+	}
+	return service.logs.List(query)
 }
 
 func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {
@@ -78,14 +157,151 @@ func (service *Service) Validate(input []byte) (domain.Infrastructure, error) {
 }
 
 func (service *Service) Plan(input []byte) (domain.Plan, error) {
+	_, plan, err := service.Preview(input)
+	return plan, err
+}
+
+func (service *Service) TemplateInfo(input []byte) ([]TemplateInspection, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {
-		return domain.Plan{}, err
+		return nil, err
+	}
+	results := make([]TemplateInspection, 0)
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			inspection := TemplateInspection{Site: site.Name, Device: device.Name}
+			if strings.TrimSpace(device.Model) == "" || strings.TrimSpace(device.Vendor) == "" {
+				inspection.Capability = string(domain.CapabilityUnknown)
+				inspection.CapabilityState = domain.CapabilityUnknown
+				inspection.CapabilityMsg = "vendor and model are required for template inspection"
+				inspection.Blocked = true
+				results = append(results, inspection)
+				continue
+			}
+			state, evidence := infrastructure.CapabilityRegistry.Resolve(device)
+			inspection.Capability = string(state)
+			inspection.CapabilityState = state
+			inspection.CapabilityMsg = evidence
+			if strings.TrimSpace(device.Provisioning.TemplateVersion) == "" {
+				inspection.Blocked = true
+				results = append(results, inspection)
+				continue
+			}
+			template, err := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+			if err != nil {
+				inspection.Blocked = true
+				inspection.CapabilityMsg = inspection.CapabilityMsg + "; template resolution failed: " + err.Error()
+				results = append(results, inspection)
+				continue
+			}
+			inspection.TemplateID = template.ID
+			inspection.TemplateHash = template.Hash
+			inspection.Blocked = !state.IsUsable()
+			results = append(results, inspection)
+		}
+	}
+	return results, nil
+}
+
+func (service *Service) CapabilitySummary(input []byte) ([]CapabilitySummary, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]CapabilitySummary, 0)
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			summary := CapabilitySummary{Site: site.Name, Device: device.Name}
+			if strings.TrimSpace(device.Model) == "" || strings.TrimSpace(device.Vendor) == "" {
+				summary.Capability = string(domain.CapabilityUnknown)
+				summary.CapabilityState = domain.CapabilityUnknown
+				summary.CapabilityMsg = "vendor and model are required for capability summary"
+				results = append(results, summary)
+				continue
+			}
+			state, evidence := infrastructure.CapabilityRegistry.Resolve(device)
+			summary.Capability = string(state)
+			summary.CapabilityState = state
+			summary.CapabilityMsg = evidence
+			if strings.TrimSpace(device.Provisioning.TemplateVersion) == "" {
+				results = append(results, summary)
+				continue
+			}
+			template, err := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+			if err != nil {
+				summary.CapabilityMsg = summary.CapabilityMsg + "; template resolution failed: " + err.Error()
+				results = append(results, summary)
+				continue
+			}
+			summary.TemplateID = template.ID
+			summary.TemplateHash = template.Hash
+			summary.Ready = state.IsUsable() && template.ID != ""
+			results = append(results, summary)
+		}
+	}
+	return results, nil
+}
+
+func (service *Service) CapabilityMatrix(input []byte) ([]CapabilityMatrixRow, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return nil, err
+	}
+	matrix := make([]CapabilityMatrixRow, 0)
+	contextKey := func(device domain.Device) string {
+		return strings.ToLower(strings.TrimSpace(device.Vendor) + ":" + strings.TrimSpace(device.Family) + ":" + strings.TrimSpace(device.Model))
+	}
+	for _, site := range infrastructure.Sites {
+		for _, device := range site.Devices {
+			methods, ok := infrastructure.CapabilityRegistry.Entries[contextKey(device)]
+			if !ok {
+				continue
+			}
+			methodNames := make([]string, 0, len(methods))
+			for method := range methods {
+				methodNames = append(methodNames, method)
+			}
+			sort.Strings(methodNames)
+			for _, method := range methodNames {
+				capability := methods[method]
+				row := CapabilityMatrixRow{
+					Site:     site.Name,
+					Device:   device.Name,
+					Vendor:   strings.TrimSpace(device.Vendor),
+					Family:   strings.TrimSpace(device.Family),
+					Model:    strings.TrimSpace(device.Model),
+					Method:   method,
+					State:    capability.State,
+					Evidence: strings.TrimSpace(capability.Evidence),
+				}
+				if capability.State.IsUsable() && strings.TrimSpace(capability.Evidence) == "" {
+					row.State = domain.CapabilityUnknown
+					row.Evidence = "usable capability requires recorded evidence of real verification"
+				}
+				if strings.TrimSpace(device.Provisioning.TemplateVersion) != "" {
+					template, templateErr := infrastructure.TemplateRegistry.Resolve(device, strings.TrimSpace(device.Provisioning.TemplateVersion))
+					if templateErr == nil {
+						row.TemplateID = template.ID
+						row.TemplateVersion = template.Version
+					}
+				}
+				row.Ready = row.State.IsUsable() && row.TemplateID != ""
+				matrix = append(matrix, row)
+			}
+		}
+	}
+	return matrix, nil
+}
+
+func (service *Service) Preview(input []byte) (domain.Infrastructure, domain.Plan, error) {
+	infrastructure, err := service.Validate(input)
+	if err != nil {
+		return domain.Infrastructure{}, domain.Plan{}, err
 	}
 	if service.planBuilder == nil {
-		return domain.Plan{}, fmt.Errorf("plan builder is not configured")
+		return domain.Infrastructure{}, domain.Plan{}, fmt.Errorf("plan builder is not configured")
 	}
-	return service.planBuilder.Build(infrastructure), nil
+	return infrastructure, service.planBuilder.Build(infrastructure), nil
 }
 
 func (service *Service) Generate(input []byte, outputDirectory string) ([]protocol.Artifact, error) {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	tftpserver "infraflow/agent/internal/delivery/tftpserver"
 	"infraflow/agent/internal/delivery/tui"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 )
 
 func Run(arguments []string, stdout, stderr io.Writer) int {
@@ -67,9 +69,55 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "infraflow-agent: run requires -config")
 		return 2
 	}
+	defaultLogConfig, err := observability.DefaultConfig("agent")
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: configure local logs: %v\n", err)
+		return 2
+	}
+	bootstrapLogger, err := observability.New(defaultLogConfig)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: initialize bootstrap logger: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "INFO", Event: "agent.config.loading", Message: "loading agent configuration", Operation: "configuration", Status: "RUNNING"})
 	settings, err := config.Load(*configPath)
 	if err != nil {
+		_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "ERROR", Event: "agent.config.invalid", Message: "agent configuration validation failed", Operation: "configuration", Status: "FAILED", Error: err.Error()})
+		_ = bootstrapLogger.Close()
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Close()
+	outbox, err := observability.NewOutbox(filepath.Join(settings.Logging.Directory, "pending-events.json"), observability.DefaultOutboxLimit)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: initialize local log outbox: %v\n", err)
+		return 2
+	}
+	logConfig := observability.Config{
+		Service: "agent", Directory: settings.Logging.Directory,
+		Level: settings.Logging.Level, Format: settings.Logging.Format,
+		MaxBytes: settings.Logging.MaxBytes, MaxFiles: settings.Logging.MaxFiles,
+		Console: true, Sink: outbox,
+	}
+	logger, err := observability.New(logConfig)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: initialize configured logger: %v\n", err)
+		return 2
+	}
+	defer func() {
+		if err := logger.Close(); err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: close logger: %v\n", err)
+		}
+	}()
+	siteID := settings.Agent.SiteID
+	if siteID == "" {
+		siteID = settings.Agent.ID
+	}
+	if err := logger.Emit(context.Background(), observability.Event{
+		Level: "INFO", Event: "agent.started", Message: "agent starting configured run",
+		AgentID: settings.Agent.ID, SiteID: siteID, Operation: "startup", Status: "RUNNING",
+	}); err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: persist startup event: %v\n", err)
 		return 2
 	}
 	providerClient, err := providergrpc.New(
@@ -79,14 +127,14 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		settings.Provider.TLS.CAFile,
 	)
 	if err != nil {
+		_ = logger.Emit(context.Background(), observability.Event{
+			Level: "ERROR", Event: "agent.provider.connect_failed", Message: "provider connection setup failed",
+			AgentID: settings.Agent.ID, SiteID: siteID, Operation: "connect", Status: "FAILED", Error: err.Error(),
+		})
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 2
 	}
 	defer providerClient.Close()
-	siteID := settings.Agent.SiteID
-	if siteID == "" {
-		siteID = settings.Agent.ID
-	}
 	var registry *providerhttp.Client
 	if settings.Provider.APIAddress != "" {
 		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv))
@@ -98,6 +146,10 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 			AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion,
 			Capabilities: settings.Agent.Capabilities,
 		}); err != nil {
+			_ = logger.Emit(context.Background(), observability.Event{
+				Level: "ERROR", Event: "agent.registration.failed", Message: "agent registration failed",
+				AgentID: settings.Agent.ID, SiteID: siteID, Operation: "registration", Status: "FAILED", Error: err.Error(),
+			})
 			fmt.Fprintf(stderr, "infraflow-agent: register agent: %v\n", err)
 			return 1
 		}
@@ -112,7 +164,10 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 2
 	}
-	report, err := runner.Run(context.Background())
+	runner.SetObservability(logger, outbox, siteID)
+	runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	report, err := runner.Run(runContext)
 	for _, artifact := range report.Artifacts {
 		fmt.Fprintf(stdout, "%s %s\n", artifact.Status, artifact.Path)
 	}

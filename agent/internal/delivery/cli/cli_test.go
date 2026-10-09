@@ -37,11 +37,13 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
 	t.Setenv("INFRAFLOW_TEST_TOKEN", token)
 	output := filepath.Join(t.TempDir(), "state")
+	logDirectory := filepath.Join(t.TempDir(), "logs")
 	configPath := filepath.Join(t.TempDir(), "agent.yaml")
 	config := strings.Join([]string{
 		"agent:", "  id: agent-01", "  state_directory: " + output,
 		"provider:", "  address: " + listener.Addr().String(), "  token_env: INFRAFLOW_TEST_TOKEN",
-		"  tls:", "    enabled: false", "",
+		"  tls:", "    enabled: false",
+		"logging:", "  directory: " + logDirectory, "  level: DEBUG", "  format: json", "",
 	}, "\n")
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
@@ -60,6 +62,9 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(output, ".infraflow-agent-state.json")); err != nil {
 		t.Fatalf("agent report missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(logDirectory, "events.jsonl")); err != nil {
+		t.Fatalf("agent local logs missing: %v", err)
 	}
 }
 
@@ -312,6 +317,16 @@ func (server *fakeAgentProvider) ReportState(ctx context.Context, report *infrav
 	}
 	server.report = report
 	return &infrav1.ReportAck{Accepted: true}, nil
+}
+
+func (server *fakeAgentProvider) ReportLogs(ctx context.Context, batch *infrav1.AgentLogBatch) (*infrav1.AgentLogAck, error) {
+	if err := server.authorize(ctx); err != nil {
+		return nil, err
+	}
+	if batch.GetAgentId() != "agent-01" {
+		return nil, status.Error(codes.FailedPrecondition, "agent identity mismatch")
+	}
+	return &infrav1.AgentLogAck{AcceptedCount: uint32(len(batch.GetEventsJson()))}, nil
 }
 
 func writeCLIArtifact(t *testing.T, root, relativePath, contents string) {

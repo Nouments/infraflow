@@ -12,7 +12,9 @@ import (
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/filesystem"
+	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 )
@@ -24,18 +26,15 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
-	token := strings.Repeat("j", security.MinAgentTokenBytes)
-	handler, err := NewHandler(service, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentToken := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 
 	body, err := json.Marshal(createJobRequest{Input: "sites:\n  - name: lab\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Authorization", "Bearer "+userToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
@@ -60,11 +59,194 @@ func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 		{http.MethodPost, "/api/v1/jobs/" + created.ID + "/retry", http.StatusOK},
 	} {
 		request := httptest.NewRequest(test.method, test.path, nil)
-		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Authorization", "Bearer "+userToken)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.code {
 			t.Errorf("%s %s returned %d, want %d: %s", test.method, test.path, response.Code, test.code, response.Body.String())
+		}
+	}
+}
+
+func TestPlanPreviewValidatesWithoutPersistingJobs(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	agentToken := strings.Repeat("p", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/preview", strings.NewReader(`{"input":"sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n"}`))
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("preview returned %d: %s", response.Code, response.Body.String())
+	}
+	var preview previewPlanResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Infrastructure.Sites) != 1 || preview.Infrastructure.Sites[0].Name != "lab" {
+		t.Fatalf("preview did not return normalized configuration: %#v", preview.Infrastructure)
+	}
+	if preview.Plan.Status != "PLANNED" || len(preview.Plan.Tasks) != 0 {
+		t.Fatalf("preview did not report a deterministic planned execution plan without invented tasks: %#v", preview.Plan)
+	}
+	storedJobs, err := jobs.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(storedJobs); got != 0 {
+		t.Fatalf("preview persisted %d planning jobs", got)
+	}
+}
+
+func TestPlanGenerateEndpointReturnsAndAuditsRealArtifacts(t *testing.T) {
+	root := t.TempDir()
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := application.Dependencies{
+		Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}, ArtifactDirectory: root,
+	}
+	service := application.NewServiceWithJobsAgentsEvents(
+		filesystem.NewArtifactRepository(root), nil, generation.Generator{}, nil, nil, events, dependencies,
+	)
+	agentToken := strings.Repeat("g", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: Gi1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`
+	body, err := json.Marshal(createJobRequest{Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/generate", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("generation returned %d: %s", response.Code, response.Body.String())
+	}
+	var result application.PlanGenerationResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.GenerationStatus != "GENERATED" || result.ExecutionStatus != "NOT_REQUESTED" || result.VerificationStatus != "NOT_PERFORMED" {
+		t.Fatalf("unexpected generation result states: %#v", result)
+	}
+	if len(result.Tasks) != 1 || len(result.Tasks[0].Artifacts) == 0 || result.Tasks[0].Artifacts[0].Device != "R1" || result.AuditStatus != "RECORDED" {
+		t.Fatalf("response did not include device-level artifact provenance: %#v", result.Tasks)
+	}
+	storedEvents := service.Events()
+	if len(storedEvents) != 1 || storedEvents[0].Type != "plan.generation.result" {
+		t.Fatalf("generation result was not recorded in the event store: %#v", storedEvents)
+	}
+	if !strings.Contains(string(storedEvents[0].Payload), result.Tasks[0].Artifacts[0].SHA256) {
+		t.Fatalf("audit event omitted artifact hash provenance: %s", storedEvents[0].Payload)
+	}
+}
+
+func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-01", SiteID: "site-01"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.IngestAgentLogs("agent-01", []observability.Event{{
+		ID: "event-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "ERROR",
+		Event: "process.exit", Message: "exit code 7", Service: "agent", Source: "process-runner",
+		AgentID: "agent-01", SiteID: "site-01", RunID: "run-01", TaskID: "task-01",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentToken := strings.Repeat("l", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	for _, test := range []struct {
+		path string
+		want int
+	}{
+		{path: "/api/v1/logs?run_id=run-01&level=ERROR", want: http.StatusOK},
+		{path: "/api/v1/logs/runs/run-01", want: http.StatusOK},
+		{path: "/api/v1/logs?limit=0", want: http.StatusBadRequest},
+	} {
+		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		request.Header.Set("Authorization", "Bearer "+userToken)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Errorf("GET %s returned %d, want %d: %s", test.path, response.Code, test.want, response.Body.String())
+		}
+		if test.want == http.StatusOK && !strings.Contains(response.Body.String(), "event-01") {
+			t.Errorf("log result missing from %s: %s", test.path, response.Body.String())
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs?run_id=run-01", nil)
+	request.Header.Set("Authorization", "Bearer "+agentToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-admin user read technical logs: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAgentTokenIsForbiddenFromUserPlanningRoutes(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("a", security.MinAgentTokenBytes)
+	handler, err := NewHandler(service, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/jobs", ""},
+		{http.MethodPost, "/api/v1/jobs", `{"input":"sites:\n  - name: lab\n"}`},
+		{http.MethodPost, "/api/v1/plan/generate", `{"input":"sites:\n  - name: lab\n"}`},
+		{http.MethodGet, "/api/v1/jobs/job-missing", ""},
+		{http.MethodPost, "/api/v1/jobs/job-missing/cancel", ""},
+		{http.MethodPost, "/api/v1/jobs/job-missing/retry", ""},
+		{http.MethodPost, "/api/v1/plan/preview", `{"input":"sites:\n  - name: lab\n"}`},
+	} {
+		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Errorf("agent token %s %s returned %d, want %d: %s", test.method, test.path, response.Code, http.StatusForbidden, response.Body.String())
 		}
 	}
 }
@@ -76,11 +258,8 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
-	token := strings.Repeat("j", security.MinAgentTokenBytes)
-	handler, err := NewHandler(service, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentToken := strings.Repeat("j", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 
 	unauthorized := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 	response := httptest.NewRecorder()
@@ -89,8 +268,8 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 		t.Fatalf("missing token returned %d", response.Code)
 	}
 	duplicateAuth := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
-	duplicateAuth.Header.Add("Authorization", "Bearer "+token)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+userToken)
+	duplicateAuth.Header.Add("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, duplicateAuth)
 	if response.Code != http.StatusUnauthorized {
@@ -98,7 +277,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	malformed := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites: []"} {}`))
-	malformed.Header.Set("Authorization", "Bearer "+token)
+	malformed.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, malformed)
 	if response.Code != http.StatusBadRequest {
@@ -106,7 +285,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	invalidInput := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(`{"input":"sites:\n  - unknown: true\n"}`))
-	invalidInput.Header.Set("Authorization", "Bearer "+token)
+	invalidInput.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, invalidInput)
 	if response.Code != http.StatusBadRequest {
@@ -114,7 +293,7 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	}
 
 	missing := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-missing", nil)
-	missing.Header.Set("Authorization", "Bearer "+token)
+	missing.Header.Set("Authorization", "Bearer "+userToken)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, missing)
 	if response.Code != http.StatusNotFound {
@@ -200,6 +379,31 @@ func TestUserAuthenticationAndRoles(t *testing.T) {
 	if selfDisable.Code != http.StatusConflict {
 		t.Fatalf("last administrator disable returned %d: %s", selfDisable.Code, selfDisable.Body.String())
 	}
+}
+
+func newUserSessionHandler(t *testing.T, root, agentToken string, service *application.Service) (http.Handler, string) {
+	t.Helper()
+	users, err := sqlite.New(root + "/users.sqlite3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = users.Close() })
+	authenticator, err := application.NewAuthenticator(users, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.EnsureBootstrap(t.Context(), "admin", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := authenticator.Login(t.Context(), "admin", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(service, agentToken, authenticator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler, session.Token
 }
 
 func authRequest(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {

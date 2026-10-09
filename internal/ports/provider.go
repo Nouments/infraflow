@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"infraflow/internal/domain"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -40,6 +41,10 @@ type AnsibleArtifactGenerator interface {
 	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+type VendorArtifactGenerator interface {
+	GenerateVendorAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
+}
+
 type TerraformArtifactGenerator interface {
 	GenerateTerraform(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
@@ -65,4 +70,9 @@ type AgentRepository interface {
 type EventRepository interface {
 	Append(domain.Event) (domain.Event, bool, error)
 	List() []domain.Event
+}
+
+type LogRepository interface {
+	Append([]observability.Event) (observability.AppendResult, error)
+	List(observability.Query) (observability.Page, error)
 }

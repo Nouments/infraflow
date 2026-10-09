@@ -3,12 +3,14 @@ package toolrunner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,8 @@ const (
 	maxOutputBytes   = 64 << 10
 	debugMessage     = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
 )
+
+var sensitiveOutputPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
 
 type Result struct {
 	Tool   string
@@ -92,7 +96,7 @@ func (buffer *cappedBuffer) Write(data []byte) (int, error) {
 func (buffer *cappedBuffer) String() string {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
-	value := buffer.buffer.String()
+	value := sensitiveOutputPattern.ReplaceAllString(buffer.buffer.String(), "$1$2[REDACTED]")
 	if buffer.truncated {
 		value += "\n[output truncated]"
 	}
@@ -365,7 +369,11 @@ func runCommand(parent context.Context, timeout time.Duration, directory string,
 		return output.String(), fmt.Errorf("%s", ctx.Err())
 	}
 	if err != nil {
-		return output.String(), fmt.Errorf("%w: %s", err, strings.TrimSpace(output.String()))
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			return output.String(), fmt.Errorf("%s failed with exit code %d", executable, exitError.ExitCode())
+		}
+		return output.String(), fmt.Errorf("%s failed", executable)
 	}
 	return output.String(), nil
 }

@@ -3,42 +3,113 @@
 package planner
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"net/url"
 	"sort"
+	"strings"
 
 	"infraflow/internal/domain"
 )
 
 func Build(infrastructure domain.Infrastructure) domain.Plan {
-	plan := domain.Plan{Version: "v1", Status: "ready"}
-	sites := append([]domain.Site(nil), infrastructure.Sites...)
-	sort.Slice(sites, func(i, j int) bool { return sites[i].Name < sites[j].Name })
+	lifecycle := domain.LifecycleState{Desired: true, Planned: true}
+	sites := canonicalSites(infrastructure.Sites)
+	canonicalIntent, _ := json.Marshal(struct {
+		Sites []domain.Site `json:"sites,omitempty"`
+	}{Sites: sites})
+	intentHash := sha256.Sum256(canonicalIntent)
+	plan := domain.Plan{
+		ID:        "plan/sha256-" + hex.EncodeToString(intentHash[:]),
+		Version:   "v1",
+		Status:    "PLANNED",
+		Lifecycle: lifecycle,
+	}
+	if len(sites) > 0 {
+		plan.Site = sites[0].Name
+	}
 
 	for _, site := range sites {
-		inventoryID := "inventory/" + site.Name
-		topologyID := "topology/" + site.Name
-		plan.Tasks = append(plan.Tasks,
-			domain.Task{ID: inventoryID, Site: site.Name, Action: "generate_inventory", Status: "ready"},
-			domain.Task{ID: topologyID, Site: site.Name, Action: "generate_topology", Status: "ready"},
-		)
-
-		devices := append([]domain.Device(nil), site.Devices...)
-		sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
-		for _, device := range devices {
-			reason := "no verified provisioning adapter is registered; device changes are unavailable"
-			if device.Vendor == "" || device.Model == "" {
-				reason = "vendor and model are required for capability lookup; device changes are unavailable"
+		for _, device := range site.Devices {
+			if device.Network == nil || len(device.Network.Interfaces) == 0 {
+				continue
 			}
+			method := strings.TrimSpace(device.Provisioning.Method)
+			if method == "" {
+				if profile, ok := domain.VendorProfileFor(device); ok {
+					method = profile.DefaultMethod
+				}
+			}
+			taskID := "plan/" + url.PathEscape(site.Name) + "/" + url.PathEscape(device.Name) + "/configure_interfaces"
 			plan.Tasks = append(plan.Tasks, domain.Task{
-				ID:           "provision/" + site.Name + "/" + device.Name,
-				Site:         site.Name,
-				Target:       device.Name,
-				Action:       "provision_device",
-				Status:       "blocked",
-				Reason:       reason,
-				Dependencies: []string{inventoryID, topologyID},
+				ID:     taskID,
+				Site:   site.Name,
+				Target: device.Name,
+				Action: "configure_interfaces",
+				Method: method,
+				Status: "PLANNED",
 			})
-			plan.Status = "blocked"
 		}
 	}
 	return plan
+}
+
+func canonicalSites(input []domain.Site) []domain.Site {
+	sites := make([]domain.Site, len(input))
+	for index, source := range input {
+		site := source
+		site.ID = ""
+		site.Devices = make([]domain.Device, len(source.Devices))
+		for deviceIndex, sourceDevice := range source.Devices {
+			device := sourceDevice
+			device.ID = ""
+			device.Identity.MACs = append([]string(nil), sourceDevice.Identity.MACs...)
+			sort.Strings(device.Identity.MACs)
+			if sourceDevice.Network != nil {
+				network := *sourceDevice.Network
+				network.Interfaces = append([]domain.NetworkInterface(nil), sourceDevice.Network.Interfaces...)
+				sortByCanonicalJSON(network.Interfaces)
+				network.Routes = append([]domain.StaticRoute(nil), sourceDevice.Network.Routes...)
+				sortByCanonicalJSON(network.Routes)
+				network.NAT.Source = append([]domain.SourceNATRule(nil), sourceDevice.Network.NAT.Source...)
+				for ruleIndex := range network.NAT.Source {
+					network.NAT.Source[ruleIndex].FortinetServices = sortedStrings(network.NAT.Source[ruleIndex].FortinetServices)
+				}
+				sortByCanonicalJSON(network.NAT.Source)
+				network.NAT.Destination = append([]domain.DestinationNATRule(nil), sourceDevice.Network.NAT.Destination...)
+				for ruleIndex := range network.NAT.Destination {
+					network.NAT.Destination[ruleIndex].FortinetServices = sortedStrings(network.NAT.Destination[ruleIndex].FortinetServices)
+				}
+				sortByCanonicalJSON(network.NAT.Destination)
+				device.Network = &network
+			}
+			site.Devices[deviceIndex] = device
+		}
+		sortByCanonicalJSON(site.Devices)
+		site.Links = append([]domain.Link(nil), source.Links...)
+		for linkIndex := range site.Links {
+			site.Links[linkIndex].ID = ""
+			site.Links[linkIndex].Endpoints = append([]domain.Endpoint(nil), source.Links[linkIndex].Endpoints...)
+			sortByCanonicalJSON(site.Links[linkIndex].Endpoints)
+		}
+		sortByCanonicalJSON(site.Links)
+		sites[index] = site
+	}
+	sortByCanonicalJSON(sites)
+	return sites
+}
+
+func sortedStrings(input []string) []string {
+	result := append([]string(nil), input...)
+	sort.Strings(result)
+	return result
+}
+
+func sortByCanonicalJSON[T any](values []T) {
+	sort.Slice(values, func(i, j int) bool {
+		left, _ := json.Marshal(values[i])
+		right, _ := json.Marshal(values[j])
+		return string(left) < string(right)
+	})
 }

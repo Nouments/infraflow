@@ -1,0 +1,36 @@
+capability_registry:
+  entries:
+    cisco:iosxe:ios-xe:
+      netconf:
+        method: netconf
+        state: UNVERIFIED
+        evidence: no lab execution or verified adapter was recorded
+
+template_registry:
+  entries:
+    cisco:iosxe:ios-xe:1:
+      id: cisco:iosxe:ios-xe:1
+      vendor: cisco
+      family: iosxe
+      model: ios-xe
+      version: "1"
+      hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      evidence: sandbox validation manifest checked locally
+
+sites:
+  - name: sandbox
+    bootstrap:
+      network: 192.168.200.0/24
+      gateway: 192.168.200.1
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: iosxe
+        model: ios-xe
+        provisioning:
+          method: netconf
+          template_version: "1"
+        management:
+          ipv4: 192.168.200.10
+    links: []

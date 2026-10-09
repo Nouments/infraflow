@@ -15,7 +15,7 @@ The provider owns the desired infrastructure input and generated files. The agen
 
 ## Requirements
 
-- Go 1.23 or newer
+- Go 1.25 or newer
 
 ## Quick start
 

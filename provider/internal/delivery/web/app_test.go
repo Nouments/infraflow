@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	configadapter "infraflow/internal/adapters/config"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 	"infraflow/provider/internal/delivery/httpapi"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
@@ -46,6 +47,9 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	page := fiberRequest(t, app, http.MethodGet, "/", nil, "")
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "InfraFlow Control") || page.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("console page or security headers missing: %d %q %#v", page.Code, page.Body.String(), page.Header())
+	}
+	if strings.Contains(page.Body.String(), "Provider connected") {
+		t.Fatal("console must not claim provider connectivity without a live health signal")
 	}
 	asset := fiberRequest(t, app, http.MethodGet, "/assets/app.js", nil, "")
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "/auth/login") {

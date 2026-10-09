@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,12 @@ func (fakeBackend) Jobs(context.Context) ([]providerhttp.JobSummary, error) {
 func (fakeBackend) Agents(context.Context) ([]providerhttp.AgentSummary, error) {
 	return []providerhttp.AgentSummary{{ID: "agent-1", SiteID: "site-1", Status: "online", QueueDepth: 1}}, nil
 }
+func (fakeBackend) Events(context.Context) ([]providerhttp.EventSummary, error) {
+	return []providerhttp.EventSummary{{
+		EventID: "event-1", Timestamp: time.Unix(0, 0).UTC(), Type: "plan.generation.result",
+		Payload: json.RawMessage(`{"generation_status":"GENERATED","execution_status":"NOT_REQUESTED","verification_status":"NOT_PERFORMED"}`),
+	}}, nil
+}
 
 func TestRunDisplaysBackendStateWithoutExposingToken(t *testing.T) {
 	var output strings.Builder
@@ -34,7 +41,7 @@ func TestRunDisplaysBackendStateWithoutExposingToken(t *testing.T) {
 	if !strings.Contains(result, "INFRAFLOW TUI") {
 		t.Fatalf("TUI header missing: %s", result)
 	}
-	if !strings.Contains(result, "job-1") || !strings.Contains(result, "agent-1") {
+	if !strings.Contains(result, "job-1") || !strings.Contains(result, "agent-1") || !strings.Contains(result, "generation=GENERATED") || !strings.Contains(result, "verification=NOT_PERFORMED") {
 		t.Fatalf("backend state missing: %s", result)
 	}
 	if strings.Contains(result, "session-token") {

@@ -3,6 +3,7 @@ package grpcapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"infraflow/internal/adapters/generation"
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 	"infraflow/provider/internal/adapters/filesystem"
@@ -152,6 +154,74 @@ func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 	_, err = infrav1.NewAgentProviderClient(connection).ListArtifacts(context.Background(), &infrav1.Empty{})
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("expected unauthenticated status, got %v", err)
+	}
+}
+
+func TestGRPCIngestsAgentLogsIdempotentlyAndRejectsIdentitySpoofing(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-01", SiteID: "site-01"}); err != nil {
+		t.Fatal(err)
+	}
+	token := strings.Repeat("g", security.MinAgentTokenBytes)
+	server, err := NewServer(service, token, DefaultChunkSize, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := bufconn.Listen(1 << 20)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close(); <-serveDone })
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := infrav1.NewAgentProviderClient(connection)
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+token))
+	event := observability.Event{
+		ID: "log-event-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level: "ERROR", Event: "process.exit", Message: "controlled test process exited 7",
+		Service: "agent", Source: "process-runner", Hostname: "test-host",
+		AgentID: "agent-01", SiteID: "site-01", RunID: "run-01", TaskID: "task-01",
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &infrav1.AgentLogBatch{AgentId: "agent-01", EventsJson: [][]byte{encoded}}
+	if _, err := client.ReportLogs(context.Background(), request); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("unauthenticated logs were not rejected: %v", err)
+	}
+	spoofed := event
+	spoofed.AgentID = "agent-02"
+	spoofedBytes, _ := json.Marshal(spoofed)
+	if _, err := client.ReportLogs(ctx, &infrav1.AgentLogBatch{AgentId: "agent-01", EventsJson: [][]byte{spoofedBytes}}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("spoofed agent identity was not rejected: %v", err)
+	}
+	ack, err := client.ReportLogs(ctx, request)
+	if err != nil || ack.GetAcceptedCount() != 1 || ack.GetDuplicateCount() != 0 {
+		t.Fatalf("authenticated log event not persisted: %#v, %v", ack, err)
+	}
+	ack, err = client.ReportLogs(ctx, request)
+	if err != nil || ack.GetAcceptedCount() != 0 || ack.GetDuplicateCount() != 1 {
+		t.Fatalf("replayed event was not deduplicated: %#v, %v", ack, err)
+	}
+	page, err := logs.List(observability.Query{RunID: "run-01", Limit: 10})
+	if err != nil || len(page.Events) != 1 || page.Events[0].AgentID != "agent-01" {
+		t.Fatalf("central store does not contain the authenticated event: %#v, %v", page, err)
 	}
 }
 

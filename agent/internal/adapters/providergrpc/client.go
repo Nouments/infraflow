@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 )
@@ -152,6 +154,27 @@ func (client *Client) Report(ctx context.Context, report protocol.AgentReport) e
 	}
 	if _, err := client.service.ReportState(ctx, request); err != nil {
 		return fmt.Errorf("submit provider state report: %w", err)
+	}
+	return nil
+}
+
+func (client *Client) ReportLogs(ctx context.Context, agentID string, events []observability.Event) error {
+	if len(events) == 0 || len(events) > observability.MaxIngestBatch {
+		return fmt.Errorf("log batch must contain between 1 and %d events", observability.MaxIngestBatch)
+	}
+	request := &infrav1.AgentLogBatch{AgentId: agentID, EventsJson: make([][]byte, 0, len(events))}
+	for _, event := range events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode agent log event: %w", err)
+		}
+		if len(data) > observability.MaxEventBytes {
+			return fmt.Errorf("agent log event exceeds %d bytes", observability.MaxEventBytes)
+		}
+		request.EventsJson = append(request.EventsJson, data)
+	}
+	if _, err := client.service.ReportLogs(ctx, request); err != nil {
+		return fmt.Errorf("submit agent logs: %w", err)
 	}
 	return nil
 }

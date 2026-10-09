@@ -82,7 +82,7 @@ func (Generic) Process(artifact protocol.Artifact, data io.Reader) protocol.Arti
 		}
 		result.Status = protocol.StatusCompleted
 		result.Message = "topology imported into local agent state"
-	case "ansible_inventory", "ansible_playbook",
+	case "ansible_inventory", "ansible_playbook", "ansible_vendor_inventory", "ansible_requirements", "ansible_vendor_manifest",
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
 		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",

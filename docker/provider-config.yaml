@@ -1,0 +1,16 @@
+# Bind to all interfaces so GNS3 VMs and other lab hosts can reach the provider.
+# This is required when the provider and the agent are on different virtual machines.
+listen_address: 0.0.0.0:8443
+api_listen_address: 0.0.0.0:8080
+web_ui_enabled: true
+artifact_directory: /data/provider
+database_path: /data/provider/.infraflow-users.sqlite3
+token_env: INFRAFLOW_AGENT_TOKEN
+admin_username: admin
+admin_credential_file: /data/provider/.infraflow-admin-password
+admin_credential_script: /data/provider/get-admin-password.sh
+session_ttl_minutes: 480
+chunk_size: 65536
+tls:
+  certificate_file: /etc/infraflow/tls/server.crt
+  key_file: /etc/infraflow/tls/server.key

@@ -24,7 +24,7 @@ provider:
   id: site-agent-02
   state_directory: /var/lib/infraflow
 provider:
-  address: provider.example.com:8443
+  address: 203.0.113.10:8443
   token_env: INFRAFLOW_AGENT_TOKEN
   tls:
     enabled: true
@@ -40,7 +40,7 @@ func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
   id: agent-01
   state_directory: ./state
 provider:
-  address: provider.example.com:8443
+  address: 203.0.113.10:8443
   token_env: INFRAFLOW_AGENT_TOKEN
   tls:
     enabled: false
@@ -74,7 +74,7 @@ provider:
   state_directory: ./state
 provider:
   address: localhost:8443
-  api_address: http://example.com:8080
+  api_address: http://203.0.113.10:8080
   token_env: TOKEN
 `)
 	if _, err := Load(unsafe); err == nil {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"infraflow/pkg/observability"
 )
 
 const (
@@ -20,18 +21,27 @@ const (
 )
 
 type Config struct {
-	ListenAddress         string    `yaml:"listen_address"`
-	APIListenAddress      string    `yaml:"api_listen_address,omitempty"`
-	WebUIEnabled          bool      `yaml:"web_ui_enabled,omitempty"`
-	ArtifactDirectory     string    `yaml:"artifact_directory"`
-	DatabasePath          string    `yaml:"database_path,omitempty"`
-	TokenEnv              string    `yaml:"token_env"`
-	AdminUsername         string    `yaml:"admin_username,omitempty"`
-	AdminCredentialFile   string    `yaml:"admin_credential_file,omitempty"`
-	AdminCredentialScript string    `yaml:"admin_credential_script,omitempty"`
-	SessionTTLMinutes     int       `yaml:"session_ttl_minutes,omitempty"`
-	ChunkSize             int       `yaml:"chunk_size"`
-	TLS                   TLSConfig `yaml:"tls"`
+	ListenAddress         string        `yaml:"listen_address"`
+	APIListenAddress      string        `yaml:"api_listen_address,omitempty"`
+	WebUIEnabled          bool          `yaml:"web_ui_enabled,omitempty"`
+	ArtifactDirectory     string        `yaml:"artifact_directory"`
+	DatabasePath          string        `yaml:"database_path,omitempty"`
+	TokenEnv              string        `yaml:"token_env"`
+	AdminUsername         string        `yaml:"admin_username,omitempty"`
+	AdminCredentialFile   string        `yaml:"admin_credential_file,omitempty"`
+	AdminCredentialScript string        `yaml:"admin_credential_script,omitempty"`
+	SessionTTLMinutes     int           `yaml:"session_ttl_minutes,omitempty"`
+	ChunkSize             int           `yaml:"chunk_size"`
+	Logging               LoggingConfig `yaml:"logging,omitempty"`
+	TLS                   TLSConfig     `yaml:"tls"`
+}
+
+type LoggingConfig struct {
+	Directory string `yaml:"directory,omitempty"`
+	Level     string `yaml:"level,omitempty"`
+	Format    string `yaml:"format,omitempty"`
+	MaxBytes  int64  `yaml:"max_bytes,omitempty"`
+	MaxFiles  int    `yaml:"max_files,omitempty"`
 }
 
 type TLSConfig struct {
@@ -79,6 +89,25 @@ func Load(path string) (Config, error) {
 	}
 	if config.SessionTTLMinutes == 0 {
 		config.SessionTTLMinutes = 480
+	}
+	defaults, err := observability.DefaultConfig("provider")
+	if err != nil {
+		return Config{}, fmt.Errorf("configure local provider logs: %w", err)
+	}
+	if config.Logging.Directory == "" {
+		config.Logging.Directory = defaults.Directory
+	}
+	if config.Logging.Level == "" {
+		config.Logging.Level = defaults.Level
+	}
+	if config.Logging.Format == "" {
+		config.Logging.Format = defaults.Format
+	}
+	if config.Logging.MaxBytes == 0 {
+		config.Logging.MaxBytes = defaults.MaxBytes
+	}
+	if config.Logging.MaxFiles == 0 {
+		config.Logging.MaxFiles = defaults.MaxFiles
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err

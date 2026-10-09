@@ -50,6 +50,14 @@ type AgentSummary struct {
 	QueueDepth int    `json:"queue_depth"`
 }
 
+type EventSummary struct {
+	EventID   string          `json:"event_id"`
+	Timestamp time.Time       `json:"timestamp"`
+	Type      string          `json:"type"`
+	JobID     string          `json:"job_id"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
 func NewUserClient(address, caFile string) (*UserClient, error) {
 	parsed, err := url.Parse(address)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -126,6 +134,14 @@ func (client *UserClient) Agents(ctx context.Context) ([]AgentSummary, error) {
 		return nil, err
 	}
 	return agents, nil
+}
+
+func (client *UserClient) Events(ctx context.Context) ([]EventSummary, error) {
+	var events []EventSummary
+	if err := client.request(ctx, http.MethodGet, "/api/v1/events", nil, &events, true); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func (client *UserClient) request(ctx context.Context, method, endpoint string, payload any, target any, authenticated bool) error {

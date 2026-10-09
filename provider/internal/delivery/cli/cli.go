@@ -10,10 +10,13 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/config"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
@@ -40,7 +43,19 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "serve" {
 		return runServe(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" {
+	if command == "template-info" {
+		return runTemplateInfo(arguments[1:], stdout, stderr)
+	}
+	if command == "capability-summary" {
+		return runCapabilitySummary(arguments[1:], stdout, stderr)
+	}
+	if command == "capability-matrix" {
+		return runCapabilityMatrix(arguments[1:], stdout, stderr)
+	}
+	if command == "apply" {
+		return runApply(arguments[1:], stdout, stderr)
+	}
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -137,6 +152,159 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTemplateInfo(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("template-info", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: template-info requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	results, err := service.TemplateInfo(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, result := range results {
+		status := "ready"
+		if result.Blocked {
+			status = "blocked"
+		}
+		if result.TemplateID != "" {
+			fmt.Fprintf(stdout, "selected template %s (hash %s) for %s/%s: capability=%s status=%s\n", result.TemplateID, result.TemplateHash, result.Site, result.Device, result.Capability, status)
+		} else {
+			fmt.Fprintf(stdout, "no template selected for %s/%s: capability=%s status=%s\n", result.Site, result.Device, result.Capability, status)
+		}
+		if result.CapabilityMsg != "" {
+			fmt.Fprintf(stdout, "  %s\n", result.CapabilityMsg)
+		}
+	}
+	return 0
+}
+
+func runCapabilitySummary(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("capability-summary", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: capability-summary requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	summaries, err := service.CapabilitySummary(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, item := range summaries {
+		status := "not-ready"
+		if item.Ready {
+			status = "ready"
+		}
+		if item.TemplateID != "" {
+			fmt.Fprintf(stdout, "%s/%s template=%s hash=%s capability=%s status=%s\n", item.Site, item.Device, item.TemplateID, item.TemplateHash, item.Capability, status)
+		} else {
+			fmt.Fprintf(stdout, "%s/%s template=none capability=%s status=%s\n", item.Site, item.Device, item.Capability, status)
+		}
+		if item.CapabilityMsg != "" {
+			fmt.Fprintf(stdout, "  %s\n", item.CapabilityMsg)
+		}
+	}
+	return 0
+}
+
+func runCapabilityMatrix(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("capability-matrix", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: capability-matrix requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	rows, err := service.CapabilityMatrix(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	for _, row := range rows {
+		status := "not-ready"
+		if row.Ready {
+			status = "ready"
+		}
+		fmt.Fprintf(stdout, "%s/%s %s/%s/%s method=%s state=%s status=%s template=%s version=%s evidence=%s\n",
+			row.Site, row.Device, row.Vendor, row.Family, row.Model, row.Method, row.State, status, row.TemplateID, row.TemplateVersion, row.Evidence)
+	}
+	return 0
+}
+
+func runApply(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	inputPath := flags.String("f", "", "path to the infrastructure YAML file")
+	dataDir := flags.String("data-dir", "./provider-data", "persistent state directory")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		fmt.Fprintln(stderr, "infraflow-provider: apply requires -f")
+		return 2
+	}
+	input, err := os.ReadFile(*inputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: open input %q: %v\n", *inputPath, err)
+		return 1
+	}
+	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: create data directory: %v\n", err)
+		return 1
+	}
+	jobStore, err := filesystem.NewJobStore(*dataDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize job store: %v\n", err)
+		return 1
+	}
+	eventStore, err := filesystem.NewEventStore(*dataDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize event store: %v\n", err)
+		return 1
+	}
+	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, jobStore, nil, eventStore, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	job, err := service.CreateJob(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "job=%s status=%s plan_status=%s input_hash=%s\n", job.ID, job.Status, job.Plan.Status, job.InputHash)
+	fmt.Fprintln(stdout, "apply creates planning jobs only; no device or agent execution is started")
+	return 0
+}
+
 func runServe(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -148,9 +316,56 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "infraflow-provider: serve requires -config")
 		return 2
 	}
+	defaultLogConfig, err := observability.DefaultConfig("provider")
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: configure local logs: %v\n", err)
+		return 2
+	}
+	bootstrapLogger, err := observability.New(defaultLogConfig)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize bootstrap logger: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "INFO", Event: "provider.config.loading", Message: "loading provider configuration", Operation: "configuration", Status: "RUNNING"})
 	settings, err := config.Load(*configPath)
 	if err != nil {
+		_ = bootstrapLogger.Emit(context.Background(), observability.Event{Level: "ERROR", Event: "provider.config.invalid", Message: "provider configuration validation failed", Operation: "configuration", Status: "FAILED", Error: err.Error()})
+		_ = bootstrapLogger.Close()
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
+	_ = bootstrapLogger.Close()
+	logger, err := observability.New(observability.Config{
+		Service: "provider", Directory: settings.Logging.Directory,
+		Level: settings.Logging.Level, Format: settings.Logging.Format,
+		MaxBytes: settings.Logging.MaxBytes, MaxFiles: settings.Logging.MaxFiles,
+		Console: true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize configured logger: %v\n", err)
+		return 2
+	}
+	defer func() {
+		if err := logger.Close(); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: close logger: %v\n", err)
+		}
+	}()
+	emit := func(event, message, operation, result string, eventErr error) error {
+		entry := observability.Event{Level: "INFO", Event: event, Message: message, Service: "provider", Source: "provider-cli", Operation: operation, Status: result}
+		if result == "FAILED" {
+			entry.Level = "ERROR"
+		}
+		if eventErr != nil {
+			entry.Error = eventErr.Error()
+		}
+		return logger.Emit(context.Background(), entry)
+	}
+	if err := emit("provider.config.loaded", "provider configuration validated", "configuration", "COMPLETED", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log configuration result: %v\n", err)
+		return 2
+	}
+	if err := emit("provider.starting", "provider initialization started", "startup", "RUNNING", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log startup: %v\n", err)
 		return 2
 	}
 	reportStore, err := filesystem.NewReportStore(settings.ArtifactDirectory)
@@ -173,7 +388,20 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
-	dependencies := application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
+	logStore, err := observability.NewStore(settings.Logging.Directory, observability.DefaultCentralLogLimit)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
+		return 2
+	}
+	if err := emit("provider.repositories.ready", "provider repositories initialized", "initialization", "COMPLETED", nil); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: log repository initialization: %v\n", err)
+		return 2
+	}
+	dependencies := application.Dependencies{
+		Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{},
+		ArtifactDirectory: settings.ArtifactDirectory,
+		Logs:              logStore,
+	}
 	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
@@ -183,7 +411,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials)
+	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
@@ -226,6 +454,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 			return 2
 		}
+		handler.SetLogger(logger)
 		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
@@ -243,10 +472,12 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		}
 		go func() {
 			if err := webApp.Listener(apiListener); err != nil && !errors.Is(err, net.ErrClosed) {
+				_ = emit("provider.http.stopped", "HTTP server stopped with an error", "http", "FAILED", err)
 				fmt.Fprintf(stderr, "infraflow-provider: API serve: %v\n", err)
 			}
 		}()
 		defer func() {
+			_ = emit("provider.http.stopping", "HTTP server stopping", "http", "STOPPING", nil)
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = webApp.ShutdownWithContext(shutdownContext)
@@ -256,6 +487,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			apiScheme = "https"
 		}
 		fmt.Fprintf(stdout, "InfraFlow provider %s API listening on %s\n", apiScheme, settings.APIListenAddress)
+		if err := emit("provider.http.started", "HTTP API listener started", "http", "RUNNING", nil); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: log HTTP listener: %v\n", err)
+			return 2
+		}
 		if settings.WebUIEnabled {
 			fmt.Fprintf(stdout, "InfraFlow web console available at %s://%s/\n", apiScheme, settings.APIListenAddress)
 		}
@@ -268,11 +503,27 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: listen: %v\n", err)
 		return 1
 	}
+	if err := emit("provider.grpc.started", "gRPC listener started", "grpc", "RUNNING", nil); err != nil {
+		_ = listener.Close()
+		fmt.Fprintf(stderr, "infraflow-provider: log gRPC listener: %v\n", err)
+		return 2
+	}
 	fmt.Fprintf(stdout, "InfraFlow provider gRPC listening on %s; agent token is read from %s\n", settings.ListenAddress, settings.TokenEnv)
-	if err := server.Serve(listener); err != nil {
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	go func() {
+		<-signalContext.Done()
+		_ = emit("provider.shutdown.requested", "provider shutdown requested", "shutdown", "STOPPING", nil)
+		server.GracefulStop()
+	}()
+	if err := <-serveDone; err != nil {
+		_ = emit("provider.grpc.stopped", "gRPC server stopped with an error", "grpc", "FAILED", err)
 		fmt.Fprintf(stderr, "infraflow-provider: serve: %v\n", err)
 		return 1
 	}
+	_ = emit("provider.stopped", "provider stopped", "shutdown", "STOPPED", nil)
 	return 0
 }
 
@@ -287,7 +538,11 @@ Usage:
 	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
 	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
+	infraflow-provider template-info -f <infra.yaml>
+	infraflow-provider capability-summary -f <infra.yaml>
+	infraflow-provider capability-matrix -f <infra.yaml>
+	infraflow-provider apply -f <infra.yaml> -data-dir <state-directory>
 	infraflow-provider serve -config <provider.yaml>
 
-Validation is side-effect free. Planning does not execute tasks. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
+Validation is side-effect free. Planning does not execute tasks. Apply persists a planning job and audit event only; it never contacts a device or starts an agent task. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
 }
