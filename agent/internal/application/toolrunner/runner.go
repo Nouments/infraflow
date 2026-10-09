@@ -39,6 +39,30 @@ type Result struct {
 	Output string
 }
 
+type ProcessResult struct {
+	Command   string
+	Started   time.Time
+	Finished  time.Time
+	Duration  time.Duration
+	ExitCode  int
+	Status    string
+	Stdout    string
+	Stderr    string
+	Output    string
+	Error     string
+	Truncated bool
+}
+
+func (result ProcessResult) Combined() string {
+	if result.Stdout == "" {
+		return result.Stderr
+	}
+	if result.Stderr == "" {
+		return result.Stdout
+	}
+	return result.Stdout + result.Stderr
+}
+
 type ansibleInventory struct {
 	All struct {
 		Children struct {
@@ -352,28 +376,52 @@ func validateTerraformFile(filename string, data []byte) error {
 }
 
 func runCommand(parent context.Context, timeout time.Duration, directory string, environment []string, executable string, arguments ...string) (string, error) {
+	result, err := runCommandDetailed(parent, timeout, directory, environment, executable, arguments...)
+	return result.Combined(), err
+}
+
+func runCommandDetailed(parent context.Context, timeout time.Duration, directory string, environment []string, executable string, arguments ...string) (ProcessResult, error) {
+	result := ProcessResult{Command: executable, Started: time.Now().UTC()}
 	commandPath, err := exec.LookPath(executable)
 	if err != nil {
-		return "", fmt.Errorf("%s is not installed or not on PATH", executable)
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s is not installed or not on PATH", executable)
+		return result, fmt.Errorf("%s is not installed or not on PATH", executable)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, commandPath, arguments...)
 	command.Dir = directory
 	command.Env = environment
-	output := &cappedBuffer{}
-	command.Stdout = output
-	command.Stderr = output
+	stdout := &cappedBuffer{}
+	stderr := &cappedBuffer{}
+	command.Stdout = stdout
+	command.Stderr = stderr
 	err = command.Run()
+	result.Finished = time.Now().UTC()
+	result.Duration = result.Finished.Sub(result.Started)
+	result.Stdout = stdout.String()
+	result.Stderr = stderr.String()
+	result.Output = result.Combined()
+	result.Truncated = stdout.truncated || stderr.truncated
 	if ctx.Err() != nil {
-		return output.String(), fmt.Errorf("%s", ctx.Err())
+		result.Status = "timeout"
+		result.Error = ctx.Err().Error()
+		return result, fmt.Errorf("%s", ctx.Err())
 	}
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
-			return output.String(), fmt.Errorf("%s failed with exit code %d", executable, exitError.ExitCode())
+			result.ExitCode = exitError.ExitCode()
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("%s failed with exit code %d", executable, exitError.ExitCode())
+			return result, fmt.Errorf("%s failed with exit code %d", executable, exitError.ExitCode())
 		}
-		return output.String(), fmt.Errorf("%s failed", executable)
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s failed", executable)
+		return result, fmt.Errorf("%s failed", executable)
 	}
-	return output.String(), nil
+	result.Status = "completed"
+	result.ExitCode = 0
+	return result, nil
 }

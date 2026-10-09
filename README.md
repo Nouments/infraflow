@@ -1,6 +1,6 @@
 # InfraFlow
 
-InfraFlow is a declarative infrastructure orchestration project. Its design follows `INFRAFLOW_SPEC.md`: generic orchestration core, explicit adapter capabilities, and a strict separation between validation, planning, generation, and execution.
+InfraFlow is a declarative infrastructure orchestration project. Its design follows the repository roadmap in [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md): a generic orchestration core, explicit adapter capabilities, and a strict separation between validation, planning, generation, and execution.
 
 ## Services
 
@@ -110,4 +110,4 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Experimental agent DHCP/TFTP/bootstrap HTTP services and fake end-to-end artifact transfer/report test
 - [ ] Device provisioning adapters, execution job API, and remaining bootstrap services
 
-Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See `INFRAFLOW_SPEC.md` for the full phased roadmap and acceptance criteria.
+Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md) for the current phased roadmap and acceptance criteria.

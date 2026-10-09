@@ -51,4 +51,4 @@ boundary.
 
 ## Growth path
 
-The provider now has durable planning jobs and authenticated agent registration/heartbeat state. The scheduler primitives are ready for a future execution job, while synchronization and separately isolated local bootstrap services remain next steps. Provider- and service-specific behavior belongs in isolated adapters and must satisfy the support evidence required by `INFRAFLOW_SPEC.md`.
+The provider now has durable planning jobs and authenticated agent registration/heartbeat state. The scheduler primitives are ready for a future execution job, while synchronization and separately isolated local bootstrap services remain next steps. Provider- and service-specific behavior belongs in isolated adapters and must satisfy the support evidence required by [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md).

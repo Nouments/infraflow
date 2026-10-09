@@ -83,6 +83,35 @@ func TestRunAnsibleReportsExitCodeAndRedactsSensitiveOutput(t *testing.T) {
 	}
 }
 
+func TestRunCommandCapturesStdoutAndStderrSeparately(t *testing.T) {
+	directory := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"echo 'hello stdout'\n" +
+		"echo 'token=secret-value' >&2\n" +
+		"echo 'verbose stderr' >&2\n" +
+		"exit 3\n"
+	filename := filepath.Join(directory, "capture.sh")
+	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runCommandDetailed(t.Context(), time.Second, directory, nil, filename)
+	if err == nil || !strings.Contains(err.Error(), "exit code 3") {
+		t.Fatalf("expected a non-zero exit code, got result=%#v err=%v", result, err)
+	}
+	if result.ExitCode != 3 || result.Status != "failed" {
+		t.Fatalf("unexpected exit metadata: %#v", result)
+	}
+	if !strings.Contains(result.Stdout, "hello stdout") || strings.Contains(result.Stderr, "hello stdout") {
+		t.Fatalf("stdout and stderr were merged unexpectedly: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+	if !strings.Contains(result.Stderr, "[REDACTED]") || strings.Contains(result.Stderr, "secret-value") {
+		t.Fatalf("stderr was not redacted as expected: stderr=%q", result.Stderr)
+	}
+	if strings.Contains(result.Output, "secret-value") {
+		t.Fatalf("sensitive process output leaked into the combined output: %q", result.Output)
+	}
+}
+
 func TestRunTerraformInitializesAndValidatesOnly(t *testing.T) {
 	stateDirectory := t.TempDir()
 	for filename, data := range map[string]string{
