@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     openssl \
     sqlite3 \
-    curl \
+    curl nano \
     wget \
     iproute2 \
     iputils-ping \

@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-server \
     iproute2 \
     iputils-ping \
-    traceroute \
+    traceroute nano \
     curl \
     wget \
     dnsutils \
