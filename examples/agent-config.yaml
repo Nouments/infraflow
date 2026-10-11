@@ -1,18 +1,17 @@
 agent:
-id: site-agent-01
-site_id: site-01
-capabilities:
-- inventory
-- topology
-state_directory: /var/lib/infraflow-agent
+  id: site-agent-01
+  site_id: site-01
+  capabilities:
+    - inventory
+    - topology
+  state_directory: /var/lib/infraflow-agent
 
 provider:
-address: 192.168.0.3:8443
-api_address: http://192.168.0.3:8080
-token_env: a7699bce97c20aecb8f0f06535ea80a4a87951b96b1e50e4c3ef94acdf89e261
-tls:
-enabled: false
-
+  address: localhost:8443
+  api_address: http://127.0.0.1:8080
+  token_env: INFRAFLOW_AGENT_TOKEN
+  tls:
+    enabled: false
 
 # For remote or cloud deployments, use the actual provider DNS/IP and enable TLS:
 # provider:
