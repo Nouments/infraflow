@@ -1,124 +1,38 @@
-# TÂCHE 1 — Corriger définitivement le démarrage InfraFlow dans GNS3
+# InfraFlow Current Status
 
-Dépôt : `Nouments/infraflow`
-Branche de travail : `develop`
+Updated: 2026-10-11
+Branch: `develop`
 
-## Objectif
+## Implemented and verified in the repository
 
-Corriger les erreurs réelles de démarrage des conteneurs `infraflow-agent` et `infraflow-provider`, puis rendre leur communication fonctionnelle dans GNS3.
+- Provider validation and deterministic planning are separate from generation and execution. Creating or retrying a job does not provision infrastructure.
+- Planning jobs are persisted as private JSON records; the authenticated API supports list, read, cancel, and retry within the implemented status rules.
+- Artifact generation publishes deterministic, hash-verified catalog entries. Vendor artifacts remain marked unverified; execution and verification are not requested.
+- The Agent downloads published artifacts, verifies the stream and content hashes, stores them locally, processes generic inventory/topology, and reports artifact-level outcomes.
+- The Agent has a local log outbox and can synchronize logs over the authenticated provider contract.
+- The scheduler implements dependency graphs, concurrency, locks, cancellation, retries, and timeouts, but has no connection to provider jobs or a device execution adapter.
+- Bootstrap artifacts can be generated. Agent DHCPv4, read-only TFTP, and bootstrap HTTP servers are separate explicit commands; they are not started by the normal agent run. There is no DNS daemon.
+- Authenticated provider HTTP/gRPC APIs, the Linux TUI, and web console expose current planning, agent, event, and log records. They do not expose a device execution lifecycle.
 
-Adresses du lab :
-- Agent : `192.168.0.2/24`
-- Provider : `192.168.0.3/24`
-- gRPC : `8443`
-- API : `8080`
+## Evidence from this phase
 
-## Règle fondamentale
+- Read and cross-checked `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md`, provider/agent application code, scheduler, artifact processing, API handlers, TUI, dashboard, and bootstrap command implementations.
+- Targeted tests for scheduler, provider application/API/dashboard, agent runner/TUI, artifact generation, and bootstrap services: 100 passed, 0 failed.
+- No Docker builds or full repository test suite were run in this phase.
+- No GNS3 lab or physical device validation was performed. Documentation defaults for GNS3 are not evidence that inter-container communication has been tested.
 
-**Ne crée aucun fichier d’exemple, aucune configuration de démonstration séparée et aucun fichier temporaire destiné uniquement à contourner les bugs.**
+## Confirmed documentation correction
 
-Je veux corriger l’implémentation existante et les fichiers réellement utilisés par les Dockerfiles, les entrypoints et les services.
+`ARCHITECTURE.md` now distinguishes explicitly invoked DHCPv4/TFTP/bootstrap HTTP commands from normal Agent startup, records that DNS service is absent, and states that scheduler primitives are not connected to provider execution jobs.
 
-Ne crée pas de nouveaux fichiers YAML de démonstration. Si une configuration de production doit être modifiée, corrige son fichier existant. Si une configuration GNS3 nécessite des paramètres spécifiques, utilise les mécanismes de configuration déjà prévus dans le projet ou ajoute uniquement le code de configuration indispensable à l’exécution réelle.
+## Remaining work
 
-Ne committe aucun secret, token, clé privée ou certificat privé dans le dépôt public.
+- Add a durable provider execution-job lifecycle and connect it to the existing scheduler before claiming task execution support.
+- Define persisted task/job transitions, cancellation behavior, result/error propagation, and audit events for that lifecycle.
+- Implement or explicitly defer a DNS service and other unimplemented bootstrap services.
+- Run the final full test, race, vet, binary build, Docker build, and GNS3 integration campaign separately.
+- Validate GNS3 addressing, certificate injection, authenticated HTTPS registration, and authenticated gRPC artifact transfer on the actual lab network.
 
-## 1. Trouver les causes racines
+## Next implementation task
 
-Inspecte :
-- les structures de configuration Go de l’Agent et du Provider ;
-- le décodage YAML et la validation stricte ;
-- les commandes de démarrage ;
-- les Dockerfiles et entrypoints ;
-- les chemins des fichiers intégrés dans les images ;
-- les variables d’environnement réellement prises en charge ;
-- la configuration TLS et l’authentification ;
-- les paramètres réseau et les répertoires de données.
-
-Les erreurs observées indiquent que les champs YAML chargés ne correspondent pas aux structures Go attendues.
-
-Détermine pourquoi les conteneurs chargent ces configurations et corrige la cause. Ne te contente pas de changer quelques noms de champs sans vérifier l’ensemble du contrat de configuration.
-
-## 2. Corriger l’Agent
-
-L’Agent doit :
-- charger sa configuration avec le schéma réellement attendu par le code ;
-- obtenir son identifiant, son site et ses capacités depuis la configuration prise en charge ;
-- créer ou valider son répertoire de données ;
-- lire le token depuis la variable d’environnement prévue ;
-- joindre le Provider via `192.168.0.3:8443` dans le lab ;
-- valider correctement le certificat TLS ;
-- signaler clairement les erreurs de connexion, d’authentification et de configuration ;
-- démarrer sans dépendre de fichiers absents ou de chemins incohérents.
-
-## 3. Corriger le Provider
-
-Le Provider doit :
-- charger sa configuration réelle sans erreur YAML ;
-- écouter sur les interfaces nécessaires à la communication entre conteneurs ;
-- appliquer les règles TLS imposées par le code et la sécurité du projet ;
-- créer ou valider ses répertoires de données ;
-- charger le secret sans l’inscrire dans les fichiers versionnés ;
-- exposer les services attendus sur les ports configurés ;
-- fournir des erreurs explicites lorsqu’un certificat, une clé ou une variable indispensable manque.
-
-## 4. Corriger le démarrage Docker et GNS3
-
-Modifie les Dockerfiles et entrypoints existants si nécessaire.
-
-Les images doivent embarquer les bons exécutables et les configurations réellement utilisées. Évite les décalages entre le code compilé, les chemins de configuration et les fichiers présents dans l’image.
-
-Le fonctionnement ne doit pas dépendre de `localhost` pour joindre l’autre conteneur.
-
-Si les adresses IP sont attribuées par GNS3, ne suppose pas que Docker configure automatiquement une adresse statique. Utilise les mécanismes compatibles avec le réseau GNS3 et documente uniquement les paramètres indispensables au déploiement.
-
-Si des certificats sont nécessaires, prévois leur génération ou leur injection hors du dépôt public. N’intègre aucune clé privée dans Git ou dans une image publique.
-
-## 5. Tests obligatoires
-
-Ajoute ou adapte les tests dans les emplacements de tests existants. Ne crée pas de fichiers d’exemple pour les faire passer.
-
-Vérifie :
-- les configurations valides et invalides ;
-- le rejet des champs inconnus ;
-- les variables d’environnement obligatoires ;
-- la validation TLS et les erreurs de certificats ;
-- les chemins de données ;
-- le démarrage des services ;
-- la communication authentifiée entre Agent et Provider.
-
-Exécute, lorsque l’environnement le permet :
-- `go test ./...`
-- `go test -race ./...`
-- `go vet ./...`
-- la compilation des deux binaires ;
-- la construction des deux images Docker ;
-- un test d’intégration réel entre les deux services.
-
-Ne présente pas un test unitaire comme une preuve de fonctionnement dans GNS3. Si le lab n’est pas accessible, indique précisément les validations qui restent à effectuer.
-
-## 6. Protection du dépôt public
-
-Avant et après les modifications :
-- vérifie `git status` ;
-- préserve les changements préexistants ;
-- ne supprime pas de travaux sans rapport avec cette tâche ;
-- n’ajoute aucun token, mot de passe, certificat privé ou clé privée ;
-- vérifie les nouveaux fichiers avec `git diff --check` et `git diff` ;
-- ne pousse pas de modifications sans mon autorisation.
-
-## 7. Résultat attendu
-
-Termine la correction avant de répondre.
-
-Fournis :
-1. les causes racines confirmées ;
-2. les fichiers existants modifiés et la raison de chaque modification ;
-3. les corrections appliquées ;
-4. les commandes de validation exécutées avec leurs résultats réels ;
-5. les instructions minimales pour reconstruire les images et tester les conteneurs dans GNS3 ;
-6. les problèmes restants et les validations non effectuées.
-
-Ne passe pas à la tâche suivante. Ne prétends pas que le problème est résolu sans preuve.
-
-**Priorité : corriger le code existant, garder le dépôt public propre et obtenir un démarrage réellement fonctionnel.**
+Design and implement the generic provider execution-job application boundary that persists lifecycle state and can later call the scheduler through an owned application port. Keep vendor-specific adapters out of scope, preserve the current plan-only API behavior until the lifecycle is implemented, and add focused persistence and cancellation tests.

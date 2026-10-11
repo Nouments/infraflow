@@ -1,76 +1,75 @@
-2. La prochaine étape après ce prompt
+# INFRAFLOW — PHASE 1 : FINALISATION DU SOCLE EXISTANT
 
-Une fois la phase 1 terminée et vérifiée, je recommande de passer à un premier adaptateur réseau réel, plutôt que d’essayer de supporter simultanément Cisco, FortiGate, MikroTik et Proxmox.
+Dépôt : `Nouments/infraflow`
+Branche : `develop`
 
-Phase 2 — Premier adaptateur réseau réel
+## Objectif
 
-Étape suivante
+Continuer le développement d’InfraFlow jusqu’à obtenir une implémentation cohérente, maintenable et prête pour les prochaines fonctionnalités. Les tests complets et les builds Docker lourds seront réalisés dans une campagne finale distincte.
 
-Choisir un équipement disponible dans ton laboratoire GNS3/EVE-NG, détecter son état réel, exécuter une opération contrôlée, puis vérifier le résultat.
+Consulte obligatoirement `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md`, `CURRENT.md` et le code réel avant de modifier quoi que ce soit.
 
-Phase 3 — Cycle YAML → plan → exécution → vérification
+## Règles
 
-Chaque action doit posséder un statut explicite, un résultat observé et une preuve. La génération d’un fichier ne doit jamais être confondue avec l’application de sa configuration.
+- Ne crée aucun fichier YAML d’exemple ou de démonstration supplémentaire.
+- Ne crée aucune donnée fictive pour simuler le fonctionnement.
+- Ne remplace pas une fonctionnalité réelle par un mock.
+- Ne réécris pas les composants qui fonctionnent déjà sans raison démontrée.
+- Ne mets aucun secret, token, certificat privé ou mot de passe dans Git.
+- Ne reconstruis pas les images Docker lourdes pendant cette phase.
+- Préserve les modifications préexistantes et vérifie `git status`.
+- Ne pousse aucun changement sans autorisation.
+- N’annonce pas une fonctionnalité terminée sans avoir identifié son implémentation réelle et ses limites.
 
-Phase 4 — Démonstration complète
+## Travail
 
-Afficher dans la TUI et le dashboard les équipements, les jobs, la progression, les logs, les erreurs et l’état réellement vérifié.
+### 1. État du dépôt
 
-3. Prompt pour préparer la phase 2
+Inspecte les composants existants du Provider, de l’Agent, du scheduler, de la génération des artefacts, des APIs, du TUI, du dashboard et des services bootstrap.
 
-Tu peux le donner aux agents après la validation de la phase 1. Il s’agit d’abord d’un audit et d’une préparation, pas d’une autorisation d’implémenter tous les constructeurs.
+Repère les fonctionnalités annoncées dans la documentation mais absentes, partielles, déconnectées ou incorrectement intégrées.
 
-INFRAFLOW — PHASE 2 : PREMIER ADAPTATEUR RÉSEAU RÉEL
-INFRAFLOW — PHASE 2 : PREMIER ADAPTATEUR RÉSEAU RÉEL
+### 2. Configuration et démarrage
 
-Travaillez exclusivement sur develop.
+Vérifie les contrats de configuration Go, les variables d’environnement, les chemins des fichiers, les entrypoints et les Dockerfiles.
 
-Objectif : identifier et implémenter le premier chemin d’exécution réseau réel supporté par InfraFlow, à partir des capacités effectivement présentes dans le dépôt et du laboratoire disponible.
+Corrige les défauts évidents directement dans les fichiers existants. Prépare une configuration cohérente entre code source et conteneurs, sans ajouter de configurations de démonstration.
 
-Avant toute modification :
+Ne prétends pas résoudre les erreurs observées dans GNS3 tant que leur cause n’est pas confirmée.
 
-Auditez les interfaces de providers/adapters, le moteur de planification, les jobs, les états d’exécution, les mécanismes de vérification et les tests existants.
-Identifiez les équipements réellement disponibles et leurs moyens d’accès : console, SSH, API ou protocole adapté.
-Vérifiez les capacités effectivement implémentées pour chaque constructeur. Ne déduisez pas le support d’un constructeur de la seule présence de son nom dans un YAML.
-Choisissez un seul équipement cible et justifiez ce choix.
-Proposez un scénario minimal, reproductible, non destructif et vérifiable.
+### 3. Cohérence de l’architecture
 
-Le premier adaptateur devra distinguer au minimum :
+Vérifie que :
+- le Provider valide et planifie sans prétendre exécuter ;
+- les jobs possèdent des états cohérents et persistants ;
+- le scheduler et les contrats applicatifs sont prêts à être reliés au futur moteur d’exécution ;
+- l’Agent ne déclare pas un déploiement réussi après une simple génération ou validation ;
+- les résultats, journaux et erreurs disposent de chemins de remontée cohérents ;
+- les capacités non implémentées restent explicitement bloquées ;
+- les API, le TUI et le dashboard reflètent les états réellement enregistrés.
 
-configuration absente ;
-connexion impossible ;
-équipement détecté ;
-capacité non prise en charge ;
-plan généré ;
-action exécutée ;
-action échouée ;
-résultat vérifié ;
-vérification impossible.
+Corrige les défauts d’intégration découverts dans le périmètre existant. Ne commence pas encore les adaptateurs spécifiques aux constructeurs.
 
-Chaque action devra être liée à un équipement, une tâche et un run. Enregistrez les résultats et les erreurs dans les mécanismes d’observabilité existants.
+### 4. Documentation
 
-N’annoncez jamais une configuration appliquée si seule sa génération a été réalisée. Ne marquez jamais une action comme vérifiée sans une lecture ou une preuve indépendante adaptée.
+Remets `CURRENT.md` en document de suivi réel : état actuel, tâches terminées avec preuves disponibles, tâches restantes et prochaine étape.
 
-Exigences de sécurité :
+La documentation ne doit pas être remplacée par un prompt. Mets à jour `README.md`, `ARCHITECTURE.md` ou `INFRAFLOW_SPEC.md` uniquement lorsque le code réellement modifié le justifie.
 
-secrets exclus des logs ;
-validation stricte des entrées ;
-délais d’attente ;
-annulation ;
-gestion des erreurs de connexion ;
-privilèges minimaux ;
-opérations non destructives par défaut ;
-tests avec équipements simulés séparés des tests de laboratoire réels.
+### 5. Tests légers disponibles
 
-Livrables attendus :
+Sans lancer les builds Docker lourds, exécute les tests unitaires et vérifications locales ciblées possibles.
 
-état des lieux de l’architecture existante ;
-choix du premier équipement cible et prérequis ;
-scénario de test reproductible ;
-fichiers à modifier ;
-tests unitaires et tests d’intégration ;
-preuves requises pour valider une action réelle ;
-critères d’acceptation ;
-limitations et fonctionnalités non supportées.
+Si des tests échouent, corrige les défauts dans le périmètre de cette phase. N’élargis pas artificiellement les tests et n’en supprime aucun pour obtenir un résultat vert.
 
-Ne commencez pas une prise en charge générique de tous les constructeurs. Aucun déploiement destructif, aucune modification d’équipement réel et aucun push sans autorisation explicite.
+## Livrables obligatoires
+
+À la fin, indique :
+1. les défauts confirmés ;
+2. les fichiers réellement modifiés ;
+3. les corrections réalisées ;
+4. les tests effectivement exécutés et leurs résultats ;
+5. les fonctionnalités encore absentes ;
+6. la prochaine tâche d’implémentation à traiter.
+
+Ne commence pas la phase suivante dans la même intervention. Ne pousse rien et ne prétends pas que le projet est entièrement terminé.
