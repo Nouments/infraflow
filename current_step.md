@@ -1,144 +1,198 @@
-# INFRAFLOW — PHASE 2 : CYCLE DE VIE RÉEL DES TÂCHES
+# INFRAFLOW — PHASE 3 : INTÉGRATION COMPLÈTE DES EXÉCUTIONS DANS LE DASHBOARD WEB ET LE TUI GO
 
-Repository : `Nouments/infraflow`  
-Branche : `develop`
+**Repository :** `Nouments/infraflow`  
+**Branche :** `develop`  
+**Mode de travail :** implémentation réelle, tests locaux légers, aucune reconstruction Docker.
 
-## Objectif
+## 1. Objectif et périmètre strict
 
-Relier le moteur de tâches existant au Provider pour construire un véritable cycle de vie d’exécution, persistant, observable, sécurisé et prêt à recevoir les adaptateurs réseau dans la phase suivante.
+Le moteur d’exécution, la persistance et les routes API des exécutions existent déjà dans le projet.
 
-Ne reconstruis pas les images Docker et ne bloque pas le développement sur GNS3. Implémente et vérifie tout ce qui peut l’être localement.
+Cette tâche consiste exclusivement à intégrer ces fonctionnalités dans :
 
-## 1. Audit obligatoire avant modification
+1. Le dashboard web existant.
+2. Le TUI Linux existant, développé en Go avec Lip Gloss et les bibliothèques de l’écosystème Charmbracelet.
 
-Lis le code réel avant de changer quoi que ce soit, en particulier :
+Il ne faut pas réimplémenter le moteur d’exécution, créer un second scheduler, inventer des données ou commencer les adaptateurs Cisco, MikroTik, FortiGate et Proxmox.
 
-- `internal/application/` : scheduler, jobs, ports et cas d’usage ;
-- `internal/domain/` et `internal/ports/` ;
-- `provider/` : API HTTP, services, persistance, authentification et assemblage de l’application ;
-- `api/proto/` et `pkg/protocol/` ;
-- les tests existants ;
-- `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md` et `CURRENT.md`.
+Avant toute modification, examine le code réel et les dépendances présentes dans `go.mod` et `go.sum`. Lis `CURRENT.md`, `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md`, les routes `/api/v1/executions`, le client HTTP du TUI, les tests existants et les composants du dashboard.
 
-Identifie les implémentations existantes et réutilise-les. Ne crée pas un second scheduler ou un deuxième système de jobs qui ferait doublon.
+Ne suppose pas que les fonctionnalités sont absentes avant d’avoir vérifié leur implémentation actuelle.
 
-## 2. Séparer clairement planification et exécution
+## 2. TUI : exigences techniques obligatoires
 
-Conserve le comportement actuel de validation, de planification et de génération.
+Le TUI InfraFlow est une application terminal interactive écrite en **Go**, utilisant **Lip Gloss** pour le style et l’écosystème **Charmbracelet** pour les composants interactifs.
 
-Une tâche planifiée ne doit jamais être considérée comme exécutée simplement parce que le plan ou les artefacts ont été générés.
+Il doit rester une application TUI native, légère, adaptée à Linux et utilisable à travers SSH. Il ne doit pas devenir une interface CLI rudimentaire composée uniquement de `fmt.Printf`, de menus numériques ou de saisies ligne par ligne.
 
-Introduis un contrat d’application explicite pour soumettre et suivre les tâches d’exécution. Sépare les états de planification des états d’exécution si leur fusion rend les transitions ambiguës.
+### 2.1 Respect de l’architecture existante
 
-Sans exécuteur opérationnel enregistré, le Provider doit refuser ou bloquer explicitement une exécution non prise en charge. Il ne doit jamais annoncer un succès fictif.
+- Conserve le langage Go et la structure actuelle des packages.
+- Conserve Lip Gloss et les bibliothèques Charmbracelet déjà installées.
+- Réutilise Bubble Tea si le projet l’utilise déjà pour la boucle interactive, les messages, les commandes et les mises à jour d’état.
+- Si le TUI actuel n’utilise pas encore Bubble Tea, vérifie l’architecture existante et justifie toute évolution nécessaire avant d’introduire cette dépendance.
+- N’ajoute pas une seconde architecture de rendu ni des bibliothèques redondantes.
+- Sépare proprement les appels HTTP, les modèles de données, l’état de l’interface, les interactions et le rendu.
+- Conserve l’authentification et la gestion de session actuelles.
+- Respecte les conventions de code et de tests existantes.
 
-## 3. Cycle de vie persistant
+### 2.2 Expérience interactive attendue
 
-Implémente les états nécessaires, avec des transitions validées, notamment :
+Intègre une section **Executions** dans la navigation actuelle du TUI.
 
-- `queued` ;
-- `running` ;
-- `succeeded` ;
-- `failed` ;
-- `cancelled` ;
-- `timed_out`.
+Elle doit offrir :
 
-Ajoute les états intermédiaires nécessaires uniquement si l’architecture le justifie.
+- Une liste paginée des exécutions réelles provenant du Provider.
+- Une sélection interactive d’une exécution.
+- Une vue détaillée avec ses tâches, leurs états, leurs tentatives, leurs résultats et leurs erreurs.
+- L’affichage des dates et durées réellement disponibles.
+- Des indicateurs visuels distincts pour les états `queued`, `running`, `retrying`, `succeeded`, `failed`, `cancelled` et `timed_out`, lorsque ces états sont présents dans les données.
+- Un rafraîchissement manuel.
+- Un rafraîchissement automatique limité pour les exécutions actives, si compatible avec l’architecture actuelle.
+- Une navigation claire entre la liste, le détail et l’écran précédent.
+- Des raccourcis clavier cohérents avec les autres vues et affichés dans une barre d’aide.
+- Des états d’interface propres pour le chargement, les listes vides, les erreurs API, la perte de connexion et les sessions expirées.
+- Une demande d’annulation avec confirmation interactive pour les exécutions non terminales.
 
-Chaque tâche doit conserver au minimum son identifiant, son type, son état, ses dates de création et de mise à jour, ses paramètres validés, ses tentatives, son résultat, son erreur et les informations utiles à l’audit.
+L’utilisation de Lip Gloss doit assurer une présentation cohérente : titres, panneaux, tableaux ou listes, statuts colorés, erreurs visibles et aide contextuelle. Respecte les contraintes de largeur du terminal, les retours à la ligne et les terminaux SSH sans couleurs.
 
-La persistance doit survivre au redémarrage du Provider. Une tâche interrompue par un arrêt du service ne doit pas rester indéfiniment en `running` sans politique explicite de récupération.
+Si Bubble Tea est déjà utilisé, les interactions doivent suivre son modèle `Model`, `Init`, `Update` et `View`, selon la version installée. Les appels réseau potentiellement bloquants ne doivent pas figer l’interface ; utilise les commandes asynchrones appropriées.
 
-## 4. Connecter réellement le scheduler
+Ne réécris pas tout le TUI. Étends la structure existante avec le minimum de modifications architecturales nécessaires.
 
-Relie le scheduler existant au nouveau cas d’usage d’exécution, à travers des ports définis par la couche application.
+### 2.3 Commandes et interactions
 
-Le moteur doit gérer correctement :
+Le parcours doit permettre de :
 
-- les dépendances et l’ordre d’exécution ;
-- les limites de concurrence ;
-- les verrous de ressources ;
-- les délais d’exécution ;
-- les nouvelles tentatives selon une politique explicite ;
-- l’annulation avant et pendant l’exécution ;
-- les erreurs et la propagation des résultats ;
-- l’arrêt propre du service.
+1. Ouvrir la vue des exécutions.
+2. Parcourir la liste et changer de page.
+3. Sélectionner une exécution.
+4. Examiner son état général et le détail de ses tâches.
+5. Consulter les erreurs, les tentatives et les résultats.
+6. Demander une annulation et confirmer ou abandonner cette demande.
+7. Voir la réponse réelle du Provider, puis actualiser l’état.
+8. Revenir à la liste et rafraîchir les données.
 
-Empêche les doubles soumissions et les transitions concurrentes incohérentes. Prévois une clé d’idempotence ou un mécanisme équivalent si une même requête peut être rejouée.
+Les raccourcis exacts doivent suivre les conventions existantes. Évite les collisions avec les raccourcis déjà utilisés.
 
-Une annulation demandée ne signifie pas que la tâche est déjà annulée : l’état final doit refléter le résultat réel de l’arrêt.
+## 3. Dashboard web
 
-## 5. Contrat d’exécution sécurisé
+Étends le dashboard actuel sans reconstruire son design global.
 
-Définis une interface générique d’exécuteur permettant d’ajouter ultérieurement les adaptateurs réseau sans réécrire le scheduler.
+Ajoute une vue **Executions** intégrée à la navigation existante et cohérente avec les styles, composants et mécanismes d’authentification actuels.
 
-L’exécuteur doit recevoir une tâche validée et produire un résultat structuré avec statut, sortie, erreur et durée lorsque disponible.
+Elle doit afficher exclusivement les données renvoyées par l’API :
 
-N’exécute pas de commande shell arbitraire fournie par l’API. Ne lance pas de commande réseau, Ansible, Terraform ou SSH sans un exécuteur explicitement enregistré et une politique autorisant cette opération.
+- Identifiant, état et dates de l’exécution.
+- Tâches et types de tâches.
+- Tentatives, résultats, erreurs et durées disponibles.
+- Historique des événements de l’exécution, si présent dans le contrat retourné.
+- Filtres par état et type.
+- Pagination utilisant les paramètres réels de l’API.
+- Détail d’une exécution.
+- Action d’annulation avec confirmation, contrôle de l’état et retour explicite de la réponse du serveur.
 
-Aucun adaptateur Cisco, MikroTik, FortiGate ou Proxmox n’est demandé dans cette phase.
+Si la progression globale n’est pas fournie par le backend, n’invente pas un pourcentage. Tu peux afficher un décompte calculé à partir des tâches et de leurs états réels, en indiquant clairement qu’il s’agit d’un décompte et non d’une mesure de progression garantie.
 
-## 6. API et autorisations
+N’ajoute pas de fausses données pour remplir le dashboard.
 
-Expose les opérations nécessaires pour :
+## 4. API et contrats
 
-- soumettre une tâche d’exécution ;
-- consulter une tâche ;
-- lister les tâches avec filtres et pagination ;
-- demander son annulation ;
-- consulter ses tentatives, résultats, erreurs et événements.
+Réutilise les routes existantes :
 
-Respecte le système actuel de sessions, rôles et RBAC. Vérifie les autorisations pour chaque opération, notamment l’annulation et l’accès aux résultats.
+- `GET /api/v1/executions`
+- `POST /api/v1/executions`
+- `GET /api/v1/executions/{id}`
+- `POST /api/v1/executions/{id}/cancel`
 
-Ne casse pas les routes existantes. Versionne les changements de contrat si nécessaire et documente les éventuelles modifications protobuf.
+Vérifie les contrats dans le code source avant de les intégrer. Respecte les paramètres de pagination, les filtres et les champs JSON réellement disponibles.
 
-## 7. Rapports, journaux et audit
+Ne crée pas de routes supplémentaires si les routes actuelles suffisent.
 
-Chaque transition significative doit être observable et persistée. Enregistre l’acteur, la tâche, l’action, l’horodatage et le résultat dans le mécanisme d’audit existant.
+Si un changement backend s’avère indispensable, explique pourquoi, limite sa portée et ajoute les tests correspondants. Ne modifie pas le modèle d’exécution simplement pour simplifier le rendu.
 
-Les erreurs doivent être exploitables pour diagnostiquer une tâche. Ne stocke jamais de mots de passe, jetons, clés privées ou autres secrets dans les paramètres, les sorties, les événements ou les journaux.
+Le TUI et le dashboard doivent utiliser le Provider comme source de vérité. Ils ne doivent pas modifier localement un état en prétendant que l’opération a réussi.
 
-Réutilise les mécanismes de journalisation existants. Ne crée pas une deuxième chaîne de logs.
+## 5. Sécurité et autorisations
 
-## 8. Tests exigés dans cette phase
+- Réutilise l’authentification existante.
+- Respecte les rôles et permissions imposés par le Provider.
+- Ne contourne jamais le RBAC côté interface.
+- Ne stocke pas de nouveau jeton dans le navigateur.
+- Ne révèle pas de secrets dans les paramètres, résultats, erreurs ou journaux.
+- Ne présente pas une annulation demandée comme une annulation achevée.
+- Gère les erreurs HTTP, les refus d’accès et les sessions expirées.
 
-Ajoute des tests ciblés portant sur le comportement réel :
+Les autorisations doivent être vérifiées côté serveur, même si les actions interdites sont masquées dans l’interface.
 
-- transitions autorisées et refusées ;
-- persistance et rechargement après redémarrage ;
-- succès, échec et propagation des erreurs ;
-- dépendances, concurrence et verrous ;
-- retries et délais ;
-- annulation avant et pendant une tâche ;
-- idempotence et soumissions concurrentes ;
-- authentification et RBAC de chaque route ;
-- absence de faux succès quand aucun exécuteur n’est disponible ;
-- audit et absence de secrets dans les journaux.
+## 6. Tests à ajouter
 
-Utilise des exécuteurs de test déterministes pour tester le contrat et le scheduler, sans prétendre tester des équipements réseau. Ne remplace pas les tests comportementaux par de simples tests de mocks.
+### Go / TUI
 
-Lance les tests locaux ciblés et les vérifications légères possibles. Ne lance aucune reconstruction Docker lourde et ne prétends pas avoir validé GNS3 ou du matériel réel.
+Ajoute des tests adaptés aux packages existants pour vérifier :
 
-## 9. Documentation et suivi
+- Le décodage des réponses API.
+- Les listes vides, la pagination et les erreurs réseau.
+- L’affichage des différents états.
+- La navigation liste/détail/retour.
+- La confirmation et le refus d’une annulation.
+- La mise à jour après la réponse du Provider.
+- Les sessions expirées et les accès refusés.
+- Le comportement de l’interface lorsqu’une requête échoue ou arrive en retard.
 
-Mets à jour `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md` et `CURRENT.md` en fonction du code réellement livré.
+Utilise les mécanismes de test déjà présents. Si Bubble Tea est utilisé, teste les transitions de modèle et les commandes de manière déterministe sans exiger un terminal interactif réel.
 
-Marque une fonctionnalité comme implémentée uniquement si son code et ses tests le justifient. Distingue les tests exécutés des tests restant à faire.
+### Dashboard web
 
-Ne crée pas de nouveaux fichiers d’exemples YAML ou de données de démonstration. Ne commite aucun secret.
+Ajoute ou complète les tests JavaScript déjà utilisés par le projet :
 
-## 10. Compte rendu obligatoire
+- Rendu de la liste et des détails.
+- Filtres et pagination.
+- États de chargement, liste vide et erreur.
+- Confirmation d’annulation.
+- Gestion des réponses HTTP non réussies.
+- Absence de faux état de succès.
+- Absence de données fictives dans les vues d’exécution.
 
-À la fin, fournis :
+Exécute les tests ciblés, les tests Go concernés et les vérifications légères disponibles. Corrige les régressions introduites par cette tâche.
 
-1. Les défauts constatés avant les modifications.
-2. Les fichiers modifiés et la raison de chaque modification.
-3. Le fonctionnement précis du nouveau cycle de vie.
-4. Les routes et contrats ajoutés ou modifiés.
-5. Les tests exécutés, avec les commandes et résultats réels.
-6. Les limitations restantes et les tests reportés à la campagne finale.
-7. La prochaine tâche recommandée.
+Ne reconstruis pas les images Docker et ne prétends pas avoir validé le fonctionnement sur GNS3 ou sur des équipements réels.
 
-Ne commence pas les adaptateurs fournisseurs dans cette phase. Ne pousse pas de modifications sans autorisation. N’affirme pas que toute la phase est terminée si une exigence reste incomplète.
+## 7. Documentation et suivi
 
-**Critère de fin :** le Provider possède un cycle d’exécution générique persistant, sécurisé et relié au scheduler, sans confondre planification, génération et exécution réelle.
+Mets à jour `CURRENT.md`, `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md` et `README.md` uniquement pour refléter ce qui est effectivement livré.
+
+Documente les interactions du TUI, ses raccourcis, la navigation et la nouvelle vue web.
+
+Distingue les tests exécutés des tests restant à effectuer. Ne marque aucune fonctionnalité comme terminée sans implémentation et vérification correspondantes.
+
+Ne crée pas de fichiers YAML d’exemple supplémentaires, de données de démonstration ou de mocks utilisés comme données de production. Les mocks sont autorisés uniquement dans les tests automatisés lorsque nécessaire.
+
+Ne pousse pas de modifications sans autorisation.
+
+## 8. Hors périmètre explicite
+
+Ne pas réaliser dans cette tâche :
+
+- Les adaptateurs Cisco, MikroTik, FortiGate ou Proxmox.
+- L’application de configurations sur de vrais équipements.
+- La reconstruction des images Docker.
+- Une refonte générale du dashboard.
+- Une réécriture complète du TUI.
+- Un nouveau moteur d’exécution ou un second scheduler.
+- Une nouvelle API de jobs si les routes existantes suffisent.
+- Des données fictives pour simuler une exécution.
+- Une déclaration de validation GNS3 sans test réel.
+
+## 9. Compte rendu obligatoire
+
+À la fin, indique :
+
+1. L’état du TUI avant modification : bibliothèques réellement utilisées et architecture constatée.
+2. Les fonctionnalités web et TUI ajoutées ou corrigées.
+3. Les fichiers modifiés et les raisons de chaque modification.
+4. Les commandes de tests exécutées et leurs résultats réels.
+5. Les éventuelles limitations et les tests reportés à la campagne finale.
+6. La prochaine tâche recommandée.
+
+**Critère de fin :** les administrateurs peuvent consulter et suivre les exécutions réelles depuis le dashboard web et le TUI Go interactif utilisant Lip Gloss et l’écosystème Charmbracelet, examiner les résultats et demander une annulation sans contourner le Provider, ses autorisations ou son audit.
