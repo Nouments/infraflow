@@ -45,6 +45,14 @@ fields, and use the same bearer token as the gRPC service.
 Events are append-only, sequence-numbered, hash-chained, and do not contain the
 submitted YAML or bearer token.
 
+The admin-only `/api/v1/executions` API is separate from planning jobs. It
+persists generic scheduler-backed execution records, task attempts, results,
+errors, and transitions. Submission requires an `Idempotency-Key`; task types
+must have an explicitly registered executor. No operational executor is
+registered in the default Provider, so unsupported execution requests return
+HTTP 409 and do not create an execution. Execution records are available from
+the API but are not yet shown in the console or TUI.
+
 ```sh
 curl -X POST -H "Authorization: Bearer $INFRAFLOW_USER_TOKEN" \
   -H 'Content-Type: application/json' \

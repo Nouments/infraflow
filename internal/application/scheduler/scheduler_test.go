@@ -70,6 +70,62 @@ func TestSchedulerHonorsDependenciesLocksAndDeterministicResults(t *testing.T) {
 	close(started)
 }
 
+func TestSchedulerEnforcesGlobalConcurrencyLimit(t *testing.T) {
+	var active int32
+	var maximum int32
+	started := make(chan struct{}, 3)
+	release := make(chan struct{})
+	action := func(context.Context) error {
+		current := atomic.AddInt32(&active, 1)
+		for {
+			observed := atomic.LoadInt32(&maximum)
+			if current <= observed || atomic.CompareAndSwapInt32(&maximum, observed, current) {
+				break
+			}
+		}
+		started <- struct{}{}
+		<-release
+		atomic.AddInt32(&active, -1)
+		return nil
+	}
+	scheduler, err := New([]Task{
+		{ID: "one", Action: action},
+		{ID: "two", Action: action},
+		{ID: "three", Action: action},
+	}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan []Result, 1)
+	go func() {
+		results, _ := scheduler.Run(context.Background())
+		finished <- results
+	}()
+	for index := 0; index < 2; index++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("scheduler did not start up to its concurrency limit")
+		}
+	}
+	select {
+	case <-started:
+		close(release)
+		t.Fatal("scheduler exceeded its global concurrency limit")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case results := <-finished:
+		if len(results) != 3 || atomic.LoadInt32(&maximum) != 2 {
+			t.Fatalf("unexpected concurrency results: max=%d results=%#v", maximum, results)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not finish after releasing tasks")
+	}
+}
+
 func TestSchedulerRetriesOnlyRetryableFailures(t *testing.T) {
 	var attempts int32
 	scheduler, err := New([]Task{{
@@ -116,7 +172,7 @@ func TestSchedulerTimeoutAndCancellation(t *testing.T) {
 	for _, result := range results {
 		byID[result.ID] = result
 	}
-	if err != nil || byID["slow"].Status != StatusFailed || byID["slow"].Attempts != 2 || byID["dependent"].Status != StatusBlocked {
+	if err != nil || byID["slow"].Status != StatusTimedOut || byID["slow"].Attempts != 2 || byID["dependent"].Status != StatusBlocked {
 		t.Fatalf("unexpected timeout results: %#v, %v", results, err)
 	}
 
@@ -136,6 +192,23 @@ func TestSchedulerTimeoutAndCancellation(t *testing.T) {
 	}
 	if err != nil || byID["running"].Status != StatusCancelled || byID["queued"].Status != StatusCancelled {
 		t.Fatalf("unexpected cancellation results: %#v, %v", cancelled, err)
+	}
+}
+
+func TestSchedulerTimesOutActionsThatIgnoreTheirContext(t *testing.T) {
+	scheduler, err := New([]Task{{
+		ID: "non-cooperative", Timeout: 5 * time.Millisecond,
+		Action: func(context.Context) error {
+			time.Sleep(20 * time.Millisecond)
+			return nil
+		},
+	}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := scheduler.Run(context.Background())
+	if err != nil || len(results) != 1 || results[0].Status != StatusTimedOut {
+		t.Fatalf("late success bypassed the task deadline: %#v, %v", results, err)
 	}
 }
 

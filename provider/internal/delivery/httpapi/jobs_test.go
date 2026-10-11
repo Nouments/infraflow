@@ -12,7 +12,9 @@ import (
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
@@ -409,6 +411,183 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	handler.ServeHTTP(response, missing)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("missing job returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+type httpExecutionExecutor struct{}
+
+func (httpExecutionExecutor) Type() string { return "test.operation" }
+
+func (httpExecutionExecutor) ValidateParameters(parameters json.RawMessage) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(parameters, &object); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), parameters...), nil
+}
+
+func (httpExecutionExecutor) Execute(context.Context, domain.ExecutionTask) (ports.ExecutionResult, error) {
+	return ports.ExecutionResult{Status: domain.ExecutionTaskSucceeded, Output: json.RawMessage(`{"test_result":"ok"}`)}, nil
+}
+
+func (httpExecutionExecutor) Retryable(error) bool { return false }
+
+func TestExecutionAPIRequiresAdminAndExposesLifecycle(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, []ports.ExecutionExecutor{httpExecutionExecutor{}}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := executionService.Close(ctx); err != nil {
+			t.Errorf("close execution service: %v", err)
+		}
+	})
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	agentToken := strings.Repeat("e", security.MinAgentTokenBytes)
+	handler, adminToken := newUserSessionHandler(t, root, agentToken, service)
+	providerHandler := handler.(*Handler)
+	providerHandler.SetExecutionService(executionService)
+	operator, err := providerHandler.authenticator.CreateUser(t.Context(), "operator", "operator password 123", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorSession, err := providerHandler.authenticator.Login(t.Context(), operator.Username, "operator password 123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"tasks":[{"id":"task-one","type":"test.operation","parameters":{"operation":"inspect"}}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+adminToken)
+	request.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit returned %d: %s", response.Code, response.Body.String())
+	}
+	var submitted domain.Execution
+	if err := json.Unmarshal(response.Body.Bytes(), &submitted); err != nil || submitted.ID == "" {
+		t.Fatalf("invalid execution submission: %#v, %v", submitted, err)
+	}
+	completed, err := executionService.Wait(t.Context(), submitted.ID)
+	if err != nil || completed.Status != domain.ExecutionSucceeded || len(completed.Tasks[0].Attempts) != 1 {
+		t.Fatalf("execution did not complete: %#v, %v", completed, err)
+	}
+
+	replay := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	replay.Header.Set("Authorization", "Bearer "+adminToken)
+	replay.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	replayResponse := httptest.NewRecorder()
+	handler.ServeHTTP(replayResponse, replay)
+	var replayed domain.Execution
+	if replayResponse.Code != http.StatusOK || json.Unmarshal(replayResponse.Body.Bytes(), &replayed) != nil || replayed.ID != submitted.ID {
+		t.Fatalf("idempotent replay changed execution: %d %s", replayResponse.Code, replayResponse.Body.String())
+	}
+	conflicting := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(`{"tasks":[{"id":"task-one","type":"test.operation","parameters":{"operation":"different"}}]}`))
+	conflicting.Header.Set("Authorization", "Bearer "+adminToken)
+	conflicting.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	conflictResponse := httptest.NewRecorder()
+	handler.ServeHTTP(conflictResponse, conflicting)
+	if conflictResponse.Code != http.StatusConflict {
+		t.Fatalf("idempotency key was reused for a different request: %d %s", conflictResponse.Code, conflictResponse.Body.String())
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/executions?status=succeeded&type=test.operation&limit=1&offset=0", http.StatusOK},
+		{http.MethodGet, "/api/v1/executions/" + submitted.ID, http.StatusOK},
+		{http.MethodPost, "/api/v1/executions/" + submitted.ID + "/cancel", http.StatusConflict},
+		{http.MethodGet, "/api/v1/executions/exec-missing", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/executions?limit=101", http.StatusBadRequest},
+	} {
+		result := authRequest(t, handler, test.method, test.path, "", adminToken)
+		if result.Code != test.want {
+			t.Errorf("%s %s returned %d, want %d: %s", test.method, test.path, result.Code, test.want, result.Body.String())
+		}
+	}
+
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/executions", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list returned %d", unauthenticated.Code)
+	}
+	for _, token := range []string{agentToken, operatorSession.Token} {
+		for _, route := range []struct{ method, path, body string }{
+			{http.MethodPost, "/api/v1/executions", body},
+			{http.MethodGet, "/api/v1/executions", ""},
+			{http.MethodGet, "/api/v1/executions/" + submitted.ID, ""},
+			{http.MethodPost, "/api/v1/executions/" + submitted.ID + "/cancel", ""},
+		} {
+			result := authRequest(t, handler, route.method, route.path, route.body, token)
+			if result.Code != http.StatusForbidden {
+				t.Errorf("non-admin %s %s returned %d, want forbidden", route.method, route.path, result.Code)
+			}
+		}
+	}
+}
+
+func TestExecutionAPIRejectsUnsupportedTypesAndMissingIdempotency(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executionService.Close(context.Background()) })
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	handler, adminToken := newUserSessionHandler(t, root, strings.Repeat("u", security.MinAgentTokenBytes), service)
+	handler.(*Handler).SetExecutionService(executionService)
+
+	for _, test := range []struct {
+		key  string
+		want int
+	}{
+		{"", http.StatusBadRequest},
+		{"execution-http-key-unsupported", http.StatusConflict},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(`{"tasks":[{"id":"task-one","type":"network.ssh","parameters":{}}]}`))
+		request.Header.Set("Authorization", "Bearer "+adminToken)
+		if test.key != "" {
+			request.Header.Set("Idempotency-Key", test.key)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Errorf("unsupported submission key=%q returned %d, want %d: %s", test.key, response.Code, test.want, response.Body.String())
+		}
+	}
+	stored, err := executions.List()
+	if err != nil || len(stored) != 0 {
+		t.Fatalf("unsupported operation was persisted: %#v, %v", stored, err)
 	}
 }
 

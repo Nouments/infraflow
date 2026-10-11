@@ -1,75 +1,144 @@
-# INFRAFLOW — PHASE 1 : FINALISATION DU SOCLE EXISTANT
+# INFRAFLOW — PHASE 2 : CYCLE DE VIE RÉEL DES TÂCHES
 
-Dépôt : `Nouments/infraflow`
+Repository : `Nouments/infraflow`  
 Branche : `develop`
 
 ## Objectif
 
-Continuer le développement d’InfraFlow jusqu’à obtenir une implémentation cohérente, maintenable et prête pour les prochaines fonctionnalités. Les tests complets et les builds Docker lourds seront réalisés dans une campagne finale distincte.
+Relier le moteur de tâches existant au Provider pour construire un véritable cycle de vie d’exécution, persistant, observable, sécurisé et prêt à recevoir les adaptateurs réseau dans la phase suivante.
 
-Consulte obligatoirement `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md`, `CURRENT.md` et le code réel avant de modifier quoi que ce soit.
+Ne reconstruis pas les images Docker et ne bloque pas le développement sur GNS3. Implémente et vérifie tout ce qui peut l’être localement.
 
-## Règles
+## 1. Audit obligatoire avant modification
 
-- Ne crée aucun fichier YAML d’exemple ou de démonstration supplémentaire.
-- Ne crée aucune donnée fictive pour simuler le fonctionnement.
-- Ne remplace pas une fonctionnalité réelle par un mock.
-- Ne réécris pas les composants qui fonctionnent déjà sans raison démontrée.
-- Ne mets aucun secret, token, certificat privé ou mot de passe dans Git.
-- Ne reconstruis pas les images Docker lourdes pendant cette phase.
-- Préserve les modifications préexistantes et vérifie `git status`.
-- Ne pousse aucun changement sans autorisation.
-- N’annonce pas une fonctionnalité terminée sans avoir identifié son implémentation réelle et ses limites.
+Lis le code réel avant de changer quoi que ce soit, en particulier :
 
-## Travail
+- `internal/application/` : scheduler, jobs, ports et cas d’usage ;
+- `internal/domain/` et `internal/ports/` ;
+- `provider/` : API HTTP, services, persistance, authentification et assemblage de l’application ;
+- `api/proto/` et `pkg/protocol/` ;
+- les tests existants ;
+- `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md` et `CURRENT.md`.
 
-### 1. État du dépôt
+Identifie les implémentations existantes et réutilise-les. Ne crée pas un second scheduler ou un deuxième système de jobs qui ferait doublon.
 
-Inspecte les composants existants du Provider, de l’Agent, du scheduler, de la génération des artefacts, des APIs, du TUI, du dashboard et des services bootstrap.
+## 2. Séparer clairement planification et exécution
 
-Repère les fonctionnalités annoncées dans la documentation mais absentes, partielles, déconnectées ou incorrectement intégrées.
+Conserve le comportement actuel de validation, de planification et de génération.
 
-### 2. Configuration et démarrage
+Une tâche planifiée ne doit jamais être considérée comme exécutée simplement parce que le plan ou les artefacts ont été générés.
 
-Vérifie les contrats de configuration Go, les variables d’environnement, les chemins des fichiers, les entrypoints et les Dockerfiles.
+Introduis un contrat d’application explicite pour soumettre et suivre les tâches d’exécution. Sépare les états de planification des états d’exécution si leur fusion rend les transitions ambiguës.
 
-Corrige les défauts évidents directement dans les fichiers existants. Prépare une configuration cohérente entre code source et conteneurs, sans ajouter de configurations de démonstration.
+Sans exécuteur opérationnel enregistré, le Provider doit refuser ou bloquer explicitement une exécution non prise en charge. Il ne doit jamais annoncer un succès fictif.
 
-Ne prétends pas résoudre les erreurs observées dans GNS3 tant que leur cause n’est pas confirmée.
+## 3. Cycle de vie persistant
 
-### 3. Cohérence de l’architecture
+Implémente les états nécessaires, avec des transitions validées, notamment :
 
-Vérifie que :
-- le Provider valide et planifie sans prétendre exécuter ;
-- les jobs possèdent des états cohérents et persistants ;
-- le scheduler et les contrats applicatifs sont prêts à être reliés au futur moteur d’exécution ;
-- l’Agent ne déclare pas un déploiement réussi après une simple génération ou validation ;
-- les résultats, journaux et erreurs disposent de chemins de remontée cohérents ;
-- les capacités non implémentées restent explicitement bloquées ;
-- les API, le TUI et le dashboard reflètent les états réellement enregistrés.
+- `queued` ;
+- `running` ;
+- `succeeded` ;
+- `failed` ;
+- `cancelled` ;
+- `timed_out`.
 
-Corrige les défauts d’intégration découverts dans le périmètre existant. Ne commence pas encore les adaptateurs spécifiques aux constructeurs.
+Ajoute les états intermédiaires nécessaires uniquement si l’architecture le justifie.
 
-### 4. Documentation
+Chaque tâche doit conserver au minimum son identifiant, son type, son état, ses dates de création et de mise à jour, ses paramètres validés, ses tentatives, son résultat, son erreur et les informations utiles à l’audit.
 
-Remets `CURRENT.md` en document de suivi réel : état actuel, tâches terminées avec preuves disponibles, tâches restantes et prochaine étape.
+La persistance doit survivre au redémarrage du Provider. Une tâche interrompue par un arrêt du service ne doit pas rester indéfiniment en `running` sans politique explicite de récupération.
 
-La documentation ne doit pas être remplacée par un prompt. Mets à jour `README.md`, `ARCHITECTURE.md` ou `INFRAFLOW_SPEC.md` uniquement lorsque le code réellement modifié le justifie.
+## 4. Connecter réellement le scheduler
 
-### 5. Tests légers disponibles
+Relie le scheduler existant au nouveau cas d’usage d’exécution, à travers des ports définis par la couche application.
 
-Sans lancer les builds Docker lourds, exécute les tests unitaires et vérifications locales ciblées possibles.
+Le moteur doit gérer correctement :
 
-Si des tests échouent, corrige les défauts dans le périmètre de cette phase. N’élargis pas artificiellement les tests et n’en supprime aucun pour obtenir un résultat vert.
+- les dépendances et l’ordre d’exécution ;
+- les limites de concurrence ;
+- les verrous de ressources ;
+- les délais d’exécution ;
+- les nouvelles tentatives selon une politique explicite ;
+- l’annulation avant et pendant l’exécution ;
+- les erreurs et la propagation des résultats ;
+- l’arrêt propre du service.
 
-## Livrables obligatoires
+Empêche les doubles soumissions et les transitions concurrentes incohérentes. Prévois une clé d’idempotence ou un mécanisme équivalent si une même requête peut être rejouée.
 
-À la fin, indique :
-1. les défauts confirmés ;
-2. les fichiers réellement modifiés ;
-3. les corrections réalisées ;
-4. les tests effectivement exécutés et leurs résultats ;
-5. les fonctionnalités encore absentes ;
-6. la prochaine tâche d’implémentation à traiter.
+Une annulation demandée ne signifie pas que la tâche est déjà annulée : l’état final doit refléter le résultat réel de l’arrêt.
 
-Ne commence pas la phase suivante dans la même intervention. Ne pousse rien et ne prétends pas que le projet est entièrement terminé.
+## 5. Contrat d’exécution sécurisé
+
+Définis une interface générique d’exécuteur permettant d’ajouter ultérieurement les adaptateurs réseau sans réécrire le scheduler.
+
+L’exécuteur doit recevoir une tâche validée et produire un résultat structuré avec statut, sortie, erreur et durée lorsque disponible.
+
+N’exécute pas de commande shell arbitraire fournie par l’API. Ne lance pas de commande réseau, Ansible, Terraform ou SSH sans un exécuteur explicitement enregistré et une politique autorisant cette opération.
+
+Aucun adaptateur Cisco, MikroTik, FortiGate ou Proxmox n’est demandé dans cette phase.
+
+## 6. API et autorisations
+
+Expose les opérations nécessaires pour :
+
+- soumettre une tâche d’exécution ;
+- consulter une tâche ;
+- lister les tâches avec filtres et pagination ;
+- demander son annulation ;
+- consulter ses tentatives, résultats, erreurs et événements.
+
+Respecte le système actuel de sessions, rôles et RBAC. Vérifie les autorisations pour chaque opération, notamment l’annulation et l’accès aux résultats.
+
+Ne casse pas les routes existantes. Versionne les changements de contrat si nécessaire et documente les éventuelles modifications protobuf.
+
+## 7. Rapports, journaux et audit
+
+Chaque transition significative doit être observable et persistée. Enregistre l’acteur, la tâche, l’action, l’horodatage et le résultat dans le mécanisme d’audit existant.
+
+Les erreurs doivent être exploitables pour diagnostiquer une tâche. Ne stocke jamais de mots de passe, jetons, clés privées ou autres secrets dans les paramètres, les sorties, les événements ou les journaux.
+
+Réutilise les mécanismes de journalisation existants. Ne crée pas une deuxième chaîne de logs.
+
+## 8. Tests exigés dans cette phase
+
+Ajoute des tests ciblés portant sur le comportement réel :
+
+- transitions autorisées et refusées ;
+- persistance et rechargement après redémarrage ;
+- succès, échec et propagation des erreurs ;
+- dépendances, concurrence et verrous ;
+- retries et délais ;
+- annulation avant et pendant une tâche ;
+- idempotence et soumissions concurrentes ;
+- authentification et RBAC de chaque route ;
+- absence de faux succès quand aucun exécuteur n’est disponible ;
+- audit et absence de secrets dans les journaux.
+
+Utilise des exécuteurs de test déterministes pour tester le contrat et le scheduler, sans prétendre tester des équipements réseau. Ne remplace pas les tests comportementaux par de simples tests de mocks.
+
+Lance les tests locaux ciblés et les vérifications légères possibles. Ne lance aucune reconstruction Docker lourde et ne prétends pas avoir validé GNS3 ou du matériel réel.
+
+## 9. Documentation et suivi
+
+Mets à jour `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md` et `CURRENT.md` en fonction du code réellement livré.
+
+Marque une fonctionnalité comme implémentée uniquement si son code et ses tests le justifient. Distingue les tests exécutés des tests restant à faire.
+
+Ne crée pas de nouveaux fichiers d’exemples YAML ou de données de démonstration. Ne commite aucun secret.
+
+## 10. Compte rendu obligatoire
+
+À la fin, fournis :
+
+1. Les défauts constatés avant les modifications.
+2. Les fichiers modifiés et la raison de chaque modification.
+3. Le fonctionnement précis du nouveau cycle de vie.
+4. Les routes et contrats ajoutés ou modifiés.
+5. Les tests exécutés, avec les commandes et résultats réels.
+6. Les limitations restantes et les tests reportés à la campagne finale.
+7. La prochaine tâche recommandée.
+
+Ne commence pas les adaptateurs fournisseurs dans cette phase. Ne pousse pas de modifications sans autorisation. N’affirme pas que toute la phase est terminée si une exigence reste incomplète.
+
+**Critère de fin :** le Provider possède un cycle d’exécution générique persistant, sécurisé et relié au scheduler, sans confondre planification, génération et exécution réelle.

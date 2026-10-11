@@ -393,6 +393,23 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
+	executionStore, err := filesystem.NewExecutionStore(settings.ArtifactDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize execution store: %v\n", err)
+		return 2
+	}
+	executionService, err := application.NewExecutionService(executionStore, eventStore, nil, 4)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize execution service: %v\n", err)
+		return 2
+	}
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := executionService.Close(shutdownContext); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: stop executions: %v\n", err)
+		}
+	}()
 	logStore, err := observability.NewStore(settings.Logging.Directory, observability.DefaultCentralLogLimit)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
@@ -460,6 +477,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		handler.SetLogger(logger)
+		handler.SetExecutionService(executionService)
 		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)

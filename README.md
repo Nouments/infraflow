@@ -34,6 +34,14 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 
 The provider can also persist validated planning jobs and expose them through its authenticated HTTP API when `api_listen_address` is set in the provider configuration. Plain HTTP is loopback-only; a remote API requires the configured TLS certificate/key pair. Job creation validates and plans only; it does not provision devices.
 
+The same API exposes a separate admin-only execution lifecycle at
+`/api/v1/executions`. It uses an idempotency key, persists task attempts and
+results, and is connected to the existing dependency scheduler. The default
+Provider registers no operational executor, so task types are rejected until
+an explicitly authorized executor is added. Execution is never inferred from
+planning or artifact generation; the dashboard and TUI do not yet display
+execution records.
+
 The provider HTTP API has two separate authentication domains. Agents continue
 to use the configured machine bearer token. Platform users use SQLite-backed
 accounts with bcrypt password hashes, expiring opaque sessions, and `admin` or

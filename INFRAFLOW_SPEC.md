@@ -24,10 +24,16 @@ The provider currently implements:
 
 - YAML validation and semantic checks for infrastructure inputs;
 - deterministic planning and job persistence;
+- a separate persistent execution lifecycle connected to the existing scheduler, with task attempts, results, cancellation, recovery, and audit events;
 - generation of hash-verified Ansible, Terraform, and bootstrap artifact sets;
 - authenticated gRPC catalog and report services;
-- authenticated HTTP API for user sessions, jobs, agents, and audit events;
+- authenticated HTTP API for user sessions, planning jobs, admin-only execution tasks, agents, and audit events;
 - local SQLite-backed user accounts, session management, and RBAC.
+
+The generic execution API is available at `/api/v1/executions`. Its default
+Provider composition registers no task executor, so submissions are rejected
+unless their task type has an explicitly registered executor. The lifecycle
+foundation is implemented; operational task execution is not.
 
 ### Agent
 
@@ -56,8 +62,9 @@ The repository includes:
 The following items are not treated as operationally supported by the current codebase:
 
 - real device provisioning adapters;
-- execution job submission through the provider API;
+- registered operational task executors and device execution;
 - vendor-specific configuration execution for Cisco, FortiGate, MikroTik, Proxmox, or other platforms;
+- execution-task views in the web dashboard and TUI;
 - remote network automation beyond controlled lab validation and repository tests;
 - bootstrap services that are not explicitly implemented and tested.
 

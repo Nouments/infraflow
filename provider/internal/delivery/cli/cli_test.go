@@ -312,15 +312,27 @@ func TestServeRejectsWeakToken(t *testing.T) {
 	}
 }
 
-func TestServeRequiresArtifactDirectory(t *testing.T) {
+func TestServeCreatesArtifactDirectoryAndRejectsMissingTLSFiles(t *testing.T) {
 	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", strings.Repeat("x", 32))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	root := t.TempDir()
+	missingDirectory := filepath.Join(root, "provider-data")
 	configPath := writeServeConfig(t, missingDirectory)
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = append(contents, []byte("tls:\n  certificate_file: "+filepath.Join(root, "missing.crt")+"\n  key_file: "+filepath.Join(root, "missing.key")+"\n")...)
+	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "artifact directory") {
-		t.Fatalf("expected artifact root error, got %d and %q", code, stderr.String())
+	if code != 2 || !strings.Contains(stderr.String(), "load TLS certificate") {
+		t.Fatalf("expected missing TLS certificate error before listener startup, got %d and %q", code, stderr.String())
+	}
+	if info, err := os.Stat(missingDirectory); err != nil || !info.IsDir() {
+		t.Fatalf("provider did not create its configured artifact directory: %v", err)
 	}
 }
 
