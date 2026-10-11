@@ -51,5 +51,13 @@ if [[ -z "${INFRAFLOW_AGENT_TOKEN:-}" ]]; then
     exit 1
 fi
 
+if [[ "${INFRAFLOW_AGENT_TLS_ENABLED:-false}" == "true" ]]; then
+    CA_FILE="${INFRAFLOW_AGENT_PROVIDER_CA:-}"
+    if [[ -z "$CA_FILE" || ! -r "$CA_FILE" ]]; then
+        echo "ERREUR: le certificat CA du Provider doit être monté et lisible via INFRAFLOW_AGENT_PROVIDER_CA." >&2
+        exit 1
+    fi
+fi
+
 # Le binaire reste le processus principal du conteneur.
 exec /usr/local/bin/infraflow-agent run -config "$CONFIG" "$@"

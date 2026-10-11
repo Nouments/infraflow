@@ -89,6 +89,10 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	_ = bootstrapLogger.Close()
+	if err := os.MkdirAll(settings.Agent.StateDirectory, 0o700); err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: create state directory %q: %v\n", settings.Agent.StateDirectory, err)
+		return 2
+	}
 	outbox, err := observability.NewOutbox(filepath.Join(settings.Logging.Directory, "pending-events.json"), observability.DefaultOutboxLimit)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: initialize local log outbox: %v\n", err)
@@ -138,7 +142,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	defer providerClient.Close()
 	var registry *providerhttp.Client
 	if settings.Provider.APIAddress != "" {
-		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv))
+		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv), settings.Provider.TLS.CAFile)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 			return 2

@@ -7,12 +7,14 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
+
+	"gopkg.in/yaml.v3"
 )
 
 const maxConfigBytes = 64 << 10
@@ -73,12 +75,19 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return Config{}, fmt.Errorf("agent config must contain exactly one YAML document")
 	}
+	if err := applyEnvironment(&config); err != nil {
+		return Config{}, err
+	}
 	defaults, err := observability.DefaultConfig("agent")
 	if err != nil {
 		return Config{}, fmt.Errorf("configure local agent logs: %w", err)
 	}
 	if config.Logging.Directory == "" {
-		config.Logging.Directory = defaults.Directory
+		if config.Agent.StateDirectory != "" && os.Getenv("INFRAFLOW_AGENT_DATA") != "" {
+			config.Logging.Directory = filepath.Join(config.Agent.StateDirectory, "logs")
+		} else {
+			config.Logging.Directory = defaults.Directory
+		}
 	}
 	if config.Logging.Level == "" {
 		config.Logging.Level = defaults.Level
@@ -96,6 +105,40 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func applyEnvironment(config *Config) error {
+	setIfPresent("INFRAFLOW_AGENT_ID", &config.Agent.ID)
+	setIfPresent("INFRAFLOW_AGENT_SITE_ID", &config.Agent.SiteID)
+	setIfPresent("INFRAFLOW_AGENT_DATA", &config.Agent.StateDirectory)
+	setIfPresent("INFRAFLOW_AGENT_PROVIDER_ADDRESS", &config.Provider.Address)
+	setIfPresent("INFRAFLOW_AGENT_API_ADDRESS", &config.Provider.APIAddress)
+	setIfPresent("INFRAFLOW_AGENT_TOKEN_ENV", &config.Provider.TokenEnv)
+	setIfPresent("INFRAFLOW_AGENT_PROVIDER_CA", &config.Provider.TLS.CAFile)
+	if value, exists := os.LookupEnv("INFRAFLOW_AGENT_CAPABILITIES"); exists {
+		config.Agent.Capabilities = nil
+		for _, capability := range strings.Split(value, ",") {
+			capability = strings.TrimSpace(capability)
+			if capability != "" {
+				config.Agent.Capabilities = append(config.Agent.Capabilities, capability)
+			}
+		}
+	}
+	if value, exists := os.LookupEnv("INFRAFLOW_AGENT_TLS_ENABLED"); exists {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("INFRAFLOW_AGENT_TLS_ENABLED must be a boolean: %w", err)
+		}
+		config.Provider.TLS.Enabled = enabled
+	}
+	setIfPresent("INFRAFLOW_AGENT_LOG_DIRECTORY", &config.Logging.Directory)
+	return nil
+}
+
+func setIfPresent(name string, destination *string) {
+	if value, exists := os.LookupEnv(name); exists && strings.TrimSpace(value) != "" {
+		*destination = value
+	}
 }
 
 func (config Config) Validate() error {
@@ -143,12 +186,15 @@ func (config Config) Validate() error {
 	}
 	if config.Provider.APIAddress != "" {
 		parsed, err := url.Parse(config.Provider.APIAddress)
-		if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-			return fmt.Errorf("provider.api_address must be a loopback HTTP URL without a path or credentials")
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+			return fmt.Errorf("provider.api_address must be an HTTP(S) URL without a path or credentials")
 		}
 		apiIP := net.ParseIP(parsed.Hostname())
-		if !strings.EqualFold(parsed.Hostname(), "localhost") && (apiIP == nil || !apiIP.IsLoopback()) {
-			return fmt.Errorf("provider.api_address must be loopback-only until HTTPS is configured")
+		if parsed.Scheme == "http" && !strings.EqualFold(parsed.Hostname(), "localhost") && (apiIP == nil || !apiIP.IsLoopback()) {
+			return fmt.Errorf("provider.api_address must use HTTPS for non-loopback addresses")
+		}
+		if parsed.Scheme == "https" && !config.Provider.TLS.Enabled {
+			return fmt.Errorf("provider.tls.enabled is required for HTTPS API addresses")
 		}
 	}
 	return nil

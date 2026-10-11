@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -335,6 +336,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	_ = bootstrapLogger.Close()
+	if err := ensureProviderRuntimeDirectories(settings); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize runtime directories: %v\n", err)
+		return 2
+	}
 	logger, err := observability.New(observability.Config{
 		Service: "provider", Directory: settings.Logging.Directory,
 		Level: settings.Logging.Level, Format: settings.Logging.Format,
@@ -525,6 +530,30 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	}
 	_ = emit("provider.stopped", "provider stopped", "shutdown", "STOPPED", nil)
 	return 0
+}
+
+func ensureProviderRuntimeDirectories(settings config.Config) error {
+	directories := []string{
+		settings.ArtifactDirectory,
+		settings.Logging.Directory,
+		filepath.Dir(settings.DatabasePath),
+		filepath.Dir(settings.AdminCredentialFile),
+		filepath.Dir(settings.AdminCredentialScript),
+	}
+	seen := make(map[string]struct{}, len(directories))
+	for _, directory := range directories {
+		if directory == "" {
+			continue
+		}
+		if _, exists := seen[directory]; exists {
+			continue
+		}
+		seen[directory] = struct{}{}
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return fmt.Errorf("create directory %q: %w", directory, err)
+		}
+	}
+	return nil
 }
 
 func printUsage(writer io.Writer) {

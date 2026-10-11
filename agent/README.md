@@ -104,9 +104,9 @@ does not stream continuously. The server address and port are command-line
 editable. The TUI never displays the full session token or password. A
 generation result is not an execution or verification result.
 
-Edit `examples/agent-config.yaml` for the provider host/port, optional loopback
-HTTP API address, site identity, local state directory, and TLS CA. When
-`provider.api_address` is configured, the agent registers and sends a heartbeat
-after its local artifact run. The HTTP registration path is loopback-only until
-an HTTPS API is implemented. Remote/cloud gRPC endpoints require TLS; the
+Edit `examples/agent-config.yaml` for local deployments. The Docker image
+overrides the provider host/port, API address, TLS CA path, agent identity, and
+state directory through the `INFRAFLOW_AGENT_*` environment variables. For a
+remote API, HTTPS certificate verification uses the configured provider CA;
+plain HTTP remains loopback-only. Remote gRPC endpoints also require TLS. The
 agent imports no provider Go package.

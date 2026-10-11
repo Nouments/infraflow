@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"infraflow/pkg/observability"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -72,6 +73,7 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return Config{}, fmt.Errorf("provider config must contain exactly one YAML document")
 	}
+	applyEnvironment(&config)
 	if config.ChunkSize == 0 {
 		config.ChunkSize = defaultChunk
 	}
@@ -95,7 +97,11 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("configure local provider logs: %w", err)
 	}
 	if config.Logging.Directory == "" {
-		config.Logging.Directory = defaults.Directory
+		if os.Getenv("INFRAFLOW_PROVIDER_DATA") != "" {
+			config.Logging.Directory = filepath.Join(config.ArtifactDirectory, "logs")
+		} else {
+			config.Logging.Directory = defaults.Directory
+		}
 	}
 	if config.Logging.Level == "" {
 		config.Logging.Level = defaults.Level
@@ -113,6 +119,33 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func applyEnvironment(config *Config) {
+	setIfPresent("INFRAFLOW_PROVIDER_LISTEN_ADDRESS", &config.ListenAddress)
+	setIfPresent("INFRAFLOW_PROVIDER_API_LISTEN_ADDRESS", &config.APIListenAddress)
+	setIfPresent("INFRAFLOW_PROVIDER_TOKEN_ENV", &config.TokenEnv)
+	setIfPresent("INFRAFLOW_PROVIDER_TLS_CERTIFICATE", &config.TLS.CertificateFile)
+	setIfPresent("INFRAFLOW_PROVIDER_TLS_KEY", &config.TLS.KeyFile)
+	setIfPresent("INFRAFLOW_PROVIDER_LOG_DIRECTORY", &config.Logging.Directory)
+	setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
+	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
+	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", &config.AdminCredentialScript)
+	if dataDirectory := strings.TrimSpace(os.Getenv("INFRAFLOW_PROVIDER_DATA")); dataDirectory != "" {
+		config.ArtifactDirectory = dataDirectory
+		config.DatabasePath = filepath.Join(dataDirectory, ".infraflow-users.sqlite3")
+		config.AdminCredentialFile = filepath.Join(dataDirectory, ".infraflow-admin-password")
+		config.AdminCredentialScript = filepath.Join(dataDirectory, "get-admin-password.sh")
+		setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
+		setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
+		setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", &config.AdminCredentialScript)
+	}
+}
+
+func setIfPresent(name string, destination *string) {
+	if value, exists := os.LookupEnv(name); exists && strings.TrimSpace(value) != "" {
+		*destination = value
+	}
 }
 
 func (config Config) Validate() error {

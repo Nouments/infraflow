@@ -82,6 +82,59 @@ provider:
 	}
 }
 
+func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
+	t.Setenv("INFRAFLOW_AGENT_ID", "agent-gns3")
+	t.Setenv("INFRAFLOW_AGENT_SITE_ID", "site-gns3")
+	t.Setenv("INFRAFLOW_AGENT_CAPABILITIES", "inventory, topology")
+	t.Setenv("INFRAFLOW_AGENT_DATA", "/var/lib/infraflow-agent")
+	t.Setenv("INFRAFLOW_AGENT_PROVIDER_ADDRESS", "192.168.0.3:8443")
+	t.Setenv("INFRAFLOW_AGENT_API_ADDRESS", "https://192.168.0.3:8080")
+	t.Setenv("INFRAFLOW_AGENT_TOKEN_ENV", "INFRAFLOW_AGENT_TOKEN")
+	t.Setenv("INFRAFLOW_AGENT_PROVIDER_CA", "/run/secrets/provider-ca.pem")
+	t.Setenv("INFRAFLOW_AGENT_TLS_ENABLED", "true")
+
+	path := writeConfig(t, `agent:
+  id: example-agent
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  api_address: http://127.0.0.1:8080
+  token_env: TOKEN
+  tls:
+    enabled: false
+`)
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Agent.ID != "agent-gns3" || config.Agent.SiteID != "site-gns3" || config.Agent.StateDirectory != "/var/lib/infraflow-agent" {
+		t.Fatalf("agent environment overrides were not applied: %#v", config.Agent)
+	}
+	if strings.Join(config.Agent.Capabilities, ",") != "inventory,topology" {
+		t.Fatalf("unexpected capabilities: %#v", config.Agent.Capabilities)
+	}
+	if config.Provider.Address != "192.168.0.3:8443" || config.Provider.APIAddress != "https://192.168.0.3:8080" || config.Provider.TokenEnv != "INFRAFLOW_AGENT_TOKEN" {
+		t.Fatalf("provider environment overrides were not applied: %#v", config.Provider)
+	}
+	if !config.Provider.TLS.Enabled || config.Provider.TLS.CAFile != "/run/secrets/provider-ca.pem" {
+		t.Fatalf("TLS environment overrides were not applied: %#v", config.Provider.TLS)
+	}
+}
+
+func TestLoadRejectsInvalidTLSEnvironmentOverride(t *testing.T) {
+	t.Setenv("INFRAFLOW_AGENT_TLS_ENABLED", "sometimes")
+	path := writeConfig(t, `agent:
+  id: agent-01
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  token_env: TOKEN
+`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "INFRAFLOW_AGENT_TLS_ENABLED must be a boolean") {
+		t.Fatalf("expected invalid TLS environment override to be rejected, got %v", err)
+	}
+}
+
 func TestValidateRequiresProviderPortAndTokenEnvironment(t *testing.T) {
 	config := Config{
 		Agent:    AgentConfig{ID: "agent-01", StateDirectory: "./state"},

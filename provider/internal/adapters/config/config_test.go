@@ -49,6 +49,37 @@ token_env: INFRAFLOW_AGENT_TOKEN
 	}
 }
 
+func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
+	t.Setenv("INFRAFLOW_PROVIDER_LISTEN_ADDRESS", "0.0.0.0:8443")
+	t.Setenv("INFRAFLOW_PROVIDER_API_LISTEN_ADDRESS", "0.0.0.0:8080")
+	t.Setenv("INFRAFLOW_PROVIDER_TOKEN_ENV", "INFRAFLOW_AGENT_TOKEN")
+	t.Setenv("INFRAFLOW_PROVIDER_TLS_CERTIFICATE", "/run/secrets/provider.crt")
+	t.Setenv("INFRAFLOW_PROVIDER_TLS_KEY", "/run/secrets/provider.key")
+	t.Setenv("INFRAFLOW_PROVIDER_DATA", "/var/lib/infraflow-provider")
+	t.Setenv("INFRAFLOW_PROVIDER_DATABASE", "")
+	t.Setenv("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", "")
+	t.Setenv("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", "")
+
+	path := writeProviderConfig(t, `listen_address: 127.0.0.1:8443
+api_listen_address: 127.0.0.1:8080
+artifact_directory: ./provider-data
+token_env: TOKEN
+`)
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ListenAddress != "0.0.0.0:8443" || config.APIListenAddress != "0.0.0.0:8080" || config.TokenEnv != "INFRAFLOW_AGENT_TOKEN" {
+		t.Fatalf("provider listener/token overrides were not applied: %#v", config)
+	}
+	if config.ArtifactDirectory != "/var/lib/infraflow-provider" || config.DatabasePath != "/var/lib/infraflow-provider/.infraflow-users.sqlite3" {
+		t.Fatalf("provider data paths were not applied: %#v", config)
+	}
+	if config.TLS.CertificateFile != "/run/secrets/provider.crt" || config.TLS.KeyFile != "/run/secrets/provider.key" {
+		t.Fatalf("provider TLS overrides were not applied: %#v", config.TLS)
+	}
+}
+
 func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
 artifact_directory: ./provider-data

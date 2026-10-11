@@ -21,7 +21,12 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Indian/Antananarivo \
     INFRAFLOW_PROVIDER_CONFIG=/etc/infraflow/provider-config.yaml \
-    INFRAFLOW_PROVIDER_DATA=/var/lib/infraflow-provider
+    INFRAFLOW_PROVIDER_DATA=/var/lib/infraflow-provider \
+    INFRAFLOW_PROVIDER_LISTEN_ADDRESS=0.0.0.0:8443 \
+    INFRAFLOW_PROVIDER_API_LISTEN_ADDRESS=0.0.0.0:8080 \
+    INFRAFLOW_PROVIDER_TOKEN_ENV=INFRAFLOW_AGENT_TOKEN \
+    INFRAFLOW_PROVIDER_TLS_CERTIFICATE=/run/secrets/provider.crt \
+    INFRAFLOW_PROVIDER_TLS_KEY=/run/secrets/provider.key
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \

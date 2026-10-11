@@ -12,6 +12,7 @@ import (
 
 	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/domain"
+	providerconfig "infraflow/provider/internal/adapters/config"
 )
 
 const inputYAML = `sites:
@@ -23,6 +24,31 @@ const inputYAML = `sites:
         vendor: cisco
         model: ios-xe
 `
+
+func TestEnsureProviderRuntimeDirectories(t *testing.T) {
+	root := t.TempDir()
+	settings := providerconfig.Config{
+		ArtifactDirectory:     filepath.Join(root, "artifacts"),
+		Logging:               providerconfig.LoggingConfig{Directory: filepath.Join(root, "logs", "provider")},
+		DatabasePath:          filepath.Join(root, "database", "users.sqlite3"),
+		AdminCredentialFile:   filepath.Join(root, "credentials", "admin-password"),
+		AdminCredentialScript: filepath.Join(root, "credentials", "get-admin-password.sh"),
+	}
+	if err := ensureProviderRuntimeDirectories(settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{
+		settings.ArtifactDirectory,
+		settings.Logging.Directory,
+		filepath.Dir(settings.DatabasePath),
+		filepath.Dir(settings.AdminCredentialFile),
+	} {
+		info, err := os.Stat(directory)
+		if err != nil || !info.IsDir() {
+			t.Errorf("runtime directory %q was not created: %v", directory, err)
+		}
+	}
+}
 
 func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	inputPath := writeInput(t, inputYAML)

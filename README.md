@@ -63,6 +63,59 @@ INFRAFLOW_AGENT_TOKEN='<same secret>' go run ./agent/cmd run \
   -config examples/agent-config.yaml
 ```
 
+## GNS3 Docker deployment
+
+Build both service images from the repository root:
+
+```sh
+docker build -f docker/infraflow-provider/Dockerfile -t infraflow-provider:gns3 .
+docker build -f docker/infraflow-agent/Dockerfile -t infraflow-agent:gns3 .
+```
+
+The images use the existing strict YAML files and override their runtime values
+through environment variables. Their defaults bind the provider to
+`0.0.0.0:8443` and `0.0.0.0:8080`; the agent connects to
+`192.168.0.3:8443` and `https://192.168.0.3:8080`. Configure the GNS3 node
+interfaces on the same isolated Ethernet segment as `192.168.0.2/24` (agent)
+and `192.168.0.3/24` (provider). Docker does not assign these addresses from
+the InfraFlow environment variables. Verify them inside each node with
+`ip -brief address` before starting the services. No host port publishing is
+needed when the nodes share the GNS3 segment.
+
+Create the lab server certificate outside the repository and outside the
+Docker build context. This self-signed certificate is for an isolated lab; use
+a certificate issued by your deployment CA outside the lab:
+
+```sh
+install -d -m 0700 "$HOME/.config/infraflow/gns3"
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 \
+  -keyout "$HOME/.config/infraflow/gns3/provider.key" \
+  -out "$HOME/.config/infraflow/gns3/provider.crt" \
+  -subj "/CN=192.168.0.3" \
+  -addext "subjectAltName=IP:192.168.0.3" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,digitalSignature,keyCertSign" \
+  -addext "extendedKeyUsage=serverAuth"
+cp "$HOME/.config/infraflow/gns3/provider.crt" \
+  "$HOME/.config/infraflow/gns3/provider-ca.pem"
+chmod 0600 "$HOME/.config/infraflow/gns3/provider.key"
+```
+
+In the GNS3 Docker node settings, mount the provider certificate and private
+key read-only at `/run/secrets/provider.crt` and
+`/run/secrets/provider.key`; mount only `provider-ca.pem` read-only in the
+agent at `/run/secrets/provider-ca.pem`. Persist `/var/lib/infraflow-provider`
+and `/var/lib/infraflow-agent` as node volumes. Inject the same
+`INFRAFLOW_AGENT_TOKEN` into both nodes using GNS3's environment settings or a
+secret manager; it must contain at least 32 bytes. Do not put the token or
+private key in YAML, source control, image build arguments, or the image.
+
+Start the provider first, then the agent. The provider console must report its
+TLS gRPC and HTTPS listeners; the agent must report successful registration
+and artifact-run completion. A TLS, connection, or authentication failure is
+reported by the respective entrypoint or service. The Docker images expose
+ports 8443 and 8080; allow those ports between the two GNS3 nodes.
+
 ## Project layout
 
 ```text

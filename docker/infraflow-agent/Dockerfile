@@ -20,7 +20,15 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Indian/Antananarivo \
     INFRAFLOW_AGENT_CONFIG=/etc/infraflow/agent-config.yaml \
-    INFRAFLOW_AGENT_DATA=/var/lib/infraflow-agent
+    INFRAFLOW_AGENT_DATA=/var/lib/infraflow-agent \
+    INFRAFLOW_AGENT_ID=agent-gns3 \
+    INFRAFLOW_AGENT_SITE_ID=site-gns3 \
+    INFRAFLOW_AGENT_CAPABILITIES=inventory,topology \
+    INFRAFLOW_AGENT_PROVIDER_ADDRESS=192.168.0.3:8443 \
+    INFRAFLOW_AGENT_API_ADDRESS=https://192.168.0.3:8080 \
+    INFRAFLOW_AGENT_TOKEN_ENV=INFRAFLOW_AGENT_TOKEN \
+    INFRAFLOW_AGENT_TLS_ENABLED=true \
+    INFRAFLOW_AGENT_PROVIDER_CA=/run/secrets/provider-ca.pem
 
 # Outils système et diagnostic réseau
 RUN apt-get update && apt-get install -y --no-install-recommends \

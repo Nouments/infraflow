@@ -17,6 +17,15 @@ if [[ -z "${INFRAFLOW_AGENT_TOKEN:-}" ]]; then
     exit 1
 fi
 
+if [[ -n "${INFRAFLOW_PROVIDER_TLS_CERTIFICATE:-}" && ! -r "$INFRAFLOW_PROVIDER_TLS_CERTIFICATE" ]]; then
+    echo "ERREUR: certificat TLS Provider absent ou illisible: $INFRAFLOW_PROVIDER_TLS_CERTIFICATE" >&2
+    exit 1
+fi
+if [[ -n "${INFRAFLOW_PROVIDER_TLS_KEY:-}" && ! -r "$INFRAFLOW_PROVIDER_TLS_KEY" ]]; then
+    echo "ERREUR: clé TLS Provider absente ou illisible: $INFRAFLOW_PROVIDER_TLS_KEY" >&2
+    exit 1
+fi
+
 # Les fichiers de données doivent rester persistants entre les redémarrages.
 # La configuration de référence utilise des chemins relatifs à ./provider-data.
 # On lance donc le provider depuis le répertoire de données.
