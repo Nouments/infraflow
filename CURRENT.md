@@ -168,6 +168,17 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
   - `go test -count=1 ./...` : code 0 sur 100% des packages du dépôt.
   - `make build` : code 0 (`bin/infraflow-provider` et `bin/infraflow-agent`).
 
+## Evidence from Task 3.2 (Préparation de validation IOS réelle)
+
+- **Exemple suivi** : `examples/cisco-ios-lab.yaml` contient un seul site et une cible Cisco IOS, sans identifiant ni secret. L'adresse `192.0.2.10` est explicitement réservée à la documentation (TEST-NET-1) et doit être remplacée dans une copie locale avant tout usage réel.
+- **Vérification réelle du CLI** : `bin/infraflow-provider validate -f examples/cisco-ios-lab.yaml` a retourné `Valid: 1 site(s), 1 device(s); no infrastructure changes made.`. `bin/infraflow-provider generate -f examples/cisco-ios-lab.yaml -out <répertoire temporaire>` a produit `cisco-lab/inventory.json` et `topology.json`; une vérification `jq` a confirmé site `cisco-lab`, équipement `R1` et valeur documentaire `192.0.2.10`. Aucun inventaire réel ni résultat IOS n'a été généré.
+- **Démarrage de configuration Provider** : le Provider a démarré avec un `artifact_directory` temporaire, API HTTP `127.0.0.1:8080` et gRPC `127.0.0.1:50051`, créé le bootstrap admin local et s'est arrêté proprement sur SIGINT; code de sortie 0. Aucun appel HTTP/SSH de lab n'a été fait. Le répertoire temporaire a été supprimé.
+- **Contrats vérifiés dans le code et les tests** : génération via la commande `generate`; API admin locale optionnelle activée par `api_listen_address`; login `POST /api/v1/auth/login`; soumission `POST /api/v1/executions` avec bearer admin et `Idempotency-Key`; lecture `GET /api/v1/executions/{id}` et résultat dans `tasks[].result`. Le Provider génère le credential admin au premier bootstrap d'une base vide et écrit le script de lecture configuré.
+- **Vérifications automatisées exécutées depuis la racine** : `make fmt-check`, `go test -count=1 ./provider/internal/adapters/executors`, `go test -count=1 ./provider/internal/application/...`, `go test -count=1 ./...`, `make vet`, `make build` et `git diff --check` ont chacun terminé avec code 0.
+- **Accessibilité GNS3 de cet environnement** : **NON EXÉCUTÉ**. Aucun processus GNS3 ni socket local correspondant n'a été détecté; `127.0.0.1:3080` a refusé la connexion. Aucun endpoint distant de lab, équipement IOS, secret ou cible autorisée réel n'était fourni; aucune adresse Cisco n'a été contactée. Les tests unitaires/API simulés ne remplacent pas la validation IOS réelle.
+- **Procédure reproductible** : [docs/cisco-ios-executor.md](docs/cisco-ios-executor.md) précise la validation de clé par canal indépendant, le setup loopback du Provider, le bootstrap et login admin, la mutation de description sans adresse IP, la restauration, la capture des réponses API réelles et un échec d'hôte inconnu avant mutation avec une tentative. Le fichier GNS3 historique sous `dev-lab/` est ignoré par Git et n'est pas une source versionnée.
+- **Limite restante** : exécuter la procédure sur un routeur IOS dédié et isolé dans GNS3, capturer son état initial/final et son JSON d'exécution réel, puis archiver les preuves hors du dépôt sans secret.
+
 ## Remaining work
 
 - Valider l'exécuteur `cisco.ios.configure` sur un routeur Cisco IOS réel ou virtuel dans un banc d'essai GNS3 / EVE-NG selon la procédure définie dans `docs/cisco-ios-executor.md` (**NON EXÉCUTÉ**).

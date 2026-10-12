@@ -88,65 +88,204 @@ La tâche n'est déclarée `succeeded` qu'après confirmation que l'état observ
 ## 5. Procédure de validation en laboratoire GNS3 réel
 
 > **Statut de la validation lab en direct : NON EXÉCUTÉ**  
-> Justification : Aucun banc GNS3 actif ni routeur Cisco IOS physique/virtuel n'est connecté au réseau local pendant l'exécution courante. Conformément aux règles d'InfraFlow, aucun résultat de laboratoire n'est simulé ou inventé.
+> Lors de cette tâche, aucun processus/socket GNS3 local ni API sur `127.0.0.1:3080` n'était disponible. Aucune adresse Cisco n'a été contactée. Les vérifications CLI ci-dessous portent uniquement sur l'exemple documentaire; elles ne sont pas une exécution IOS.
 
-### Prérequis sur le routeur Cisco IOS
-1. Cisco IOS ou IOS XE avec support SSH v2 :
+### Prérequis et préparation
+1. Utiliser un routeur IOS/IOS XE dédié à un lab GNS3 isolé et une interface de test non reliée à la production. L'adresse de gestion doit être joignable depuis l'hôte Provider. Cette procédure n'assigne ni ne modifie l'adresse IPv4 de l'interface testée.
+2. Activer SSH v2 et générer une clé hôte si nécessaire :
    ```ios
    hostname R1
    ip domain-name infraflow.local
    crypto key generate rsa modulus 2048
    ip ssh version 2
    ```
-2. Compte de test (privilège 15) :
+3. Créer un compte IOS de test avec privilège 15. L'exécuteur ouvre directement un shell privilégié et entre en mode configuration; il ne lance pas `enable` :
    ```ios
-   username infraflow privilege 15 secret <MOT_DE_PASSE_DE_TEST>
+   username infraflow privilege 15 secret <REMPLACER_PAR_UN_SECRET_DE_TEST>
    line vty 0 4
     login local
     transport input ssh
+    exec-timeout 10 0
    exit
    ```
-3. Vérifier la clé d'hôte par un canal indépendant avant approbation :
+   Le texte entre chevrons est un placeholder, pas un mot de passe à configurer. Ne mettez aucun vrai secret dans un fichier suivi par Git, un JSON de tâche, une commande enregistrée ou un log.
+4. Copier l'exemple vers un fichier local non versionné, puis remplacer l'adresse TEST-NET par l'adresse de gestion réelle du routeur de lab :
    ```bash
-   ssh-keyscan -H 192.168.90.10
+   cp examples/cisco-ios-lab.yaml /tmp/cisco-ios-lab.local.yaml
+   ${EDITOR:-vi} /tmp/cisco-ios-lab.local.yaml
    ```
-   `ssh-keyscan` ne prouve pas l'identité du routeur. Obtenir l'empreinte SHA-256 attendue depuis la console du routeur, un inventaire d'administration authentifié ou un autre canal indépendant, puis la comparer à l'empreinte de la clé candidate récupérée sur le réseau. N'approuver/ajouter cette clé à `known_hosts` qu'après correspondance exacte et vérification de l'adresse/équipement. Toute clé inconnue ou modifiée doit faire échouer la connexion; ne désactivez jamais la vérification de clé d'hôte.
+   [cisco-ios-lab.yaml](../examples/cisco-ios-lab.yaml) utilise `192.0.2.10` (TEST-NET-1) comme exemple non routable. Ne l'utilisez jamais pour une connexion réelle. Ce YAML ne contient aucun secret.
+5. Définir un répertoire d'artefacts absolu, identique pour `generate` et `serve`, puis valider et générer l'inventaire :
+   ```bash
+   make build-provider
+   export LAB_DATA_DIR="$HOME/.local/share/infraflow/cisco-lab"
+   mkdir -p "$LAB_DATA_DIR"
+   bin/infraflow-provider validate -f /tmp/cisco-ios-lab.local.yaml
+   bin/infraflow-provider generate -f /tmp/cisco-ios-lab.local.yaml -out "$LAB_DATA_DIR"
+   jq '.site, (.devices[] | select(.name == "R1"))' "$LAB_DATA_DIR/cisco-lab/inventory.json"
+   ```
+   `generate` publie `cisco-lab/inventory.json` sous le répertoire de sortie. `ArtifactInventoryDeviceResolver` autorise le couple site/équipement à partir de ce fichier; il n'est ni signé ni vérifié cryptographiquement.
+6. Obtenir l'empreinte attendue depuis la console IOS ou un autre canal d'administration indépendant. `ssh-keyscan` ne prouve pas l'identité du routeur : il ne fournit qu'une clé candidate. Après comparaison exacte de l'empreinte SHA-256 et validation de l'adresse/équipement, ajouter la clé candidate au fichier réellement utilisé par InfraFlow :
+   ```bash
+   export ROUTER_IP=<ADRESSE_DE_GESTION_DU_LAB>
+   export KNOWN_HOSTS="$LAB_DATA_DIR/.ssh_known_hosts"
+   CANDIDATE_KEY="$(mktemp)"
+   ssh-keyscan -T 5 -t rsa "$ROUTER_IP" > "$CANDIDATE_KEY"
+   ssh-keygen -lf "$CANDIDATE_KEY" -E sha256
+   # Comparer cette empreinte à celle obtenue par le canal indépendant.
+   cat "$CANDIDATE_KEY" >> "$KNOWN_HOSTS"
+   chmod 600 "$KNOWN_HOSTS"
+   rm -f "$CANDIDATE_KEY"
+   ```
+   N'ajoutez la clé qu'après cette comparaison. Si une entrée existe déjà, vérifiez-la au lieu de l'écraser. Toute clé inconnue ou modifiée doit faire échouer la connexion; ne désactivez jamais la vérification de clé d'hôte.
 
-### Procédure de test non destructive
-1. Déclarer le routeur dans l'infrastructure du Provider (`management.ipv4: 192.168.90.10`) et générer l'inventaire :
+### Démarrer le Provider et ouvrir une session admin
+1. Créer une configuration locale `serve`, en gardant les deux écouteurs sur loopback et le même répertoire d'artefacts :
    ```bash
-   bin/infraflow-provider generate -f dev-lab/cisco-real.yaml -out /var/lib/infraflow-provider
+   cat > /tmp/provider-cisco-lab.yaml <<YAML
+   listen_address: 127.0.0.1:50051
+   api_listen_address: 127.0.0.1:8080
+   web_ui_enabled: false
+   artifact_directory: $LAB_DATA_DIR
+   database_path: $LAB_DATA_DIR/.infraflow-users.sqlite3
+   token_env: INFRAFLOW_AGENT_TOKEN
+   admin_username: admin
+   admin_credential_file: $LAB_DATA_DIR/.infraflow-admin-password
+   admin_credential_script: $LAB_DATA_DIR/get-admin-password.sh
+   known_hosts_file: $LAB_DATA_DIR/.ssh_known_hosts
+   YAML
    ```
-2. Injecter les identifiants depuis un gestionnaire de secrets ou un environnement protégé. Ne tapez pas de secret réel dans une commande enregistrée; le placeholder suivant n'est pas un identifiant valide :
+   Les autres paramètres peuvent reprendre [provider-config.yaml](../examples/provider-config.yaml). Une écoute HTTP sur loopback est locale; toute exposition distante exige le TLS du Provider.
+2. Générer un token d'agent aléatoire sans l'afficher, puis démarrer le Provider :
    ```bash
-   export INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_USER="infraflow"
-   export INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_PASSWORD="<MOT_DE_PASSE_DE_TEST>"
+   export INFRAFLOW_AGENT_TOKEN="$(openssl rand -hex 32)"
+   bin/infraflow-provider serve -config /tmp/provider-cisco-lab.yaml
    ```
-3. Relever l'état initial sur le routeur :
+   Au premier démarrage avec une base vide, le Provider écrit le mot de passe admin généré dans le fichier configuré et fournit un script de lecture (par défaut `"$LAB_DATA_DIR/get-admin-password.sh"`). Une base existante n'est pas réinitialisée : utilisez son compte admin déjà provisionné.
+3. Résoudre les identifiants IOS depuis un gestionnaire de secrets ou une saisie interactive qui ne les place pas dans l'historique :
+   ```bash
+   export INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_USER=infraflow
+   read -r -s -p 'Mot de passe IOS de test: ' IOS_TEST_PASSWORD
+   printf '\n'
+   export INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_PASSWORD="$IOS_TEST_PASSWORD"
+   unset IOS_TEST_PASSWORD
+   ```
+4. Ouvrir une session administrateur via la vraie route login. Le mot de passe passe à `curl` par stdin, pas dans ses arguments :
+   ```bash
+   API=http://127.0.0.1:8080
+   ADMIN_PASSWORD="$("$LAB_DATA_DIR/get-admin-password.sh")"
+   LOGIN_RESPONSE="$(curl --silent --show-error --fail-with-body \
+     -H 'Content-Type: application/json' --data-binary @- \
+     "$API/api/v1/auth/login" <<JSON
+   {"username":"admin","password":"$ADMIN_PASSWORD"}
+   JSON
+   )"
+   SESSION_TOKEN="$(printf '%s' "$LOGIN_RESPONSE" | jq -er '.token')"
+   unset ADMIN_PASSWORD LOGIN_RESPONSE
+   umask 077
+   CURL_AUTH="$(mktemp)"
+   printf 'header = "Authorization: Bearer %s"\n' "$SESSION_TOKEN" > "$CURL_AUTH"
+   chmod 600 "$CURL_AUTH"
+   ```
+   Le fichier temporaire contient le token de session : mode `0600`, suppression en fin de procédure. `POST /api/v1/executions` exige un administrateur et un header `Idempotency-Key` de 16 à 128 caractères.
+
+### Capturer, appliquer, vérifier et restaurer
+1. Depuis la console IOS, sélectionner une interface dédiée au test, vérifier qu'elle ne transporte aucun trafic de production et enregistrer sa description et son état administratif initiaux :
    ```ios
    show version
    show running-config | include ^hostname
-   show running-config interface GigabitEthernet2
+   show running-config interface <INTERFACE_DE_TEST>
+   show interfaces <INTERFACE_DE_TEST>
    ```
-4. Soumettre la tâche via l'API d'exécution :
+   Dans la configuration IOS, l'état administratif est `down` si `shutdown` apparaît, sinon `up`. Conserver exactement la description initiale et la définir dans le shell comme `INITIAL_DESCRIPTION`; utiliser une chaîne vide si elle était absente.
+2. Remplacer les valeurs en chevrons par l'interface et l'état réellement observés, puis soumettre une tâche qui ne change que la description. `ipv4_cidr` et `hostname` sont volontairement omis :
    ```bash
-   curl -X POST http://localhost:8080/api/v1/executions \
-     -H "Authorization: Bearer $SESSION_TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"tasks":[{"id":"cisco-01","type":"cisco.ios.configure","parameters":{"site":"cisco-lab","device_id":"R1","hostname":"R1-CORE","interfaces":[{"name":"GigabitEthernet2","description":"InfraFlow Test Uplink","ipv4_cidr":"10.99.1.1/30","admin_state":"up"}]}}]}'
+   TEST_INTERFACE=<INTERFACE_DE_TEST>
+   INITIAL_ADMIN_STATE=<up_ou_down>
+   TEST_DESCRIPTION=InfraFlow-GNS3-reversible-test
+   REQUEST_KEY="cisco-ios-lab-change-$(date +%s)"
+   jq -n --arg iface "$TEST_INTERFACE" --arg admin "$INITIAL_ADMIN_STATE" --arg desc "$TEST_DESCRIPTION" \
+     '{tasks:[{id:"cisco-lab-change",type:"cisco.ios.configure",timeout_ms:30000,max_attempts:1,parameters:{site:"cisco-lab",device_id:"R1",interfaces:[{name:$iface,description:$desc,admin_state:$admin}]}}]}' |
+    SUBMISSION="$(curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+     -H 'Content-Type: application/json' -H "Idempotency-Key: $REQUEST_KEY" \
+       --data-binary @- "$API/api/v1/executions")"
+    printf '%s\n' "$SUBMISSION" | jq '{id,status,tasks:[.tasks[]|{id,type,status}]}'
+    EXECUTION_ID="$(printf '%s' "$SUBMISSION" | jq -er '.id')"
    ```
-5. Relever l'état final sur le routeur :
-   ```ios
-   show running-config | include ^hostname
-   show running-config interface GigabitEthernet2
+    La modification est uniquement en `running-config`; aucune commande `write memory` n'est exécutée.
+3. Poller la ressource jusqu'à un état terminal et conserver le JSON réel hors du dépôt :
+   ```bash
+   EXECUTION_ID=<ID_RETOURNE>
+   PROOF_DIR="$HOME/.local/share/infraflow/cisco-lab/proof"
+   install -d -m 700 "$PROOF_DIR"
+   while :; do
+     curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+       "$API/api/v1/executions/$EXECUTION_ID" > "$PROOF_DIR/execution.json"
+     EXECUTION_STATUS="$(jq -er '.status' "$PROOF_DIR/execution.json")"
+     case "$EXECUTION_STATUS" in succeeded|failed|cancelled|timed_out) break ;; *) sleep 1 ;; esac
+   done
+   jq '{id,status,tasks:[.tasks[]|{id,type,status,attempts,result,error}]}' "$PROOF_DIR/execution.json"
    ```
-6. Vérifier que la tâche est marquée `succeeded`, avec `verified: true`, et archiver le JSON de preuve.
+   La route est `GET /api/v1/executions/{id}`; le résultat Cisco est dans `tasks[].result`, et les tentatives dans `tasks[].attempts`. Ne conclure à un succès que si l'exécution et la tâche sont `succeeded` et `tasks[].result.verified` vaut `true`.
+4. Relire l'interface dans la console, puis restaurer la description et l'état administratif initiaux avec une nouvelle tâche et une nouvelle clé d'idempotence :
+    ```bash
+    RESTORE_KEY="cisco-ios-lab-restore-$(date +%s)"
+    jq -n --arg iface "$TEST_INTERFACE" --arg admin "$INITIAL_ADMIN_STATE" --arg desc "$INITIAL_DESCRIPTION" \
+       '{tasks:[{id:"cisco-lab-restore",type:"cisco.ios.configure",timeout_ms:30000,max_attempts:1,parameters:{site:"cisco-lab",device_id:"R1",interfaces:[{name:$iface,description:$desc,admin_state:$admin}]}}]}' |
+      RESTORE_SUBMISSION="$(curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+       -H 'Content-Type: application/json' -H "Idempotency-Key: $RESTORE_KEY" \
+          --data-binary @- "$API/api/v1/executions")"
+      RESTORE_ID="$(printf '%s' "$RESTORE_SUBMISSION" | jq -er '.id')"
+      while :; do
+         curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+            "$API/api/v1/executions/$RESTORE_ID" > "$PROOF_DIR/restoration.json"
+         RESTORE_STATUS="$(jq -er '.status' "$PROOF_DIR/restoration.json")"
+         case "$RESTORE_STATUS" in succeeded|failed|cancelled|timed_out) break ;; *) sleep 1 ;; esac
+      done
+      jq '{id,status,tasks:[.tasks[]|{id,type,status,attempts,result,error}]}' "$PROOF_DIR/restoration.json"
+    ```
+    Une description vide devient `no description`; `ipv4_cidr` reste omis pour préserver l'adresse. Relire l'interface après restauration.
+5. Archiver les réponses JSON réelles et les sorties IOS initiales/finales avec la date, la version IOS et l'empreinte approuvée. Ne jamais mettre de mot de passe, token ou clé privée dans les preuves.
 
-Après validation, supprimer les variables de test du shell et redémarrer le Provider si son processus avait hérité de ces variables :
+### Échec contrôlé et nettoyage
+Pour vérifier un échec de connexion sans mutation après la restauration :
 
+1. Arrêter le Provider normal, créer un fichier de confiance de test distinct et une copie de sa configuration. Ne pas modifier `.ssh_known_hosts` :
+    ```bash
+    UNTRUSTED_HOSTS="$LAB_DATA_DIR/.ssh_known_hosts-untrusted"
+    printf '# Deliberately empty trust store for controlled failure test\n' > "$UNTRUSTED_HOSTS"
+    chmod 600 "$UNTRUSTED_HOSTS"
+    cp /tmp/provider-cisco-lab.yaml /tmp/provider-cisco-lab-untrusted.yaml
+    ${EDITOR:-vi} /tmp/provider-cisco-lab-untrusted.yaml
+    ```
+    Dans la copie, changer uniquement `known_hosts_file` vers la valeur de `$UNTRUSTED_HOSTS`; garder le même `artifact_directory` et la même base SQLite. Redémarrer le Provider avec cette copie. Les sessions admin sont persistées dans SQLite et le token déjà obtenu reste utilisable jusqu'à expiration.
+2. Soumettre la même configuration, avec une nouvelle clé d'idempotence, puis poller `GET /api/v1/executions/{id}` comme précédemment. La connexion doit échouer sur clé d'hôte inconnue avant authentification; la ressource doit être `failed` avec une seule tentative et l'état de l'interface doit rester inchangé :
+    ```bash
+    FAILURE_KEY="cisco-ios-lab-untrusted-host-$(date +%s)"
+    jq -n --arg iface "$TEST_INTERFACE" --arg admin "$INITIAL_ADMIN_STATE" --arg desc "$TEST_DESCRIPTION" \
+       '{tasks:[{id:"cisco-lab-untrusted-host",type:"cisco.ios.configure",timeout_ms:30000,max_attempts:1,parameters:{site:"cisco-lab",device_id:"R1",interfaces:[{name:$iface,description:$desc,admin_state:$admin}]}}]}' |
+    FAILURE_SUBMISSION="$(curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+       -H 'Content-Type: application/json' -H "Idempotency-Key: $FAILURE_KEY" \
+       --data-binary @- "$API/api/v1/executions")"
+    FAILURE_ID="$(printf '%s' "$FAILURE_SUBMISSION" | jq -er '.id')"
+    while :; do
+       curl --config "$CURL_AUTH" --silent --show-error --fail-with-body \
+          "$API/api/v1/executions/$FAILURE_ID" > "$PROOF_DIR/untrusted-host.json"
+       FAILURE_STATUS="$(jq -er '.status' "$PROOF_DIR/untrusted-host.json")"
+       case "$FAILURE_STATUS" in failed|succeeded|cancelled|timed_out) break ;; *) sleep 1 ;; esac
+    done
+    jq -e '.tasks[0].status == "failed" and (.tasks[0].attempts | length) == 1' "$PROOF_DIR/untrusted-host.json"
+    ```
+    Arrêter l'instance de test puis redémarrer le Provider normal avec le fichier de confiance approuvé.
+
+Ce test contrôle un échec avant mutation; il ne simule pas une coupure après mutation. Le timeout après une commande de configuration est couvert par les tests automatisés injectés. Une requête Cisco demandant `max_attempts > 1` doit être rejetée en HTTP `400` avant exécution.
+
+Arrêter le Provider, supprimer le fichier temporaire d'authentification, et retirer les variables de test. Redémarrer le Provider est nécessaire pour retirer de son environnement les secrets déjà hérités par le processus :
 ```bash
-unset INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_USER
-unset INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_PASSWORD
-unset INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_KEY_FILE
-unset INFRAFLOW_CISCO_SSH_USER INFRAFLOW_CISCO_SSH_PASSWORD INFRAFLOW_CISCO_SSH_KEY_FILE
+rm -f "$CURL_AUTH"
+unset SESSION_TOKEN INFRAFLOW_AGENT_TOKEN
+unset INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_USER INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_PASSWORD
+unset INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_KEY_FILE INFRAFLOW_DEVICE_CISCO_LAB_R1_SSH_KEY_PASSPHRASE
+unset INFRAFLOW_CISCO_SSH_USER INFRAFLOW_CISCO_SSH_PASSWORD
+unset INFRAFLOW_CISCO_SSH_KEY_FILE INFRAFLOW_CISCO_SSH_KEY_PASSPHRASE
 ```
