@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"infraflow/provider/internal/infrastructure/credentials"
@@ -21,6 +22,13 @@ var (
 	ErrPromptTimeout   = errors.New("timeout waiting for Cisco IOS prompt")
 	ErrSessionClosed   = errors.New("Cisco IOS session closed")
 	ErrCommandRejected = errors.New("command rejected by Cisco IOS")
+	ErrOutputTooLarge  = errors.New("Cisco IOS command output exceeds the configured limit")
+)
+
+const (
+	maxCiscoCommandOutputBytes = 1 << 20
+	ciscoSSHReadChunkBytes     = 4 << 10
+	ciscoPromptLineScanBytes   = 256
 )
 
 // ciscoPromptPattern matches privileged and configuration prompts:
@@ -84,6 +92,16 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
+	connectDeadline := time.Now().Add(t.connectTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(connectDeadline) {
+		connectDeadline = contextDeadline
+	}
+	if err := tcpConn.SetDeadline(connectDeadline); err != nil {
+		_ = tcpConn.Close()
+		return nil, fmt.Errorf("set SSH connection deadline: %w", err)
+	}
+	stopConnectWatch := context.AfterFunc(ctx, func() { _ = tcpConn.Close() })
+	defer stopConnectWatch()
 
 	sshConfig, err := t.buildSSHConfig(addr, creds)
 	if err != nil {
@@ -91,7 +109,6 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 		return nil, err
 	}
 
-	// Wrap connection for cancellation support
 	sshConn, chans, reqs, err := ssh.NewClientConn(tcpConn, addr, sshConfig)
 	if err != nil {
 		_ = tcpConn.Close()
@@ -136,20 +153,28 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 		_ = client.Close()
 		return nil, fmt.Errorf("start shell: %w", err)
 	}
-
-	sess := &liveCiscoIOSSession{
-		client:         client,
-		session:        session,
-		stdin:          stdinPipe,
-		stdout:         stdoutPipe,
-		commandTimeout: t.commandTimeout,
+	if err := tcpConn.SetDeadline(time.Time{}); err != nil {
+		_ = session.Close()
+		_ = client.Close()
+		return nil, fmt.Errorf("clear SSH connection deadline: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		_ = session.Close()
+		_ = client.Close()
+		return nil, err
+	}
+	stopConnectWatch()
 
-	// Watch for context cancellation to cleanly abort the network session
-	go func() {
-		<-ctx.Done()
+	sess := newLiveCiscoIOSSession(stdinPipe, stdoutPipe, t.commandTimeout, func() error {
+		_ = stdinPipe.Close()
+		_ = session.Close()
+		return client.Close()
+	})
+	sess.watchContext(ctx)
+	if err := ctx.Err(); err != nil {
 		_ = sess.Close()
-	}()
+		return nil, err
+	}
 
 	return sess, nil
 }
@@ -187,72 +212,158 @@ func (t *SSHIOSTransport) buildSSHConfig(addr string, creds credentials.DeviceCr
 }
 
 type liveCiscoIOSSession struct {
-	client         *ssh.Client
-	session        *ssh.Session
-	stdin          io.WriteCloser
-	stdout         io.Reader
-	commandTimeout time.Duration
+	stdin            io.WriteCloser
+	commandTimeout   time.Duration
+	closeResources   func() error
+	watchMu          sync.Mutex
+	stopContextWatch func() bool
 
-	mu     sync.Mutex
-	closed bool
+	commandMu  sync.Mutex
+	closed     atomic.Bool
+	closeOnce  sync.Once
+	closeErr   error
+	prompt     string
+	stopRead   chan struct{}
+	readerDone chan struct{}
+	readEvents chan ciscoReadEvent
+}
+
+type ciscoReadEvent struct {
+	data []byte
+	err  error
+}
+
+func newLiveCiscoIOSSession(stdin io.WriteCloser, stdout io.Reader, commandTimeout time.Duration, closeResources func() error) *liveCiscoIOSSession {
+	session := &liveCiscoIOSSession{
+		stdin:          stdin,
+		commandTimeout: commandTimeout,
+		closeResources: closeResources,
+		stopRead:       make(chan struct{}),
+		readerDone:     make(chan struct{}),
+		readEvents:     make(chan ciscoReadEvent, 1),
+	}
+	go session.readLoop(stdout)
+	return session
+}
+
+func (s *liveCiscoIOSSession) watchContext(ctx context.Context) {
+	stop := context.AfterFunc(ctx, func() { _ = s.Close() })
+	s.watchMu.Lock()
+	if s.closed.Load() {
+		s.watchMu.Unlock()
+		stop()
+		return
+	}
+	s.stopContextWatch = stop
+	s.watchMu.Unlock()
+}
+
+func (s *liveCiscoIOSSession) readLoop(stdout io.Reader) {
+	defer close(s.readerDone)
+	buffer := make([]byte, ciscoSSHReadChunkBytes)
+	for {
+		n, err := stdout.Read(buffer)
+		if n > 0 {
+			data := append([]byte(nil), buffer[:n]...)
+			select {
+			case s.readEvents <- ciscoReadEvent{data: data, err: err}:
+			case <-s.stopRead:
+				return
+			}
+			if err != nil {
+				return
+			}
+			continue
+		}
+		if err != nil {
+			select {
+			case s.readEvents <- ciscoReadEvent{err: err}:
+			case <-s.stopRead:
+			}
+			return
+		}
+		if n == 0 {
+			select {
+			case s.readEvents <- ciscoReadEvent{err: io.ErrNoProgress}:
+			case <-s.stopRead:
+			}
+			return
+		}
+	}
 }
 
 func (s *liveCiscoIOSSession) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	var errs []error
-	if s.stdin != nil {
-		_ = s.stdin.Close()
-	}
-	if s.session != nil {
-		if err := s.session.Close(); err != nil && !errors.Is(err, io.EOF) {
-			errs = append(errs, err)
+	s.closeOnce.Do(func() {
+		s.closed.Store(true)
+		close(s.stopRead)
+		s.watchMu.Lock()
+		stop := s.stopContextWatch
+		s.stopContextWatch = nil
+		s.watchMu.Unlock()
+		if stop != nil {
+			stop()
 		}
-	}
-	if s.client != nil {
-		if err := s.client.Close(); err != nil && !errors.Is(err, io.EOF) {
-			errs = append(errs, err)
+		if s.closeResources != nil {
+			s.closeErr = s.closeResources()
 		}
-	}
-	if len(errs) > 0 {
-		return errs[0]
-	}
-	return nil
+		<-s.readerDone
+	})
+	return s.closeErr
 }
 
 func (s *liveCiscoIOSSession) ReadInitialPrompt(ctx context.Context) (string, error) {
-	return s.readUntilPrompt(ctx)
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	if s.closed.Load() {
+		return "", ErrSessionClosed
+	}
+	output, err := s.readUntilPrompt(ctx, "")
+	if err == nil {
+		s.prompt, _ = finalCiscoPrompt(output, "")
+	}
+	return output, err
 }
 
 func (s *liveCiscoIOSSession) RunCommand(ctx context.Context, command string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	if s.closed.Load() {
 		return "", ErrSessionClosed
 	}
-
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		_ = s.Close()
+		return "", err
+	}
 	cleanCmd := strings.TrimSpace(command)
 	if _, err := io.WriteString(s.stdin, cleanCmd+"\n"); err != nil {
-		return "", fmt.Errorf("write command %q: %w", cleanCmd, err)
+		_ = s.Close()
+		return "", fmt.Errorf("write command: %w", err)
 	}
-
-	output, err := s.readUntilPrompt(ctx)
+	output, err := s.readUntilPrompt(ctx, expectedCiscoPrompt(cleanCmd, s.prompt))
 	if err != nil {
-		return output, err
+		return "", err
 	}
-
-	// Detect Cisco error messages
+	s.prompt, _ = finalCiscoPrompt(output, "")
 	if match := ciscoErrorPattern.FindStringSubmatch(output); len(match) > 1 {
 		return output, fmt.Errorf("%w on command %q: %s", ErrCommandRejected, cleanCmd, match[1])
 	}
 	return output, nil
 }
 
-func (s *liveCiscoIOSSession) readUntilPrompt(ctx context.Context) (string, error) {
+func (s *liveCiscoIOSSession) readUntilPrompt(ctx context.Context, expectedPrompt string) (string, error) {
+	if s.closed.Load() {
+		return "", ErrSessionClosed
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		_ = s.Close()
+		return "", err
+	}
 	timeout := s.commandTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining := time.Until(deadline)
@@ -261,64 +372,122 @@ func (s *liveCiscoIOSSession) readUntilPrompt(ctx context.Context) (string, erro
 		}
 	}
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		_ = s.Close()
+		return "", ErrPromptTimeout
 	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-
-	type chunkResult struct {
-		data []byte
-		err  error
-	}
-
-	buf := make([]byte, 1024)
 	var accumulated bytes.Buffer
 
 	for {
-		readDone := make(chan chunkResult, 1)
-		go func() {
-			n, err := s.stdout.Read(buf)
-			if n > 0 {
-				readDone <- chunkResult{data: append([]byte(nil), buf[:n]...), err: err}
-			} else {
-				readDone <- chunkResult{err: err}
-			}
-		}()
-
 		select {
 		case <-ctx.Done():
-			return accumulated.String(), ctx.Err()
+			_ = s.Close()
+			return "", ctx.Err()
 		case <-timer.C:
-			return accumulated.String(), ErrPromptTimeout
-		case res := <-readDone:
+			_ = s.Close()
+			return "", ErrPromptTimeout
+		case res := <-s.readEvents:
 			if len(res.data) > 0 {
-				accumulated.Write(res.data)
-				// Check if the accumulated buffer ends with a Cisco prompt
-				text := cleanAnsiAndControl(accumulated.String())
-				lines := strings.Split(text, "\n")
-				for i := len(lines) - 1; i >= 0; i-- {
-					line := strings.TrimRight(lines[i], " \r\t")
-					if ciscoPromptPattern.MatchString(line) {
-						return text, nil
-					}
+				if accumulated.Len()+len(res.data) > maxCiscoCommandOutputBytes {
+					_ = s.Close()
+					return "", ErrOutputTooLarge
 				}
+				_, _ = accumulated.Write(res.data)
 			}
 			if res.err != nil {
-				if errors.Is(res.err, io.EOF) {
-					return accumulated.String(), io.EOF
-				}
-				return accumulated.String(), res.err
+				_ = s.Close()
+				return "", res.err
+			}
+			select {
+			case <-ctx.Done():
+				_ = s.Close()
+				return "", ctx.Err()
+			default:
+			}
+			select {
+			case <-timer.C:
+				_ = s.Close()
+				return "", ErrPromptTimeout
+			default:
+			}
+			text := accumulated.String()
+			if _, ok := finalCiscoPrompt(text, expectedPrompt); ok {
+				return cleanAnsiAndControl(text), nil
 			}
 		}
 	}
 }
 
+func isFinalCiscoPrompt(text string) bool {
+	_, ok := finalCiscoPrompt(text, "")
+	return ok
+}
+
+func finalCiscoPrompt(text, expected string) (string, bool) {
+	if len(text) > ciscoPromptLineScanBytes {
+		text = text[len(text)-ciscoPromptLineScanBytes:]
+	}
+	trimmed := strings.TrimRight(text, " \t")
+	if trimmed == "" {
+		return "", false
+	}
+	if strings.HasSuffix(trimmed, "\r") || strings.HasSuffix(trimmed, "\n") {
+		return "", false
+	}
+	line := trimmed
+	if separator := strings.LastIndexAny(trimmed, "\r\n"); separator >= 0 {
+		line = trimmed[separator+1:]
+	}
+	line = strings.TrimSpace(cleanAnsiAndControl(line))
+	if !ciscoPromptPattern.MatchString(line) || expected != "" && line != expected {
+		return "", false
+	}
+	return line, true
+}
+
+func expectedCiscoPrompt(command, current string) string {
+	if current == "" {
+		return ""
+	}
+	hostname := current
+	if index := strings.IndexByte(hostname, '('); index >= 0 {
+		hostname = hostname[:index]
+	} else {
+		hostname = strings.TrimRight(hostname, ">#")
+	}
+	switch {
+	case command == "configure terminal":
+		return hostname + "(config)#"
+	case strings.HasPrefix(command, "interface "):
+		return hostname + "(config-if)#"
+	case command == "exit" && strings.HasSuffix(current, "(config-if)#"):
+		return hostname + "(config)#"
+	case command == "exit" && strings.HasSuffix(current, "(config)#"):
+		return hostname + "#"
+	case command == "end":
+		return hostname + "#"
+	case strings.HasPrefix(command, "hostname "):
+		newHostname := strings.TrimSpace(strings.TrimPrefix(command, "hostname "))
+		if strings.HasSuffix(current, "(config-if)#") {
+			return newHostname + "(config-if)#"
+		}
+		if strings.HasSuffix(current, "(config)#") {
+			return newHostname + "(config)#"
+		}
+		return newHostname + "#"
+	default:
+		return current
+	}
+}
+
 // cleanAnsiAndControl removes ANSI escape codes and normalizes carriage returns.
 func cleanAnsiAndControl(input string) string {
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	cleaned := ansiRegex.ReplaceAllString(input, "")
+	cleaned := ciscoANSISequencePattern.ReplaceAllString(input, "")
 	cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
 	cleaned = strings.ReplaceAll(cleaned, "\r", "\n")
 	return cleaned
 }
+
+var ciscoANSISequencePattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)

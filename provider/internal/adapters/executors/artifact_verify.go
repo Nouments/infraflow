@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -116,7 +117,7 @@ func (executor *ArtifactVerifyExecutor) Execute(ctx context.Context, task domain
 	reader, published, err := executor.repository.Open(cleanedPath)
 	if err != nil {
 		msg := fmt.Sprintf("artifact %q not found or inaccessible: %v", cleanedPath, err)
-		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, errors.New(msg)
+		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, fmt.Errorf("artifact %q not found or inaccessible: %w", cleanedPath, err)
 	}
 	defer reader.Close()
 
@@ -156,7 +157,7 @@ func (executor *ArtifactVerifyExecutor) Execute(ctx context.Context, task domain
 				break
 			}
 			msg := fmt.Sprintf("read artifact %q: %v", cleanedPath, readErr)
-			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, errors.New(msg)
+			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, fmt.Errorf("read artifact %q: %w", cleanedPath, readErr)
 		}
 	}
 
@@ -187,9 +188,16 @@ func (executor *ArtifactVerifyExecutor) Execute(ctx context.Context, task domain
 	}, nil
 }
 
-// Retryable returns false because artifact integrity errors are deterministic and unrecoverable without external remediation.
+// Retryable permits retries only for transient I/O failures; integrity mismatches remain permanent.
 func (executor *ArtifactVerifyExecutor) Retryable(err error) bool {
-	return false
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var temporary interface{ Temporary() bool }
+	return errors.As(err, &temporary) && temporary.Temporary()
 }
 
 func validateArtifactPath(raw string) (string, error) {

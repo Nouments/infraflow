@@ -119,7 +119,7 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
     - Rejet des interfaces dupliquées (insensible à la casse sur nom canonisé).
     - Aucune adresse IP de destination arbitraire acceptée dans le payload de la tâche.
   - **Résolution sécurisée de cible et d'identifiants** :
-    - Résolution de cible via `DeviceTargetResolver` (`ArtifactInventoryDeviceResolver`) inspectant la source de vérité `<site>/inventory.json` publiée par le catalogue du Provider. Tout équipement inconnu ou non-Cisco est rejeté.
+    - Résolution de cible via `DeviceTargetResolver` (`ArtifactInventoryDeviceResolver`) inspectant `<site>/inventory.json` publié par le catalogue du Provider. Le site, les identités d'équipement, le constructeur Cisco et l'adresse IPv4 de gestion sont validés avant connexion; les cibles inconnues, ambiguës ou invalides sont rejetées. Le fichier n'est pas signé ni vérifié cryptographiquement par ce resolver.
     - Résolution des identifiants via `DeviceCredentialResolver` (`EnvDeviceCredentialResolver`) à partir des variables d'environnement (`INFRAFLOW_DEVICE_<SITE>_<DEVICE>_SSH_USER`, `..._SSH_PASSWORD`, etc.) ou d'un magasin sécurisé injectable. Aucun secret dans le payload de la tâche.
     - Épuration systématique de tout mot de passe, clé privée ou secret dans les messages d'erreurs, sorties et journaux (`sanitizeErrorWithCreds` et `observability.Redact`).
   - **Transport SSH et politique de clé d'hôte** :
@@ -139,8 +139,8 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
   - Enregistré dans `provider/internal/delivery/cli/cli.go` aux côtés de `artifact.verify` dans `ExecutionService`.
   - Les tâches `cisco.ios.configure` passent par le scheduler, la persistance `filesystem.ExecutionStore`, les tentatives et les audits existants.
 - **Validation GNS3 en laboratoire réel** :
-  - **NON EXÉCUTÉ** : Aucun équipement Cisco IOS physique ou virtuel n'est connecté au banc de test pendant cette session. Conformément à la règle de véracité d'InfraFlow, aucun résultat de laboratoire n'est simulé ou inventé.
-  - Procédure de validation complète et scénario de test non destructif rédigés dans `dev-lab/cisco-gns3-validation.md`.
+  - **NON EXÉCUTÉ** : Aucun équipement Cisco IOS physique ou virtuel n'a été utilisé pour cette validation. Les tests automatisés ne remplacent pas un test IOS réel; aucun résultat de laboratoire n'est simulé ou inventé.
+  - Procédure de validation GNS3 : `docs/cisco-ios-executor.md`.
 - **Tests unitaires et d'intégration exécutés** :
   - `provider/internal/adapters/executors/cisco_ios_configure_test.go` : 17 tests couvrant 100% des cas requis :
     - `TestCiscoIOSConfigureValidParameters` : validation et canonisation des paramètres conformes.
@@ -170,7 +170,7 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
 
 ## Remaining work
 
-- Valider l'exécuteur `cisco.ios.configure` sur un routeur Cisco IOS réel ou virtuel dans un banc d'essai GNS3 / EVE-NG selon la procédure définie dans `dev-lab/cisco-gns3-validation.md`.
+- Valider l'exécuteur `cisco.ios.configure` sur un routeur Cisco IOS réel ou virtuel dans un banc d'essai GNS3 / EVE-NG selon la procédure définie dans `docs/cisco-ios-executor.md` (**NON EXÉCUTÉ**).
 - Implémenter ultérieurement une tâche explicite de persistance de configuration (`cisco.ios.save` / `write memory`).
 - Implémenter les autres adaptateurs d'équipements réseau (FortiGate, MikroTik, Proxmox) uniquement après définition de leurs schémas stricts et preuves d'exécution.
 - Implémenter ou différer explicitement le service DNS.

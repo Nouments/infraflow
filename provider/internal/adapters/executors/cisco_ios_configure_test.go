@@ -453,6 +453,9 @@ func TestCiscoIOSConfigurePartialResultDetection(t *testing.T) {
 	if !strings.Contains(res.Error, "after 2 command(s)") {
 		t.Fatalf("expected mention of applied commands count, got %s", res.Error)
 	}
+	if !strings.Contains(res.Error, "router state is uncertain and must be re-read before any retry") {
+		t.Fatalf("partial configuration did not require a state read-back: %s", res.Error)
+	}
 }
 
 // 14. Vérification finale différente de la demande
@@ -476,8 +479,33 @@ rtr-core-01#`
 	if err == nil || res.Status != domain.ExecutionTaskFailed {
 		t.Fatalf("expected failure when observed state differs from requested, got res=%+v, err=%v", res, err)
 	}
+	if len(res.Output) != 0 || !strings.Contains(res.Error, "router state must be re-read before any retry") {
+		t.Fatalf("verification failure was reported as partial success or omitted the read-back requirement: %+v", res)
+	}
 	if !strings.Contains(res.Error, "verification failed") || !strings.Contains(res.Error, "ipv4 mismatch") {
 		t.Fatalf("unexpected error message: %s", res.Error)
+	}
+}
+
+func TestCiscoIOSConfigureOversizedOutputCannotSucceed(t *testing.T) {
+	session := standardMockSession()
+	session.errors["show running-config interface GigabitEthernet0/0"] = ErrOutputTooLarge
+	executor, _, _ := setupTestExecutor(session, nil)
+	result, err := executor.Execute(context.Background(), domain.ExecutionTask{Parameters: json.RawMessage(validTaskPayload())})
+	if err == nil || result.Status != domain.ExecutionTaskFailed || len(result.Output) != 0 {
+		t.Fatalf("oversized verification output was accepted: result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(result.Error, "exceeds the configured limit") || !strings.Contains(result.Error, "must be re-read") {
+		t.Fatalf("oversized output error did not explain failure and required read-back: %s", result.Error)
+	}
+}
+
+func TestCiscoIOSConfigureIsNeverAutomaticallyRetryable(t *testing.T) {
+	executor, _, _ := setupTestExecutor(standardMockSession(), nil)
+	for _, err := range []error{ErrPromptTimeout, context.DeadlineExceeded, errors.New("connection reset")} {
+		if executor.Retryable(err) {
+			t.Fatalf("Cisco configuration error was marked retryable: %v", err)
+		}
 	}
 }
 
@@ -621,6 +649,34 @@ func TestCiscoIOSConfigureIntegrationWithExecutionService(t *testing.T) {
 	}
 	if !result.Verified || result.Status != "succeeded" {
 		t.Fatalf("unexpected persisted result: %+v", result)
+	}
+
+	// A timeout on the first mutating command must never schedule another application.
+	session.errors["hostname rtr-core-01"] = ErrPromptTimeout
+	timeoutSubmission, _, err := execService.Submit(context.Background(), "admin", "idempotency-key-cisco-timeout-1234", application.ExecutionRequest{
+		Tasks: []application.ExecutionTaskRequest{{
+			ID: "task-cisco-timeout", Type: CiscoIOSConfigureType,
+			Parameters: json.RawMessage(validTaskPayload()),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("failed to submit timeout execution: %v", err)
+	}
+	timeoutResult, err := execService.Wait(waitCtx, timeoutSubmission.ID)
+	if err != nil {
+		t.Fatalf("wait timeout execution failed: %v", err)
+	}
+	if len(timeoutResult.Tasks) != 1 || len(timeoutResult.Tasks[0].Attempts) != 1 || timeoutResult.Tasks[0].Status != domain.ExecutionTaskFailed || !strings.Contains(timeoutResult.Tasks[0].Error, "router state is uncertain and must be re-read before any retry") {
+		t.Fatalf("uncertain Cisco configuration was retried or not flagged: %#v", timeoutResult.Tasks)
+	}
+	var hostnameAttempts int
+	for _, command := range session.recordedCmds {
+		if command == "hostname rtr-core-01" {
+			hostnameAttempts++
+		}
+	}
+	if hostnameAttempts != 2 {
+		t.Fatalf("expected one hostname application per execution, got %d", hostnameAttempts)
 	}
 
 	// 2. Verify that unknown task types are still rejected

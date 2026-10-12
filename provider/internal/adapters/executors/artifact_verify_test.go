@@ -24,9 +24,11 @@ import (
 )
 
 type mockArtifactRepo struct {
-	catalog []protocol.Artifact
-	files   map[string][]byte
-	openErr error
+	catalog    []protocol.Artifact
+	files      map[string][]byte
+	openErr    error
+	openErrors []error
+	openCalls  int
 }
 
 func (m *mockArtifactRepo) Catalog() ([]protocol.Artifact, error) {
@@ -34,6 +36,13 @@ func (m *mockArtifactRepo) Catalog() ([]protocol.Artifact, error) {
 }
 
 func (m *mockArtifactRepo) Open(path string) (io.ReadCloser, protocol.Artifact, error) {
+	if m.openCalls < len(m.openErrors) {
+		err := m.openErrors[m.openCalls]
+		m.openCalls++
+		if err != nil {
+			return nil, protocol.Artifact{}, err
+		}
+	}
 	if m.openErr != nil {
 		return nil, protocol.Artifact{}, m.openErr
 	}
@@ -306,8 +315,69 @@ func TestArtifactVerifyExecuteContextCancellation(t *testing.T) {
 
 func TestArtifactVerifyRetryable(t *testing.T) {
 	executor, _ := NewArtifactVerifyExecutor(&mockArtifactRepo{})
-	if executor.Retryable(errors.New("random error")) {
-		t.Fatal("artifact verify executor must never declare errors retryable")
+	if !executor.Retryable(context.DeadlineExceeded) || !executor.Retryable(temporaryArtifactTestError{}) {
+		t.Fatal("transient artifact I/O errors should remain retryable")
+	}
+	if executor.Retryable(errors.New("artifact integrity check failed")) || executor.Retryable(errors.New("artifact not found")) {
+		t.Fatal("deterministic artifact errors must not be retried")
+	}
+}
+
+type temporaryArtifactTestError struct{}
+
+func (temporaryArtifactTestError) Error() string   { return "temporary storage failure" }
+func (temporaryArtifactTestError) Temporary() bool { return true }
+
+func TestArtifactVerifyServiceRetriesTransientReadFailure(t *testing.T) {
+	content := []byte(`{"site":"lab","devices":[{"name":"R1"}]}`)
+	artifact := protocol.Artifact{
+		Type:       "inventory",
+		Path:       "lab/inventory.json",
+		InputHash:  protocol.SHA256([]byte("input")),
+		OutputHash: protocol.SHA256(content),
+	}
+	repository := &mockArtifactRepo{
+		catalog:    []protocol.Artifact{artifact},
+		files:      map[string][]byte{"lab/inventory.json": content},
+		openErrors: []error{temporaryArtifactTestError{}, nil},
+	}
+	executor, err := NewArtifactVerifyExecutor(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	executionStore, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventStore, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{executor}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close(context.Background())
+
+	submission, _, err := service.Submit(context.Background(), "admin", "artifact-transient-retry", application.ExecutionRequest{
+		Tasks: []application.ExecutionTaskRequest{{
+			ID: "verify-transient", Type: ArtifactVerifyType,
+			Parameters:  json.RawMessage(`{"path":"lab/inventory.json"}`),
+			MaxAttempts: 2,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := service.Wait(waitContext, submission.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.ExecutionSucceeded || len(result.Tasks) != 1 || len(result.Tasks[0].Attempts) != 2 || result.Tasks[0].Status != domain.ExecutionTaskSucceeded {
+		t.Fatalf("safe artifact verification retry did not complete: %#v", result)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"infraflow/internal/domain"
+	"infraflow/pkg/protocol"
 )
 
 var (
@@ -87,8 +88,8 @@ func (r *ArtifactInventoryDeviceResolver) ResolveDevice(ctx context.Context, sit
 	}
 	cleanSite := strings.TrimSpace(site)
 	cleanDevice := strings.TrimSpace(deviceID)
-	if cleanSite == "" || cleanDevice == "" {
-		return AuthorizedDevice{}, fmt.Errorf("%w: site and device must not be empty", ErrTargetNotFound)
+	if !protocol.ValidSiteName(cleanSite) || !protocol.ValidSiteName(cleanDevice) {
+		return AuthorizedDevice{}, fmt.Errorf("%w: site or device identifier is invalid", ErrTargetNotFound)
 	}
 
 	inventoryPath := filepath.Join(r.artifactDir, cleanSite, "inventory.json")
@@ -107,25 +108,48 @@ func (r *ArtifactInventoryDeviceResolver) ResolveDevice(ctx context.Context, sit
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return AuthorizedDevice{}, fmt.Errorf("decode site inventory: %w", err)
 	}
+	if !strings.EqualFold(strings.TrimSpace(payload.Site), cleanSite) || len(payload.Devices) == 0 {
+		return AuthorizedDevice{}, fmt.Errorf("site inventory is inconsistent or contains no devices")
+	}
 
-	for _, d := range payload.Devices {
-		id := d.ID
+	aliases := make(map[string]int, len(payload.Devices)*2)
+	var matched *domain.Device
+	for deviceIndex, d := range payload.Devices {
+		id := strings.TrimSpace(d.ID)
+		name := strings.TrimSpace(d.Name)
 		if id == "" {
-			id = d.Name
+			id = name
 		}
-		if strings.EqualFold(id, cleanDevice) || strings.EqualFold(d.Name, cleanDevice) {
-			dev := AuthorizedDevice{
-				Site:         cleanSite,
-				DeviceID:     cleanDevice,
-				Name:         d.Name,
-				Vendor:       d.Vendor,
-				Family:       d.Family,
-				Model:        d.Model,
-				ManagementIP: d.Management.IPv4,
-				SSHPort:      22,
+		if !protocol.ValidSiteName(id) || !protocol.ValidSiteName(name) {
+			return AuthorizedDevice{}, fmt.Errorf("site inventory contains an invalid device identity")
+		}
+		for _, alias := range []string{id, name} {
+			key := strings.ToLower(alias)
+			if previous, exists := aliases[key]; exists && previous != deviceIndex {
+				return AuthorizedDevice{}, fmt.Errorf("site inventory contains duplicate device identities")
 			}
-			return validateAuthorizedDevice(dev)
+			aliases[key] = deviceIndex
 		}
+		if strings.EqualFold(id, cleanDevice) || strings.EqualFold(name, cleanDevice) {
+			if matched != nil {
+				return AuthorizedDevice{}, fmt.Errorf("site inventory contains ambiguous device identities")
+			}
+			device := d
+			matched = &device
+		}
+	}
+	if matched != nil {
+		dev := AuthorizedDevice{
+			Site:         cleanSite,
+			DeviceID:     cleanDevice,
+			Name:         strings.TrimSpace(matched.Name),
+			Vendor:       matched.Vendor,
+			Family:       matched.Family,
+			Model:        matched.Model,
+			ManagementIP: matched.Management.IPv4,
+			SSHPort:      22,
+		}
+		return validateAuthorizedDevice(dev)
 	}
 	return AuthorizedDevice{}, fmt.Errorf("%w: %s/%s", ErrTargetNotFound, cleanSite, cleanDevice)
 }
@@ -173,7 +197,7 @@ func validateAuthorizedDevice(dev AuthorizedDevice) (AuthorizedDevice, error) {
 		return AuthorizedDevice{}, fmt.Errorf("%w: expected cisco, got %q", ErrTargetVendorUnsupported, dev.Vendor)
 	}
 	ip := net.ParseIP(dev.ManagementIP)
-	if ip == nil || ip.To4() == nil {
+	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) {
 		return AuthorizedDevice{}, fmt.Errorf("%w: %q", ErrTargetInvalidManagementIP, dev.ManagementIP)
 	}
 	if dev.SSHPort == 0 {
