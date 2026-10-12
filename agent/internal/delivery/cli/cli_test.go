@@ -239,6 +239,52 @@ func TestTUIRejectsMissingCredentialsAndInvalidEndpoint(t *testing.T) {
 	}
 }
 
+func TestTUIConfigValidation(t *testing.T) {
+	t.Setenv("INFRAFLOW_TUI_PASSWORD", "secret-password")
+
+	// 1. Missing config file -> rejected with code 2
+	var stdout, stderr bytes.Buffer
+	nonexistentPath := filepath.Join(t.TempDir(), "nonexistent-agent.yaml")
+	code := Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for nonexistent config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "secret-password") {
+		t.Fatalf("stderr leaked secret password: %q", stderr.String())
+	}
+
+	// 2. Malformed config file -> rejected with code 2
+	invalidConfigFile := filepath.Join(t.TempDir(), "invalid-agent.yaml")
+	if err := os.WriteFile(invalidConfigFile, []byte("agent: [invalid yaml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", invalidConfigFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for invalid yaml, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+
+	// 3. Incomplete agent config missing required fields -> rejected with code 2
+	incompleteConfigFile := filepath.Join(t.TempDir(), "incomplete-agent.yaml")
+	if err := os.WriteFile(incompleteConfigFile, []byte("agent:\n  id: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", incompleteConfigFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for incomplete agent config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+}
+
 func TestInterfaceAddressValidation(t *testing.T) {
 	if !interfaceHasIPv4Address("lo", net.ParseIP("127.0.0.1")) {
 		t.Fatal("loopback IP was not found on the loopback interface")

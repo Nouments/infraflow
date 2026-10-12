@@ -565,18 +565,21 @@ func runTUI(arguments []string, stdout, stderr io.Writer) int {
 	}
 	var agentInfo tui.AgentInfo
 	if *configPath != "" {
-		if cfg, err := config.Load(*configPath); err == nil {
-			agentInfo = tui.AgentInfo{
-				ID:              cfg.Agent.ID,
-				SiteID:          cfg.Agent.SiteID,
-				Capabilities:    cfg.Agent.Capabilities,
-				StateDirectory:  cfg.Agent.StateDirectory,
-				Configured:      true,
-				ConfigFile:      *configPath,
-				ProviderAddress: cfg.Provider.Address,
-				APIAddress:      cfg.Provider.APIAddress,
-				LogDirectory:    cfg.Logging.Directory,
-			}
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: load config %q: %v\n", *configPath, observability.Redact(err.Error()))
+			return 2
+		}
+		agentInfo = tui.AgentInfo{
+			ID:              cfg.Agent.ID,
+			SiteID:          cfg.Agent.SiteID,
+			Capabilities:    cfg.Agent.Capabilities,
+			StateDirectory:  cfg.Agent.StateDirectory,
+			Configured:      true,
+			ConfigFile:      *configPath,
+			ProviderAddress: cfg.Provider.Address,
+			APIAddress:      cfg.Provider.APIAddress,
+			LogDirectory:    cfg.Logging.Directory,
 		}
 	} else if os.Getenv("INFRAFLOW_AGENT_ID") != "" {
 		agentInfo = tui.AgentInfo{

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -598,9 +600,13 @@ func (instance model) dashboardView(width int) []string {
 
 	statusText := successStyle.Render("● Opérationnel")
 	if instance.loadError != "" {
-		statusText = failedStyle.Render("● Dégradé (Erreur Provider)")
+		if !instance.lastRefresh.IsZero() {
+			statusText = failedStyle.Render("● Dégradé (Provider indisponible, données mémoire de session)")
+		} else {
+			statusText = failedStyle.Render("● Dégradé (Provider indisponible)")
+		}
 	} else if instance.lastRefresh.IsZero() {
-		statusText = queuedStyle.Render("● En attente")
+		statusText = queuedStyle.Render("● Initialisation")
 	}
 
 	lines = append(lines, fmt.Sprintf("  %s %s  │  %s %s  │  %s",
@@ -609,7 +615,7 @@ func (instance model) dashboardView(width int) []string {
 		statusText))
 
 	// Refresh & Session info
-	refreshStr := "En attente"
+	refreshStr := "Aucune synchronisation"
 	if !instance.lastRefresh.IsZero() {
 		refreshStr = instance.lastRefresh.Local().Format("15:04:05")
 	}
@@ -621,14 +627,17 @@ func (instance model) dashboardView(width int) []string {
 	lines = append(lines, fmt.Sprintf("  %s %s (%s)  │  %s %s  │  %s %s",
 		labelStyle.Render("User:"), valueStyle.Render(instance.user.Username), quietStyle.Render(instance.user.Role),
 		labelStyle.Render("Session:"), quietStyle.Render(sessionExp),
-		labelStyle.Render("Refresh:"), quietStyle.Render(refreshStr)))
+		labelStyle.Render("Dernière synchro:"), quietStyle.Render(refreshStr)))
 	lines = append(lines, "")
 
 	// Section 1: Processus Agent & Hôte local
 	lines = append(lines, sectionStyle.Render("Local Agent Runtime"))
 	lines = append(lines, fmt.Sprintf("  %-22s %s",
-		labelStyle.Render("Process:"),
+		labelStyle.Render("TUI Process:"),
 		valueStyle.Render(fmt.Sprintf("Actif (PID %d)", os.Getpid()))))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Agent Daemon:"),
+		quietStyle.Render("Non vérifié (aucun mécanisme de supervision locale)")))
 	lines = append(lines, fmt.Sprintf("  %-22s %s",
 		labelStyle.Render("Runtime:"),
 		quietStyle.Render(fmt.Sprintf("%s on %s/%s", runtime.Version(), runtime.GOOS, runtime.GOARCH))))
@@ -654,7 +663,13 @@ func (instance model) dashboardView(width int) []string {
 
 	syncState := successStyle.Render("Synchronisé")
 	if instance.loadError != "" {
-		syncState = queuedStyle.Render("Données en cache")
+		if !instance.lastRefresh.IsZero() {
+			syncState = queuedStyle.Render("Données en mémoire de session (non persistées sur disque)")
+		} else {
+			syncState = failedStyle.Render("Indisponible (aucune donnée reçue)")
+		}
+	} else if instance.lastRefresh.IsZero() {
+		syncState = queuedStyle.Render("Initialisation…")
 	}
 
 	lines = append(lines, fmt.Sprintf("  %-22s %s",
@@ -680,7 +695,7 @@ func (instance model) dashboardView(width int) []string {
 		instance.toolRunnerSummary()))
 	lines = append(lines, fmt.Sprintf("  %-22s %s",
 		labelStyle.Render("Bootstrap:"),
-		quietStyle.Render("Commandes dédiées (inactif par défaut, pas de DNS)")))
+		quietStyle.Render("Non démarré (commandes distinctes: dhcp, tftp, http — pas de DNS)")))
 	lines = append(lines, "")
 
 	// Section 4: Métriques Provider State
@@ -706,7 +721,7 @@ func (instance model) dashboardView(width int) []string {
 
 func (instance model) providerConnectionBadge() string {
 	if instance.loadError != "" {
-		return failedStyle.Render("Déconnecté")
+		return failedStyle.Render("Indisponible")
 	}
 	if instance.lastRefresh.IsZero() {
 		return queuedStyle.Render("Initialisation…")
@@ -714,22 +729,237 @@ func (instance model) providerConnectionBadge() string {
 	return successStyle.Render("Connecté")
 }
 
-func (instance model) artifactStoreSummary() string {
-	if instance.agentInfo.StateDirectory != "" {
-		return successStyle.Render("Configuré") + " " + quietStyle.Render("("+instance.agentInfo.StateDirectory+"/artifacts)")
+// ─── Local Components Inspection Helpers ─────────────────────────────────────
+
+type artifactStoreInspection struct {
+	status    string
+	path      string
+	detail    string
+	integrity string
+}
+
+func inspectArtifactStore(stateDir string) artifactStoreInspection {
+	if strings.TrimSpace(stateDir) == "" {
+		return artifactStoreInspection{
+			status:    "Non configuré",
+			path:      "Non configuré",
+			detail:    "Aucun répertoire configuré",
+			integrity: "Non vérifiée (chemin non configuré)",
+		}
 	}
-	return quietStyle.Render("Non configuré (aucun agent.yaml chargé)")
+	info, err := os.Stat(stateDir)
+	if os.IsNotExist(err) {
+		return artifactStoreInspection{
+			status:    "Absent",
+			path:      stateDir,
+			detail:    "Répertoire introuvable sur le disque",
+			integrity: "Non vérifiée (répertoire absent)",
+		}
+	}
+	if err != nil {
+		return artifactStoreInspection{
+			status:    "Inaccessible",
+			path:      stateDir,
+			detail:    fmt.Sprintf("Erreur d'accès: %v", err),
+			integrity: "Non vérifiée (accès refusé)",
+		}
+	}
+	if !info.IsDir() {
+		return artifactStoreInspection{
+			status:    "Dégradé",
+			path:      stateDir,
+			detail:    "Le chemin configuré n'est pas un répertoire",
+			integrity: "Non vérifiée (chemin invalide)",
+		}
+	}
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return artifactStoreInspection{
+			status:    "Inaccessible",
+			path:      stateDir,
+			detail:    fmt.Sprintf("Lecture impossible: %v", err),
+			integrity: "Non vérifiée (lecture impossible)",
+		}
+	}
+	count := len(entries)
+	var detail string
+	if count == 0 {
+		detail = "Accessible (0 entrée)"
+	} else if count == 1 {
+		detail = "Accessible (1 entrée)"
+	} else {
+		detail = fmt.Sprintf("Accessible (%d entrées)", count)
+	}
+	return artifactStoreInspection{
+		status:    "Opérationnel",
+		path:      stateDir,
+		detail:    detail,
+		integrity: "Non auditée par le TUI (intégrité SHA256 validée par l'agent lors des réceptions gRPC)",
+	}
+}
+
+type logOutboxInspection struct {
+	status string
+	path   string
+	detail string
+}
+
+func inspectLogOutbox(logDir string) logOutboxInspection {
+	if strings.TrimSpace(logDir) == "" {
+		return logOutboxInspection{
+			status: "Non configuré",
+			path:   "Non configuré",
+			detail: "Répertoire de logs non configuré",
+		}
+	}
+	outboxPath := filepath.Join(logDir, "pending-events.json")
+	info, err := os.Stat(outboxPath)
+	if os.IsNotExist(err) {
+		return logOutboxInspection{
+			status: "Absent",
+			path:   outboxPath,
+			detail: "Fichier absent (aucun événement en attente)",
+		}
+	}
+	if err != nil {
+		return logOutboxInspection{
+			status: "Inaccessible",
+			path:   outboxPath,
+			detail: fmt.Sprintf("Erreur d'accès: %v", err),
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return logOutboxInspection{
+			status: "Dégradé",
+			path:   outboxPath,
+			detail: "Le chemin n'est pas un fichier régulier",
+		}
+	}
+	if info.Size() == 0 {
+		return logOutboxInspection{
+			status: "Opérationnel",
+			path:   outboxPath,
+			detail: "Fichier présent (vide, 0 événement en attente)",
+		}
+	}
+	data, err := os.ReadFile(outboxPath)
+	if err != nil {
+		return logOutboxInspection{
+			status: "Inaccessible",
+			path:   outboxPath,
+			detail: fmt.Sprintf("Lecture impossible: %v", err),
+		}
+	}
+	var events []json.RawMessage
+	if err := json.Unmarshal(data, &events); err != nil {
+		return logOutboxInspection{
+			status: "Dégradé",
+			path:   outboxPath,
+			detail: fmt.Sprintf("Format JSON invalide (%d octets)", info.Size()),
+		}
+	}
+	return logOutboxInspection{
+		status: "Opérationnel",
+		path:   outboxPath,
+		detail: fmt.Sprintf("%d événement(s) en attente (%d octets)", len(events), info.Size()),
+	}
+}
+
+type toolRunnerInspection struct {
+	status    string
+	detail    string
+	ansible   string
+	terraform string
+}
+
+func inspectToolRunner() toolRunnerInspection {
+	ansiblePath, ansibleErr := exec.LookPath("ansible-playbook")
+	terraformPath, terraformErr := exec.LookPath("terraform")
+
+	ansibleFound := ansibleErr == nil
+	terraformFound := terraformErr == nil
+
+	ansibleDesc := "Introuvable dans PATH"
+	if ansibleFound {
+		ansibleDesc = ansiblePath
+	}
+	terraformDesc := "Introuvable dans PATH"
+	if terraformFound {
+		terraformDesc = terraformPath
+	}
+
+	if ansibleFound && terraformFound {
+		return toolRunnerInspection{
+			status:    "Opérationnel",
+			detail:    "ansible-playbook et terraform détectés",
+			ansible:   ansibleDesc,
+			terraform: terraformDesc,
+		}
+	}
+	if ansibleFound || terraformFound {
+		missing := "ansible-playbook"
+		if !terraformFound {
+			missing = "terraform"
+		}
+		return toolRunnerInspection{
+			status:    "Dégradé",
+			detail:    fmt.Sprintf("Exécutable manquant: %s", missing),
+			ansible:   ansibleDesc,
+			terraform: terraformDesc,
+		}
+	}
+	return toolRunnerInspection{
+		status:    "Absent",
+		detail:    "ansible-playbook et terraform introuvables dans PATH",
+		ansible:   ansibleDesc,
+		terraform: terraformDesc,
+	}
+}
+
+func (instance model) artifactStoreSummary() string {
+	inspection := inspectArtifactStore(instance.agentInfo.StateDirectory)
+	switch inspection.status {
+	case "Opérationnel":
+		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Absent":
+		return quietStyle.Render("Absent") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Inaccessible":
+		return failedStyle.Render("Inaccessible") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Dégradé":
+		return queuedStyle.Render("Dégradé") + " " + quietStyle.Render("("+inspection.detail+")")
+	default:
+		return quietStyle.Render("Non configuré")
+	}
 }
 
 func (instance model) logOutboxSummary() string {
-	if instance.agentInfo.LogDirectory != "" {
-		return successStyle.Render("Actif") + " " + quietStyle.Render("("+instance.agentInfo.LogDirectory+"/pending-events.json)")
+	inspection := inspectLogOutbox(instance.agentInfo.LogDirectory)
+	switch inspection.status {
+	case "Opérationnel":
+		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Absent":
+		return quietStyle.Render("Absent") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Inaccessible":
+		return failedStyle.Render("Inaccessible") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Dégradé":
+		return queuedStyle.Render("Dégradé") + " " + quietStyle.Render("("+inspection.detail+")")
+	default:
+		return quietStyle.Render("Non configuré")
 	}
-	return quietStyle.Render("Inactif (chemin local non configuré)")
 }
 
 func (instance model) toolRunnerSummary() string {
-	return successStyle.Render("Prêt") + " " + quietStyle.Render("(Ansible & Terraform runners disponibles)")
+	inspection := inspectToolRunner()
+	switch inspection.status {
+	case "Opérationnel":
+		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Dégradé":
+		return queuedStyle.Render("Dégradé") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Absent":
+		return quietStyle.Render("Absent") + " " + quietStyle.Render("("+inspection.detail+")")
+	default:
+		return quietStyle.Render("Inconnu")
+	}
 }
 
 // ─── Local Services Detail View ────────────────────────────────────────────────
@@ -741,42 +971,77 @@ func (instance model) servicesListView(width int) []string {
 	lines = append(lines, "")
 
 	// 1. Artifacts Repository
-	lines = append(lines, sectionStyle.Render("  1. Artifact Repository & Verification"))
-	if instance.agentInfo.StateDirectory != "" {
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Path:"), valueStyle.Render(instance.agentInfo.StateDirectory+"/artifacts")))
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Opérationnel")))
-	} else {
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Path:"), quietStyle.Render("Non configuré")))
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), quietStyle.Render("Inactif (fournir -config <agent.yaml>)")))
+	artifactInsp := inspectArtifactStore(instance.agentInfo.StateDirectory)
+	var artStatusBadge string
+	switch artifactInsp.status {
+	case "Opérationnel":
+		artStatusBadge = successStyle.Render("Opérationnel")
+	case "Absent":
+		artStatusBadge = quietStyle.Render("Absent")
+	case "Inaccessible":
+		artStatusBadge = failedStyle.Render("Inaccessible")
+	case "Dégradé":
+		artStatusBadge = queuedStyle.Render("Dégradé")
+	default:
+		artStatusBadge = quietStyle.Render("Non configuré")
 	}
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Integrity:"), quietStyle.Render("Vérification stricte SHA256 des flux gRPC")))
+	lines = append(lines, sectionStyle.Render("  1. Artifact Repository & Verification"))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Path:"), valueStyle.Render(artifactInsp.path)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), artStatusBadge))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Storage:"), quietStyle.Render(artifactInsp.detail)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Integrity:"), quietStyle.Render(artifactInsp.integrity)))
 	lines = append(lines, "")
 
 	// 2. Log Outbox
-	lines = append(lines, sectionStyle.Render("  2. Local Log Outbox"))
-	if instance.agentInfo.LogDirectory != "" {
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Buffer:"), valueStyle.Render(instance.agentInfo.LogDirectory+"/pending-events.json")))
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Buffer prêt")))
-	} else {
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Buffer:"), quietStyle.Render("Non configuré")))
-		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), quietStyle.Render("En attente de configuration")))
+	outboxInsp := inspectLogOutbox(instance.agentInfo.LogDirectory)
+	var outboxStatusBadge string
+	switch outboxInsp.status {
+	case "Opérationnel":
+		outboxStatusBadge = successStyle.Render("Opérationnel")
+	case "Absent":
+		outboxStatusBadge = quietStyle.Render("Absent")
+	case "Inaccessible":
+		outboxStatusBadge = failedStyle.Render("Inaccessible")
+	case "Dégradé":
+		outboxStatusBadge = queuedStyle.Render("Dégradé")
+	default:
+		outboxStatusBadge = quietStyle.Render("Non configuré")
 	}
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Sync:"), quietStyle.Render("Transmission asynchrone sécurisée vers le Provider")))
+	lines = append(lines, sectionStyle.Render("  2. Local Log Outbox"))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Buffer:"), valueStyle.Render(outboxInsp.path)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), outboxStatusBadge))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Detail:"), quietStyle.Render(outboxInsp.detail)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Sync:"), quietStyle.Render("Transmission asynchrone sécurisée vers le Provider lors des exécutions agent")))
 	lines = append(lines, "")
 
 	// 3. Process Runner
+	toolInsp := inspectToolRunner()
+	var toolStatusBadge string
+	switch toolInsp.status {
+	case "Opérationnel":
+		toolStatusBadge = successStyle.Render("Opérationnel")
+	case "Dégradé":
+		toolStatusBadge = queuedStyle.Render("Dégradé")
+	case "Absent":
+		toolStatusBadge = quietStyle.Render("Absent")
+	default:
+		toolStatusBadge = quietStyle.Render("Inconnu")
+	}
 	lines = append(lines, sectionStyle.Render("  3. Process Execution (Tool Runner)"))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Engines:"), valueStyle.Render("Ansible process runner, Terraform validator")))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture des flux standard")))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Prêt pour exécution ordonnancée")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), toolStatusBadge))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Ansible:"), quietStyle.Render(toolInsp.ansible)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Terraform:"), quietStyle.Render(toolInsp.terraform)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Detail:"), quietStyle.Render(toolInsp.detail)))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture sécurisée des flux standard")))
 	lines = append(lines, "")
 
 	// 4. Bootstrap Services
 	lines = append(lines, sectionStyle.Render("  4. Network Bootstrap Services"))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DHCPv4:"), quietStyle.Render("Commande 'serve-dhcp' (non démarré par défaut)")))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("TFTP:"), quietStyle.Render("Commande 'serve-tftp' (lecture seule, non démarré par défaut)")))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("HTTP:"), quietStyle.Render("Commande 'serve-bootstrap' (non démarré par défaut)")))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DNS:"), queuedStyle.Render("Aucun service DNS n'est implémenté par l'agent")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), quietStyle.Render("Non démarré (commandes distinctes)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DHCPv4:"), quietStyle.Render("Disponible via commande 'serve-dhcp' (non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("TFTP:"), quietStyle.Render("Disponible via commande 'serve-tftp' (lecture seule, non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("HTTP:"), quietStyle.Render("Disponible via commande 'serve-bootstrap' (non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DNS:"), queuedStyle.Render("Absent (aucun service DNS implémenté dans l'agent)")))
 	lines = append(lines, "")
 
 	// 5. Operational Safety

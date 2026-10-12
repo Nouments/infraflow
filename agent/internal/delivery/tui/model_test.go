@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -573,8 +575,11 @@ func TestAgentInfoRenderingConfigured(t *testing.T) {
 	if !strings.Contains(output, "Local Agent Runtime") {
 		t.Fatal("overview must contain Local Agent Runtime section")
 	}
-	if !strings.Contains(output, "PID") {
-		t.Fatal("overview must display local process PID")
+	if !strings.Contains(output, "TUI Process") || !strings.Contains(output, "PID") {
+		t.Fatal("overview must display local process PID under TUI Process")
+	}
+	if !strings.Contains(output, "Agent Daemon") || !strings.Contains(output, "Non vérifié") {
+		t.Fatal("overview must display unverified agent daemon state")
 	}
 }
 
@@ -637,11 +642,14 @@ func TestOfflineResilienceAndCachedData(t *testing.T) {
 	if !strings.Contains(output, "Dégradé") {
 		t.Fatal("offline view must indicate degraded state")
 	}
-	if !strings.Contains(output, "Données en cache") {
-		t.Fatal("offline view must indicate cached data")
+	if !strings.Contains(output, "Données en mémoire de session") {
+		t.Fatal("offline view must clarify session memory data")
 	}
 	if !strings.Contains(output, "Planning jobs") {
 		t.Fatal("cached job data must remain visible during disconnect")
+	}
+	if !strings.Contains(output, "Dernière synchro:") || !strings.Contains(output, m.lastRefresh.Local().Format("15:04:05")) {
+		t.Fatal("offline view must display last successful refresh timestamp")
 	}
 
 	// TUI must remain navigable even with load error
@@ -711,5 +719,190 @@ func TestNewNavigationShortcuts(t *testing.T) {
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 	if updated.(model).view != homeView {
 		t.Fatalf("expected home view, got %q", updated.(model).view)
+	}
+}
+
+func TestArtifactStoreInspectionScenarios(t *testing.T) {
+	// 1. Unconfigured
+	unconf := inspectArtifactStore("")
+	if unconf.status != "Non configuré" {
+		t.Fatalf("expected 'Non configuré', got %q", unconf.status)
+	}
+	if !strings.Contains(unconf.integrity, "Non vérifiée") {
+		t.Fatalf("unconfigured integrity must be unverified: %q", unconf.integrity)
+	}
+
+	// 2. Absent directory
+	absentDir := filepath.Join(t.TempDir(), "nonexistent-dir")
+	abs := inspectArtifactStore(absentDir)
+	if abs.status != "Absent" {
+		t.Fatalf("expected 'Absent', got %q", abs.status)
+	}
+	if !strings.Contains(abs.integrity, "Non vérifiée") {
+		t.Fatalf("absent integrity must be unverified: %q", abs.integrity)
+	}
+
+	// 3. Operational empty
+	emptyDir := t.TempDir()
+	opEmpty := inspectArtifactStore(emptyDir)
+	if opEmpty.status != "Opérationnel" || !strings.Contains(opEmpty.detail, "0 entrée") {
+		t.Fatalf("expected operational empty directory, got %#v", opEmpty)
+	}
+	if !strings.Contains(opEmpty.integrity, "Non auditée par le TUI") {
+		t.Fatalf("operational integrity must clarify TUI does not re-audit hash: %q", opEmpty.integrity)
+	}
+
+	// 4. Operational with entries
+	if err := os.WriteFile(filepath.Join(emptyDir, "file1.txt"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(emptyDir, "file2.txt"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opPop := inspectArtifactStore(emptyDir)
+	if opPop.status != "Opérationnel" || !strings.Contains(opPop.detail, "2 entrées") {
+		t.Fatalf("expected operational with 2 entries, got %#v", opPop)
+	}
+
+	// 5. Inaccessible (non-readable) directory
+	if os.Geteuid() != 0 {
+		noReadDir := filepath.Join(t.TempDir(), "locked")
+		if err := os.Mkdir(noReadDir, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(noReadDir, 0o700) })
+		inaccessible := inspectArtifactStore(noReadDir)
+		if inaccessible.status != "Inaccessible" {
+			t.Fatalf("expected 'Inaccessible' for locked directory, got %q", inaccessible.status)
+		}
+	}
+}
+
+func TestLogOutboxInspectionScenarios(t *testing.T) {
+	// 1. Unconfigured
+	unconf := inspectLogOutbox("")
+	if unconf.status != "Non configuré" {
+		t.Fatalf("expected 'Non configuré', got %q", unconf.status)
+	}
+
+	// 2. Absent outbox file
+	logDir := t.TempDir()
+	abs := inspectLogOutbox(logDir)
+	if abs.status != "Absent" {
+		t.Fatalf("expected 'Absent', got %q", abs.status)
+	}
+
+	// 3. Empty outbox file
+	outboxPath := filepath.Join(logDir, "pending-events.json")
+	if err := os.WriteFile(outboxPath, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	empty := inspectLogOutbox(logDir)
+	if empty.status != "Opérationnel" || !strings.Contains(empty.detail, "vide") {
+		t.Fatalf("expected operational empty file, got %#v", empty)
+	}
+
+	// 4. Populated outbox file with valid JSON
+	eventsJSON := `[{"event":"agent.test","level":"INFO"},{"event":"agent.metric","level":"DEBUG"}]`
+	if err := os.WriteFile(outboxPath, []byte(eventsJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	populated := inspectLogOutbox(logDir)
+	if populated.status != "Opérationnel" || !strings.Contains(populated.detail, "2 événement(s)") {
+		t.Fatalf("expected operational with 2 events, got %#v", populated)
+	}
+
+	// 5. Corrupted JSON file
+	if err := os.WriteFile(outboxPath, []byte("invalid-json-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := inspectLogOutbox(logDir)
+	if corrupt.status != "Dégradé" || !strings.Contains(corrupt.detail, "Format JSON invalide") {
+		t.Fatalf("expected degraded for corrupt JSON, got %#v", corrupt)
+	}
+
+	// 6. Inaccessible file
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(outboxPath, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(outboxPath, 0o600) })
+		inaccessible := inspectLogOutbox(logDir)
+		if inaccessible.status != "Inaccessible" {
+			t.Fatalf("expected 'Inaccessible', got %q", inaccessible.status)
+		}
+	}
+}
+
+func TestToolRunnerInspectionScenarios(t *testing.T) {
+	// 1. Isolated empty PATH -> Absent
+	emptyBinDir := t.TempDir()
+	t.Setenv("PATH", emptyBinDir)
+	abs := inspectToolRunner()
+	if abs.status != "Absent" {
+		t.Fatalf("expected Absent with empty PATH, got %q", abs.status)
+	}
+	if !strings.Contains(abs.detail, "introuvables dans PATH") {
+		t.Fatalf("expected missing tools detail, got %q", abs.detail)
+	}
+
+	// 2. Only ansible-playbook present -> Dégradé
+	ansibleBin := filepath.Join(emptyBinDir, "ansible-playbook")
+	if err := os.WriteFile(ansibleBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deg := inspectToolRunner()
+	if deg.status != "Dégradé" {
+		t.Fatalf("expected Dégradé with only ansible, got %q", deg.status)
+	}
+	if !strings.Contains(deg.detail, "terraform") {
+		t.Fatalf("expected missing terraform detail, got %q", deg.detail)
+	}
+
+	// 3. Both ansible-playbook and terraform present -> Opérationnel
+	terraformBin := filepath.Join(emptyBinDir, "terraform")
+	if err := os.WriteFile(terraformBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	op := inspectToolRunner()
+	if op.status != "Opérationnel" {
+		t.Fatalf("expected Opérationnel with both tools, got %q", op.status)
+	}
+	if !strings.Contains(op.detail, "détectés") {
+		t.Fatalf("expected detected detail, got %q", op.detail)
+	}
+}
+
+func TestOfflineInitialVersusSubsequentConnection(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+
+	// Scenario A: Failure at startup (never connected)
+	initialModel := newModel(context.Background(), backend, adminUser(), testSession())
+	initialModel.width = 120
+	initialModel.height = 40
+	initialModel.loadError = "dial tcp 127.0.0.1:8080: connect: connection refused"
+	initialView := initialModel.View()
+
+	if !strings.Contains(initialView, "Indisponible (aucune donnée reçue)") {
+		t.Fatalf("initial offline overview must state no data received: %s", initialView)
+	}
+	if strings.Contains(initialView, "Données en mémoire") {
+		t.Fatalf("initial offline overview must not claim memory data exists when zero syncs occurred: %s", initialView)
+	}
+
+	// Scenario B: Failure after successful initial sync
+	syncedModel := newModel(context.Background(), backend, adminUser(), testSession())
+	syncedModel.width = 120
+	syncedModel.height = 40
+	syncedModel.jobs = []providerhttp.JobSummary{{ID: "job-1", Status: "completed"}}
+	syncedModel.lastRefresh = time.Now().Add(-2 * time.Minute)
+	syncedModel.loadError = "Provider unreachable: context deadline exceeded"
+	syncedView := syncedModel.View()
+
+	if !strings.Contains(syncedView, "Données en mémoire de session (non persistées sur disque)") {
+		t.Fatalf("subsequent offline overview must state session memory data: %s", syncedView)
+	}
+	if !strings.Contains(syncedView, "Dernière synchro:") || !strings.Contains(syncedView, syncedModel.lastRefresh.Local().Format("15:04:05")) {
+		t.Fatalf("subsequent offline overview must show last refresh timestamp: %s", syncedView)
 	}
 }
