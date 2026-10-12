@@ -9,11 +9,11 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
 - Provider validation and deterministic planning are separate from generation and execution. Creating or retrying a job does not provision infrastructure.
 - Planning jobs are persisted as private JSON records; the authenticated API supports list, read, cancel, and retry within the implemented status rules.
 - A separate execution aggregate persists queued/running/succeeded/failed/cancelled/timed_out state, tasks, attempts, outputs, errors, actors, and transition history. It uses a typed executor port and the existing scheduler.
-- Admin HTTP routes submit with idempotency, list with filters/pagination, read attempts/results/events, and request cancellation. The Provider registers a single operational executor, `artifact.verify`, which performs read-only SHA-256 integrity verification of catalog-published provider artifacts; all unregistered or unsupported task types are rejected instead of reporting a false success.
-- Artifact generation publishes deterministic, hash-verified catalog entries. The `artifact.verify` task executor can cryptographically audit catalog artifacts in place without modifying files; deployment task execution on network devices (Cisco, MikroTik, FortiGate, Proxmox) is not implemented or validated.
+- Admin HTTP routes submit with idempotency, list with filters/pagination, read attempts/results/events, and request cancellation. The Provider registers two operational executors, `artifact.verify` (read-only SHA-256 integrity verification of catalog-published provider artifacts) and `cisco.ios.configure` (verified Cisco IOS Ethernet interface and hostname configuration via SSH with running-config read-back verification); all unregistered or unsupported task types are rejected instead of reporting a false success.
+- Artifact generation publishes deterministic, hash-verified catalog entries. The `artifact.verify` task executor can cryptographically audit catalog artifacts in place without modifying files; `cisco.ios.configure` applies strictly typed configuration changes to authorized Cisco devices over SSH and verifies the resulting running-config without automatic startup-config persistence. Deployment task execution for other vendors (MikroTik, FortiGate, Proxmox) or complex network features (NAT, ACL, dynamic routing) is not implemented or validated.
 - The Agent downloads published artifacts, verifies the stream and content hashes, stores them locally, processes generic inventory/topology, and reports artifact-level outcomes.
 - The Agent has a local log outbox and can synchronize logs over the authenticated provider contract.
-- The scheduler implements dependency graphs, global concurrency, resource locks, cancellation, retries, and timeouts. Provider startup wires it to the persistent execution service with `artifact.verify` as its sole registered executor; no device or network deployment executor is registered.
+- The scheduler implements dependency graphs, global concurrency, resource locks, cancellation, retries, and timeouts. Provider startup wires it to the persistent execution service with `artifact.verify` and `cisco.ios.configure` as registered executors; other device or network deployment executors are rejected.
 - Bootstrap artifacts can be generated. Agent DHCPv4, read-only TFTP, and bootstrap HTTP servers are separate explicit commands; they are not started by the normal agent run. There is no DNS daemon.
 - Authenticated provider HTTP/gRPC APIs expose their existing planning, agent, event, and log records. The execution API is admin-only; administrators can inspect paginated execution lists, view task/attempt/error details, and request audited cancellation from both the web dashboard and the Linux TUI.
 - Verification evidence documented in this repository reflects automated unit and integration tests passing against simulated or local filesystem state; it is distinct from operational validation in a physical or virtual network lab, which remains a separate deployment gate.
@@ -103,33 +103,78 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
   - **Intégration dans la composition réelle du Provider** :
     - Enregistré dans `provider/internal/delivery/cli/cli.go` lors de l'initialisation de `application.NewExecutionService(..., []ports.ExecutionExecutor{artifactVerifier}, 4)`.
     - Le Provider accepte désormais les tâches `artifact.verify` et continue de rejeter tout type inconnu ou non enregistré (`ErrExecutionUnsupported`).
-- **Tests unitaires et d'intégration ajoutés** :
-  - `provider/internal/adapters/executors/artifact_verify_test.go` :
-    - `TestArtifactVerifyValidateParameters` : 20 scénarios couvrant les paramètres valides, invalides, incomplets, traversées, champs inconnus et JSON corrompu.
-    - `TestArtifactVerifyExecuteSuccess` : vérification réussie avec sortie structurée et preuve cryptographique.
-    - `TestArtifactVerifyExecuteNotFound` : échec explicite pour artefact absent du catalogue.
-    - `TestArtifactVerifyExecuteTamperedHashMismatch` : échec explicite en cas d'altération du contenu.
-    - `TestArtifactVerifyExecuteUnauthorizedArtifactSpecification` : rejet des spécifications hors catalogue officiel.
-    - `TestArtifactVerifyExecuteInvalidCatalogHashMetadata` : rejet des métadonnées de hash non conformes.
-    - `TestArtifactVerifyExecuteContextCancellation` : respect du contexte d'annulation et des délais.
-    - `TestArtifactVerifyRetryable` : non-rejouabilité des erreurs d'intégrité.
-    - `TestArtifactVerifyIntegrationWithRealGeneratorAndExecutionService` : test d'intégration complet avec le véritable générateur `generation.Generate`, le vrai stockage de fichiers, le vrai `ExecutionService` et détection d'altération réelle sur le disque.
-  - `provider/internal/delivery/httpapi/jobs_test.go` :
-    - `TestExecutionAPIRunsArtifactVerifyTaskSuccessfully` : soumission HTTP POST `/api/v1/executions` authentifiée admin, attente du scheduler, et vérification de la persistance via GET `/api/v1/executions/:id`.
-- **Vérifications et Tests exécutés** :
-  - `make fmt-check` : code 0, 100% conforme `gofmt`.
-  - `make vet` : code 0, aucune anomalie statique.
-  - `make test-agent` : code 0, tests agent préservés.
-  - `go test -count=1 ./provider/internal/adapters/executors` : 10 tests réussis (0 échec).
-  - `go test -count=1 ./...` : code 0, 100% de la suite de tests du dépôt passe sans cache.
-  - `make build` : code 0, compilation réussie de `bin/infraflow-provider` et `bin/infraflow-agent`.
+
+## Evidence from Task 3 (Premier exécuteur Cisco IOS réel via SSH)
+
+- **Implémentation de `cisco.ios.configure` (`provider/internal/adapters/executors/cisco_ios_configure.go`)** :
+  - Deuxième exécuteur opérationnel d'InfraFlow et premier adaptateur réseau réel implémentant `ports.ExecutionExecutor`.
+  - Portée volontairement et strictement bornée : configuration du nom d'hôte (`hostname`), d'une ou plusieurs interfaces Ethernet (`description`, `ipv4_cidr`, `admin_state` up/down), et relecture/vérification stricte de la configuration réellement appliquée (`running-config`).
+  - Aucune commande shell ni script arbitraire accepté en entrée ; seules des structures typées et validées sont traduites en commandes Cisco IOS CLI.
+  - **Contrat des paramètres JSON (`CiscoIOSConfigureParameters`)** :
+    - Format : `{"site": "<site>", "device_id": "<device>", "hostname": "<name>", "interfaces": [{"name": "<iface>", "description": "<desc>", "ipv4_cidr": "<ip/mask>", "admin_state": "up|down"}]}`.
+    - Rejet systématique des champs inconnus via `decoder.DisallowUnknownFields()`.
+    - Rejet des retours à la ligne (`\r`, `\n`) et caractères de contrôle dans les noms et descriptions.
+    - Validation stricte des noms d'interfaces Ethernet Cisco (GigabitEthernet, FastEthernet, Ethernet, etc.) avec canonisation automatique des préfixes courts (`Gi0/0` -> `GigabitEthernet0/0`).
+    - Validation stricte des adresses IPv4 CIDR (rejet d'IPv6, multicast, broadcast, loopback, 0.0.0.0).
+    - Rejet des interfaces dupliquées (insensible à la casse sur nom canonisé).
+    - Aucune adresse IP de destination arbitraire acceptée dans le payload de la tâche.
+  - **Résolution sécurisée de cible et d'identifiants** :
+    - Résolution de cible via `DeviceTargetResolver` (`ArtifactInventoryDeviceResolver`) inspectant la source de vérité `<site>/inventory.json` publiée par le catalogue du Provider. Tout équipement inconnu ou non-Cisco est rejeté.
+    - Résolution des identifiants via `DeviceCredentialResolver` (`EnvDeviceCredentialResolver`) à partir des variables d'environnement (`INFRAFLOW_DEVICE_<SITE>_<DEVICE>_SSH_USER`, `..._SSH_PASSWORD`, etc.) ou d'un magasin sécurisé injectable. Aucun secret dans le payload de la tâche.
+    - Épuration systématique de tout mot de passe, clé privée ou secret dans les messages d'erreurs, sorties et journaux (`sanitizeErrorWithCreds` et `observability.Redact`).
+  - **Transport SSH et politique de clé d'hôte** :
+    - Transport interactif borné (`SSHIOSTransport`) avec allocation de PTY VT100 et shell interactif pour gérer les invites IOS (`Router#`, `Router(config)#`, `Router(config-if)#`).
+    - Désactivation de la pagination (`terminal length 0`, `terminal width 0`).
+    - Politique de vérification de clé d'hôte stricte (`HostKeyVerifier`, `KnownHostsFileVerifier`, `FixedFingerprintVerifier`, `StaticPublicKeyVerifier`). Rejet de toute clé inconnue ou modifiée (`ErrHostKeyUnknown`, `ErrHostKeyMismatch`). Aucun recours à `InsecureIgnoreHostKey`.
+    - Détection réactive de l'annulation (`ctx.Done()`) et des délais d'expiration fermant immédiatement la session TCP/SSH sous-jacente.
+    - Détection des erreurs IOS explicites (`% Invalid input`, `% Incomplete command`, `% Bad IP address`, `% Configuration mode is locked`, etc.).
+  - **Relecture et vérification obligatoire (Read-back verification)** :
+    - Après application des commandes et sortie du mode configuration (`end`), l'exécuteur relit l'état actif via `show running-config | include ^hostname` et `show running-config interface <name>`.
+    - Comparaison stricte entre l'état observé et l'état demandé (nom d'hôte, description, IP, masque, statut administratif).
+    - La tâche n'est marquée `succeeded` **qu'après vérification positive intégrale**. Si une divergence est constatée, la tâche échoue avec un diagnostic explicite.
+  - **Politique de persistance** :
+    - Par défaut, aucune commande `write memory` ou `copy running-config startup-config` n'est exécutée.
+    - Un avertissement explicite est inclus dans le résultat : `"Configuration was applied to running-config and verified; startup-config was not persisted (write memory disabled by policy)"`.
+- **Intégration Provider** :
+  - Enregistré dans `provider/internal/delivery/cli/cli.go` aux côtés de `artifact.verify` dans `ExecutionService`.
+  - Les tâches `cisco.ios.configure` passent par le scheduler, la persistance `filesystem.ExecutionStore`, les tentatives et les audits existants.
+- **Validation GNS3 en laboratoire réel** :
+  - **NON EXÉCUTÉ** : Aucun équipement Cisco IOS physique ou virtuel n'est connecté au banc de test pendant cette session. Conformément à la règle de véracité d'InfraFlow, aucun résultat de laboratoire n'est simulé ou inventé.
+  - Procédure de validation complète et scénario de test non destructif rédigés dans `dev-lab/cisco-gns3-validation.md`.
+- **Tests unitaires et d'intégration exécutés** :
+  - `provider/internal/adapters/executors/cisco_ios_configure_test.go` : 17 tests couvrant 100% des cas requis :
+    - `TestCiscoIOSConfigureValidParameters` : validation et canonisation des paramètres conformes.
+    - `TestCiscoIOSConfigureUnknownFieldsAndInvalidJSON` : rejet des champs inconnus, trailing JSON, JSON malformé.
+    - `TestCiscoIOSConfigureInvalidIPv4` : rejet de préfixes invalides, IPv6, multicast, broadcast, loopback.
+    - `TestCiscoIOSConfigureDuplicateOrMalformedInterfaces` : rejet des doublons et des noms malformés.
+    - `TestCiscoIOSConfigureInvalidDescription` : rejet des caractères de contrôle et retours à la ligne.
+    - `TestCiscoIOSConfigureUnknownTarget` : rejet des équipements non déclarés comme cibles autorisées.
+    - `TestCiscoIOSConfigureCredentialsUnavailable` : échec sécurisé si les identifiants ne sont pas configurés.
+    - `TestCiscoIOSConfigureSSHAuthFailure` : traitement de l'échec d'authentification SSH.
+    - `TestHostKeyVerificationRules` : rejet d'une clé d'hôte inconnue ou altérée.
+    - `TestCiscoIOSConfigureCancellationAndTimeout` : respect immédiat de l'annulation de contexte.
+    - `TestCiscoIOSConfigureExplicitIOSError` : détection des erreurs syntaxiques ou logiques IOS.
+    - `TestCiscoIOSConfigureConnectionInterrupted` : gestion de la réinitialisation de connexion TCP.
+    - `TestCiscoIOSConfigurePartialResultDetection` : comptabilisation exacte des commandes appliquées avant échec.
+    - `TestCiscoIOSConfigureVerificationMismatch` : échec explicite en cas de divergence lors de la relecture.
+    - `TestCiscoIOSConfigureVerifiedSuccess` : succès conditionné par la vérification positive.
+    - `TestCiscoIOSConfigureNoSecretsInErrorsOrLogs` : garantie d'absence totale de secrets dans les erreurs et sorties.
+    - `TestCiscoIOSConfigureIntegrationWithExecutionService` : soumission, planification, exécution, audit et persistance complètes via `ExecutionService`, avec coexistence éprouvée de `artifact.verify` et rejet des types non enregistrés.
+  - `provider/internal/infrastructure/credentials/device_test.go` : tests de résolution statique et via environnement.
+- **Vérifications réelles** :
+  - `make fmt-check` : code 0.
+  - `make vet` : code 0.
+  - `go test -count=1 ./provider/internal/adapters/executors` : 17 tests réussis (0 échec).
+  - `go test -count=1 ./...` : code 0 sur 100% des packages du dépôt.
+  - `make build` : code 0 (`bin/infraflow-provider` et `bin/infraflow-agent`).
 
 ## Remaining work
 
-- Implement device-specific task executors (Cisco, FortiGate, MikroTik, Proxmox) only after defining their parameter schemas, privilege boundaries, and real lab verification evidence.
-- Implement or explicitly defer a DNS service and other unimplemented bootstrap services.
-- Run the final full test suite and binary builds in the separate final campaign. Docker and GNS3 validation remain separate deployment gates.
+- Valider l'exécuteur `cisco.ios.configure` sur un routeur Cisco IOS réel ou virtuel dans un banc d'essai GNS3 / EVE-NG selon la procédure définie dans `dev-lab/cisco-gns3-validation.md`.
+- Implémenter ultérieurement une tâche explicite de persistance de configuration (`cisco.ios.save` / `write memory`).
+- Implémenter les autres adaptateurs d'équipements réseau (FortiGate, MikroTik, Proxmox) uniquement après définition de leurs schémas stricts et preuves d'exécution.
+- Implémenter ou différer explicitement le service DNS.
 
 ## Next implementation task
 
-Define and authorize the first device-specific task executor adapter with strict privilege isolation, parameter validation, and acceptance evidence in a controlled lab environment. Do not register vendor executors without real lab verification.
+Exécuter la procédure de validation GNS3 sur un équipement Cisco IOS de laboratoire réel et consigner les preuves d'état observé (sorties de terminal réelles) sans simulation.

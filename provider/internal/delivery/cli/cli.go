@@ -406,7 +406,35 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize artifact verifier: %v\n", err)
 		return 2
 	}
-	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier}, 4)
+
+	targetResolver := executors.NewArtifactInventoryDeviceResolver(settings.ArtifactDirectory)
+	credentialResolver := credentialstore.NewEnvDeviceCredentialResolver()
+	knownHostsPath := settings.KnownHostsFile
+	if knownHostsPath == "" {
+		knownHostsPath = filepath.Join(settings.ArtifactDirectory, ".ssh_known_hosts")
+	}
+	if _, statErr := os.Stat(knownHostsPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			_ = os.WriteFile(knownHostsPath, []byte("# InfraFlow SSH known_hosts\n"), 0o600)
+		}
+	}
+	hostKeyVerifier, err := executors.NewKnownHostsFileVerifier(knownHostsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize host key verifier: %v\n", err)
+		return 2
+	}
+	sshTransport, err := executors.NewSSHIOSTransport(hostKeyVerifier, 10*time.Second, 15*time.Second)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize ssh transport: %v\n", err)
+		return 2
+	}
+	ciscoExecutor, err := executors.NewCiscoIOSConfigureExecutor(targetResolver, credentialResolver, sshTransport)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize cisco ios configure executor: %v\n", err)
+		return 2
+	}
+
+	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier, ciscoExecutor}, 4)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize execution service: %v\n", err)
 		return 2

@@ -31,13 +31,14 @@ The provider currently implements:
 - local SQLite-backed user accounts, session management, and RBAC.
 
 The generic execution API is available at `/api/v1/executions`. The Provider
-registers a single operational task executor, `artifact.verify`, to perform
-read-only cryptographic SHA-256 integrity verification of published artifacts against
-catalog manifests without modifying files or deploying network configurations.
+registers two operational task executors: `artifact.verify` (read-only
+cryptographic SHA-256 integrity verification of catalog artifacts) and
+`cisco.ios.configure` (verified Cisco IOS hostname and Ethernet interface
+configuration via SSH with running-config read-back verification).
 Unregistered or unsupported task types remain rejected. The execution lifecycle,
 attempts, results, and audit persistence are operational; network configuration
-deployment and device executors (Cisco, FortiGate, MikroTik, Proxmox) remain
-unimplemented and unverified.
+deployment for other platforms (FortiGate, MikroTik, Proxmox) and advanced network
+features (NAT, ACL, dynamic routing) remain unimplemented.
 
 ### Agent
 
@@ -67,8 +68,10 @@ The repository includes:
 
 The following items are not treated as operationally supported by the current codebase:
 
-- real device provisioning adapters and remote network configuration deployment;
-- vendor-specific configuration execution for Cisco, FortiGate, MikroTik, Proxmox, or other platforms;
+- operational live GNS3 / lab validation of the Cisco IOS executor against physical/virtual hardware (tracked as NON EXÉCUTÉ);
+- vendor-specific configuration executors for FortiGate, MikroTik, Proxmox, or other platforms;
+- advanced Cisco IOS features (NAT, ACL, dynamic routing, switchport / VLANs);
+- automatic startup-config saving (`write memory`), pending a separate explicit save task;
 - remote network automation beyond controlled lab validation and repository tests;
 - bootstrap services that are not explicitly implemented and tested.
 

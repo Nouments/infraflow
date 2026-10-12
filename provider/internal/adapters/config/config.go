@@ -35,6 +35,7 @@ type Config struct {
 	ChunkSize             int           `yaml:"chunk_size"`
 	Logging               LoggingConfig `yaml:"logging,omitempty"`
 	TLS                   TLSConfig     `yaml:"tls"`
+	KnownHostsFile        string        `yaml:"known_hosts_file,omitempty"`
 }
 
 type LoggingConfig struct {
@@ -131,6 +132,7 @@ func applyEnvironment(config *Config) {
 	setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
 	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
 	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", &config.AdminCredentialScript)
+	setIfPresent("INFRAFLOW_PROVIDER_KNOWN_HOSTS_FILE", &config.KnownHostsFile)
 	if dataDirectory := strings.TrimSpace(os.Getenv("INFRAFLOW_PROVIDER_DATA")); dataDirectory != "" {
 		config.ArtifactDirectory = dataDirectory
 		config.DatabasePath = filepath.Join(dataDirectory, ".infraflow-users.sqlite3")

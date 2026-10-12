@@ -37,8 +37,10 @@ The provider can also persist validated planning jobs and expose them through it
 The same API exposes a separate admin-only execution lifecycle at
 `/api/v1/executions`. It uses an idempotency key, persists task attempts and
 results, and is connected to the existing dependency scheduler. The Provider
-registers an explicitly authorized `artifact.verify` executor for read-only
-cryptographic artifact verification; unsupported task types are rejected. Execution
+registers two operational task executors: `artifact.verify` for read-only
+cryptographic artifact verification, and `cisco.ios.configure` for strictly
+validated Cisco IOS hostname and Ethernet interface configuration over SSH with
+running-config read-back verification. Unsupported task types are rejected. Execution
 is never inferred from planning or artifact generation; execution records can be
 inspected and cancelled by administrators via the web console and the Linux TUI.
 
