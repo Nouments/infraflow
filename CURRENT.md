@@ -17,33 +17,49 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
 - Bootstrap artifacts can be generated. Agent DHCPv4, read-only TFTP, and bootstrap HTTP servers are separate explicit commands; they are not started by the normal agent run. There is no DNS daemon.
 - Authenticated provider HTTP/gRPC APIs expose their existing planning, agent, event, and log records. The execution API is admin-only; administrators can inspect paginated execution lists, view task/attempt/error details, and request audited cancellation from both the web dashboard and the Linux TUI.
 
-## Evidence from Phase 3.1 (Correction des états réels et validation du TUI)
+## Evidence from Task 1 (Fiabilisation des états TUI et des contrôles locaux)
 
-- **Local Components Truthful Status Inspection**:
-  - **Artifact Store**: live observable inspection of `StateDirectory` (`os.Stat`, `os.ReadDir`), reporting explicit states: `Non configuré`, `Absent`, `Inaccessible`, `Dégradé`, or `Opérationnel` with real directory entry count. Explicit truth statement: integrity is marked "Non auditée par le TUI (intégrité SHA256 validée par l'agent lors des réceptions gRPC)".
-  - **Log Outbox**: live observable inspection of `filepath.Join(LogDirectory, "pending-events.json")`, distinguishing `Non configuré`, `Absent` (missing file), `Inaccessible` (permission error), `Opérationnel` (empty file or N pending events decoded), and `Dégradé` (invalid JSON/mode).
-  - **Tool Runner**: live verification of executables via `exec.LookPath("ansible-playbook")` and `exec.LookPath("terraform")`, distinguishing `Opérationnel` (both present), `Dégradé` (one missing), and `Absent` (neither on PATH).
-  - **Network Bootstrap Services**: documented honestly as distinct CLI commands (`serve-dhcp`, `serve-tftp`, `serve-bootstrap`) that are not started by default (`Non démarré`), and confirmation that no DNS daemon is implemented.
+- **Sous-tâche A — Stockage réel des artefacts (`StateDirectory`)** :
+  - L'adaptateur réel `filesystem.StateStore` utilise directement `settings.Agent.StateDirectory` comme racine pour créer les dossiers `<site>/...` et `.infraflow-agent-state.json`. Il n'existe aucun sous-dossier intermédiaire `artifacts/`.
+  - `inspectArtifactStore` inspecte fidèlement `StateDirectory` :
+    - Répertoire inexistant : `Absent` (`Répertoire inexistant (non initialisé sur le disque)`).
+    - Chemin pointant vers un fichier : `Dégradé` (`Le chemin configuré pointe vers un fichier au lieu d'un répertoire`).
+    - Répertoire inaccessible : `Inaccessible` (`Erreur d'accès / refusé`).
+    - Répertoire existant : `Opérationnel` avec mention `Accessible (N entrées stockées)`.
+    - Intégrité : explicitement `Non auditée par le TUI (intégrité SHA256 validée par l'agent lors des réceptions gRPC)`.
 
-- **Process Separation**:
-  - Local process PID correctly attributed to `TUI Process (PID %d)`.
-  - Agent daemon reported as `Agent Daemon: Non vérifié (aucun mécanisme de supervision locale)` — no fabricated PIDs or heartbeat metrics.
+- **Sous-tâche B — Statut véridique des outils Ansible et Terraform** :
+  - La présence d'exécutables dans le `PATH` ne prouvant pas leur bon fonctionnement, les outils détectés dans `PATH` sans test d'exécution affichent désormais `Détecté` (`ansible-playbook et terraform détectés dans PATH (fonctionnement non vérifié)`).
+  - Si un outil est manquant : `Dégradé` avec mention de l'exécutable manquant.
+  - Si les deux sont manquants : `Absent` (`introuvables dans PATH`).
+  - Aucun faux statut `Opérationnel` n'est affirmé sans exécution réelle.
 
-- **CLI Configuration Loading & Validation**:
-  - In `agent/internal/delivery/cli/cli.go`, if `-config` is supplied to `infraflow-agent tui` and cannot be loaded or fails validation, execution halts with exit code 2 and a clean error message to stderr with secret redaction. Unsupplied `-config` preserves fallback behavior.
+- **Sous-tâche C — Clarification du cycle de vie de l'Outbox** :
+  - `observability.NewOutbox` ne crée pas le fichier `pending-events.json` tant qu'aucun événement n'est persisté (`outbox.persist()`).
+  - L'absence du fichier avant premier run est rapportée comme `Non initialisé` (`Fichier pending-events.json non créé (aucune file persistée sur disque)`), sans prétendre à tort que la file est vide.
+  - Lorsque le fichier existe, son contenu est inspecté et décodé : `Opérationnel` (`File vérifiée (fichier vide, 0 événement en attente)` ou `N événement(s) en attente`), `Dégradé` si JSON corrompu, `Inaccessible` si illisible.
 
-- **Offline Mode & Session In-Memory Distinction**:
-  - Eliminated false claims of local disk cache: disconnected state with in-memory data displays `[Données en mémoire de session (non persistées sur disque)]`, with the last successful sync timestamp clearly shown.
-  - Startup disconnect displays `Indisponible (aucune donnée reçue)`.
-  - Full local navigation is retained when offline.
+- **Sous-tâche D — Garantie des erreurs de configuration sur tous les modes CLI/TUI** :
+  - Couverture systématique des modes `run`, `tui`, `execute-ansible` et `validate-terraform`.
+  - Rejet systématique avec code de sortie non-nul (2) et message explicite sur `stderr` (avec masquage des secrets) pour :
+    - Fichier de configuration absent / introuvable.
+    - YAML syntaxiquement invalide.
+    - Champ inconnu rejeté par `decoder.KnownFields(true)`.
+    - Configuration incomplète rejetée par `Validate()`.
 
-- **Verification and Testing**:
-  - Deterministic tests added in `agent/internal/delivery/tui/model_test.go` covering unconfigured, absent, inaccessible, empty, populated, and corrupt states for all components, plus initial vs subsequent disconnect scenarios.
-  - Tests added in `agent/internal/delivery/cli/cli_test.go` covering `-config` missing, malformed, and incomplete scenarios.
-  - `go test -count=1 ./...`: 100% passed cleanly.
-  - `make fmt-check`: clean.
-  - `make vet`: clean.
-  - `make build`: compiles `bin/infraflow-provider` and `bin/infraflow-agent` without errors.
+- **Sous-tâche E — Cycle de vie et résilience hors-ligne du TUI** :
+  - Validation du cycle complet en 4 phases :
+    1. Aucune donnée reçue au démarrage : `Indisponible (aucune donnée reçue)`, horodatage `Aucune synchronisation`.
+    2. Première synchronisation réussie : `● Opérationnel`, affichage des données et de l'horodatage de rafraîchissement.
+    3. Perte de connexion : conservation stricte des données en mémoire vive de session, maintien de l'horodatage initial réussi (sans inventer d'actualisation), affichage explicite de l'indisponibilité et de `Données en mémoire de session (non persistées sur disque)`.
+    4. Reconnexion réussie : mise à jour des données, nouvel horodatage et rétablissement du statut `Synchronisé`.
+
+- **Vérifications et Tests exécutés** :
+  - `make fmt-check` : code 0, 100% conforme `gofmt`.
+  - `make vet` : code 0, aucune erreur.
+  - `make test-agent` : code 0, 100% des tests de l'agent passent.
+  - `go test -count=1 ./...` : code 0, 100% des tests du dépôt passent sans cache.
+  - `make build` : code 0, compilation réussie de `bin/infraflow-provider` et `bin/infraflow-agent`.
 
 ## Remaining work
 

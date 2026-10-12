@@ -752,7 +752,7 @@ func inspectArtifactStore(stateDir string) artifactStoreInspection {
 		return artifactStoreInspection{
 			status:    "Absent",
 			path:      stateDir,
-			detail:    "Répertoire introuvable sur le disque",
+			detail:    "Répertoire inexistant (non initialisé sur le disque)",
 			integrity: "Non vérifiée (répertoire absent)",
 		}
 	}
@@ -768,7 +768,7 @@ func inspectArtifactStore(stateDir string) artifactStoreInspection {
 		return artifactStoreInspection{
 			status:    "Dégradé",
 			path:      stateDir,
-			detail:    "Le chemin configuré n'est pas un répertoire",
+			detail:    "Le chemin configuré pointe vers un fichier au lieu d'un répertoire",
 			integrity: "Non vérifiée (chemin invalide)",
 		}
 	}
@@ -784,11 +784,11 @@ func inspectArtifactStore(stateDir string) artifactStoreInspection {
 	count := len(entries)
 	var detail string
 	if count == 0 {
-		detail = "Accessible (0 entrée)"
+		detail = "Accessible (0 entrée stockée)"
 	} else if count == 1 {
-		detail = "Accessible (1 entrée)"
+		detail = "Accessible (1 entrée stockée)"
 	} else {
-		detail = fmt.Sprintf("Accessible (%d entrées)", count)
+		detail = fmt.Sprintf("Accessible (%d entrées stockées)", count)
 	}
 	return artifactStoreInspection{
 		status:    "Opérationnel",
@@ -816,9 +816,9 @@ func inspectLogOutbox(logDir string) logOutboxInspection {
 	info, err := os.Stat(outboxPath)
 	if os.IsNotExist(err) {
 		return logOutboxInspection{
-			status: "Absent",
+			status: "Non initialisé",
 			path:   outboxPath,
-			detail: "Fichier absent (aucun événement en attente)",
+			detail: "Fichier pending-events.json non créé (aucune file persistée sur disque)",
 		}
 	}
 	if err != nil {
@@ -835,19 +835,19 @@ func inspectLogOutbox(logDir string) logOutboxInspection {
 			detail: "Le chemin n'est pas un fichier régulier",
 		}
 	}
-	if info.Size() == 0 {
-		return logOutboxInspection{
-			status: "Opérationnel",
-			path:   outboxPath,
-			detail: "Fichier présent (vide, 0 événement en attente)",
-		}
-	}
 	data, err := os.ReadFile(outboxPath)
 	if err != nil {
 		return logOutboxInspection{
 			status: "Inaccessible",
 			path:   outboxPath,
 			detail: fmt.Sprintf("Lecture impossible: %v", err),
+		}
+	}
+	if info.Size() == 0 {
+		return logOutboxInspection{
+			status: "Opérationnel",
+			path:   outboxPath,
+			detail: "File vérifiée (fichier vide, 0 événement en attente)",
 		}
 	}
 	var events []json.RawMessage
@@ -858,10 +858,17 @@ func inspectLogOutbox(logDir string) logOutboxInspection {
 			detail: fmt.Sprintf("Format JSON invalide (%d octets)", info.Size()),
 		}
 	}
+	if len(events) == 0 {
+		return logOutboxInspection{
+			status: "Opérationnel",
+			path:   outboxPath,
+			detail: "File vérifiée (0 événement en attente)",
+		}
+	}
 	return logOutboxInspection{
 		status: "Opérationnel",
 		path:   outboxPath,
-		detail: fmt.Sprintf("%d événement(s) en attente (%d octets)", len(events), info.Size()),
+		detail: fmt.Sprintf("File vérifiée (%d événement(s) en attente, %d octets)", len(events), info.Size()),
 	}
 }
 
@@ -890,8 +897,8 @@ func inspectToolRunner() toolRunnerInspection {
 
 	if ansibleFound && terraformFound {
 		return toolRunnerInspection{
-			status:    "Opérationnel",
-			detail:    "ansible-playbook et terraform détectés",
+			status:    "Détecté",
+			detail:    "ansible-playbook et terraform détectés dans PATH (fonctionnement non vérifié)",
 			ansible:   ansibleDesc,
 			terraform: terraformDesc,
 		}
@@ -903,7 +910,7 @@ func inspectToolRunner() toolRunnerInspection {
 		}
 		return toolRunnerInspection{
 			status:    "Dégradé",
-			detail:    fmt.Sprintf("Exécutable manquant: %s", missing),
+			detail:    fmt.Sprintf("Exécutable manquant dans PATH: %s", missing),
 			ansible:   ansibleDesc,
 			terraform: terraformDesc,
 		}
@@ -937,6 +944,8 @@ func (instance model) logOutboxSummary() string {
 	switch inspection.status {
 	case "Opérationnel":
 		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Non initialisé":
+		return queuedStyle.Render("Non initialisé") + " " + quietStyle.Render("("+inspection.detail+")")
 	case "Absent":
 		return quietStyle.Render("Absent") + " " + quietStyle.Render("("+inspection.detail+")")
 	case "Inaccessible":
@@ -951,6 +960,8 @@ func (instance model) logOutboxSummary() string {
 func (instance model) toolRunnerSummary() string {
 	inspection := inspectToolRunner()
 	switch inspection.status {
+	case "Détecté":
+		return queuedStyle.Render("Détecté") + " " + quietStyle.Render("(dans PATH, fonctionnement non vérifié)")
 	case "Opérationnel":
 		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
 	case "Dégradé":
@@ -998,6 +1009,8 @@ func (instance model) servicesListView(width int) []string {
 	switch outboxInsp.status {
 	case "Opérationnel":
 		outboxStatusBadge = successStyle.Render("Opérationnel")
+	case "Non initialisé":
+		outboxStatusBadge = queuedStyle.Render("Non initialisé")
 	case "Absent":
 		outboxStatusBadge = quietStyle.Render("Absent")
 	case "Inaccessible":
@@ -1018,6 +1031,8 @@ func (instance model) servicesListView(width int) []string {
 	toolInsp := inspectToolRunner()
 	var toolStatusBadge string
 	switch toolInsp.status {
+	case "Détecté":
+		toolStatusBadge = queuedStyle.Render("Détecté")
 	case "Opérationnel":
 		toolStatusBadge = successStyle.Render("Opérationnel")
 	case "Dégradé":
@@ -1032,7 +1047,7 @@ func (instance model) servicesListView(width int) []string {
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Ansible:"), quietStyle.Render(toolInsp.ansible)))
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Terraform:"), quietStyle.Render(toolInsp.terraform)))
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Detail:"), quietStyle.Render(toolInsp.detail)))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture sécurisée des flux standard")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture sécurisée des flux standard lors des runs")))
 	lines = append(lines, "")
 
 	// 4. Bootstrap Services

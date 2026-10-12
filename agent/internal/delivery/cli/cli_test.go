@@ -283,6 +283,81 @@ func TestTUIConfigValidation(t *testing.T) {
 	if !strings.Contains(stderr.String(), "load config") {
 		t.Fatalf("stderr should report load config error: %q", stderr.String())
 	}
+
+	// 4. Unknown field in TUI config -> rejected with code 2
+	unknownFieldFile := filepath.Join(t.TempDir(), "unknown-field-agent.yaml")
+	unknownYAML := "agent:\n  id: \"agent-01\"\n  state_directory: \"/tmp\"\n  unknown_field: \"invalid\"\nprovider:\n  address: \"127.0.0.1:8080\"\n  token_env: \"TOKEN\"\n  tls:\n    enabled: false\n"
+	if err := os.WriteFile(unknownFieldFile, []byte(unknownYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", unknownFieldFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for unknown field in TUI config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("stderr should report unknown field error: %q", stderr.String())
+	}
+}
+
+func TestCLIModesConfigValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	nonexistentPath := filepath.Join(tempDir, "missing.yaml")
+
+	malformedPath := filepath.Join(tempDir, "malformed.yaml")
+	if err := os.WriteFile(malformedPath, []byte("agent: [syntax error"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	unknownFieldPath := filepath.Join(tempDir, "unknown-field.yaml")
+	unknownYAML := "agent:\n  id: \"agent-01\"\n  state_directory: \"/tmp\"\n  unknown_extra_field: \"should_fail\"\nprovider:\n  address: \"127.0.0.1:8080\"\n  token_env: \"TOKEN\"\n  tls:\n    enabled: false\n"
+	if err := os.WriteFile(unknownFieldPath, []byte(unknownYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Mode 'run'
+	// 1a. Missing file
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"run", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "open agent config") {
+		t.Fatalf("run mode did not reject missing file: code=%d, stderr=%q", code, stderr.String())
+	}
+	// 1b. Malformed YAML
+	stderr.Reset()
+	code = Run([]string{"run", "-config", malformedPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "decode agent config") {
+		t.Fatalf("run mode did not reject malformed YAML: code=%d, stderr=%q", code, stderr.String())
+	}
+	// 1c. Unknown field
+	stderr.Reset()
+	code = Run([]string{"run", "-config", unknownFieldPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("run mode did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
+	}
+
+	// 2. Mode 'execute-ansible' with -config
+	stderr.Reset()
+	code = Run([]string{"execute-ansible", "-directory", tempDir, "-site", "lab", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "load process logging configuration") {
+		t.Fatalf("execute-ansible did not reject missing config: code=%d, stderr=%q", code, stderr.String())
+	}
+	stderr.Reset()
+	code = Run([]string{"execute-ansible", "-directory", tempDir, "-site", "lab", "-config", unknownFieldPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("execute-ansible did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
+	}
+
+	// 3. Mode 'validate-terraform' with -config
+	stderr.Reset()
+	code = Run([]string{"validate-terraform", "-directory", tempDir, "-site", "lab", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "load process logging configuration") {
+		t.Fatalf("validate-terraform did not reject missing config: code=%d, stderr=%q", code, stderr.String())
+	}
+	stderr.Reset()
+	code = Run([]string{"validate-terraform", "-directory", tempDir, "-site", "lab", "-config", unknownFieldPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("validate-terraform did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
+	}
 }
 
 func TestInterfaceAddressValidation(t *testing.T) {
