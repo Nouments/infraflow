@@ -39,8 +39,8 @@ The same API exposes a separate admin-only execution lifecycle at
 results, and is connected to the existing dependency scheduler. The default
 Provider registers no operational executor, so task types are rejected until
 an explicitly authorized executor is added. Execution is never inferred from
-planning or artifact generation; the dashboard and TUI do not yet display
-execution records.
+planning or artifact generation; execution records can be inspected and cancelled
+by administrators via the web console and the Linux TUI.
 
 The provider HTTP API has two separate authentication domains. Agents continue
 to use the configured machine bearer token. Platform users use SQLite-backed
@@ -172,6 +172,7 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Agent TUI point-in-time technical log query (`l` / `logs`), restricted to administrators
 - [x] Incremental bounded stdout/stderr capture and optional process log synchronization through the existing agent gRPC contract
 - [x] Experimental agent DHCP/TFTP/bootstrap HTTP services and fake end-to-end artifact transfer/report test
-- [ ] Device provisioning adapters, execution job API, and remaining bootstrap services
+- [x] Admin execution lifecycle views with pagination, details, and audited cancellation in the web console and Linux TUI
+- [ ] Device provisioning adapters, registered operational executors, and remaining bootstrap services
 
 Device provisioning tasks are reported as blocked because no verified adapters are registered. The later items are intentionally not represented as supported capabilities yet. See [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md) for the current phased roadmap and acceptance criteria.

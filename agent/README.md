@@ -97,12 +97,14 @@ go run ./agent/cmd tui \
   -ca-file /etc/infraflow/provider-ca.crt
 ```
 
-Use `r`, `j`, `a`, `e`, `l`, `h`, or `q` to refresh jobs, inspect jobs, agents,
-recent backend-reported results, or a point-in-time page of technical logs,
-show help, or quit. Event and technical-log inspection are admin-only. The TUI
-does not stream continuously. The server address and port are command-line
-editable. The TUI never displays the full session token or password. A
-generation result is not an execution or verification result.
+Use `r`, `j`, `a`, `e`, `l`, `x`, `?`, or `q` to refresh, inspect jobs, agents,
+recent backend-reported results, a point-in-time page of technical logs, or
+executions, show help, or quit. Event, technical-log, and execution views are
+admin-only. In the executions view, use `↑`/`↓` to select, `n`/`p` for pagination,
+`f` to cycle status filters, `Enter` to view tasks and attempts, and `c` then `y`/`n`
+to request audited cancellation. The TUI does not stream continuously. The server
+address and port are command-line editable. The TUI never displays the full session
+token or password. A generation result is not an execution or verification result.
 
 Edit `examples/agent-config.yaml` for local deployments. The Docker image
 overrides the provider host/port, API address, TLS CA path, agent identity, and

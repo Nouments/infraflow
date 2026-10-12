@@ -50,8 +50,8 @@ persists generic scheduler-backed execution records, task attempts, results,
 errors, and transitions. Submission requires an `Idempotency-Key`; task types
 must have an explicitly registered executor. No operational executor is
 registered in the default Provider, so unsupported execution requests return
-HTTP 409 and do not create an execution. Execution records are available from
-the API but are not yet shown in the console or TUI.
+HTTP 409 and do not create an execution. Execution records can be inspected
+and cancelled by administrators via the web console and the Linux TUI.
 
 ```sh
 curl -X POST -H "Authorization: Bearer $INFRAFLOW_USER_TOKEN" \

@@ -51,4 +51,4 @@ boundary.
 
 ## Growth path
 
-The provider has durable planning jobs and a separate persistent execution lifecycle connected to the scheduler. Remaining work includes registering an explicitly authorized executor, exposing execution state in the dashboard/TUI, adding device-specific adapters only after their evidence criteria are met, DNS service, and operational lab validation. Provider- and service-specific behavior belongs in isolated adapters and must satisfy the support evidence required by [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md).
+The provider has durable planning jobs and a separate persistent execution lifecycle connected to the scheduler, exposed to administrators via the web console and Linux TUI. Remaining work includes registering an explicitly authorized executor, adding device-specific adapters only after their evidence criteria are met, DNS service, and operational lab validation. Provider- and service-specific behavior belongs in isolated adapters and must satisfy the support evidence required by [INFRAFLOW_SPEC.md](INFRAFLOW_SPEC.md).

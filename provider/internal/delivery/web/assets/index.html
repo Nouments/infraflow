@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="InfraFlow infrastructure administration and orchestration control plane">
     <title>InfraFlow Control</title>
     <link rel="stylesheet" href="/assets/app.css">
     <script src="/assets/log-stream.js" defer></script>
@@ -47,7 +48,8 @@
           <button class="nav-item admin-only" data-view="agents"><span class="nav-symbol">04</span>Agents</button>
           <button class="nav-item admin-only" data-view="activity"><span class="nav-symbol">05</span>Audit trail</button>
           <button class="nav-item admin-only" data-view="logs"><span class="nav-symbol">06</span>Technical logs</button>
-          <button class="nav-item admin-only" data-view="users"><span class="nav-symbol">07</span>Access</button>
+          <button class="nav-item admin-only" data-view="executions"><span class="nav-symbol">07</span>Executions</button>
+          <button class="nav-item admin-only" data-view="users"><span class="nav-symbol">08</span>Access</button>
         </nav>
         <div class="sidebar-bottom"><button id="logout" class="text-button">Sign out</button></div>
       </aside>
@@ -107,6 +109,21 @@
         <section id="agents-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">EDGE RUNTIME</p><h2>Registered agents</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div class="table-frame"><table><thead><tr><th>AGENT</th><th>SITE</th><th>STATUS</th><th>VERSION</th><th>QUEUE</th><th>LAST SEEN</th></tr></thead><tbody id="agents-table"></tbody></table><div id="agents-empty" class="empty-state hidden">No agents registered.</div></div></section>
         <section id="activity-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">APPEND-ONLY</p><h2>Audit trail</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div id="events-list" class="event-list"></div><div id="events-empty" class="empty-state hidden">No events recorded.</div></section>
         <section id="logs-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">OBSERVABILITY</p><h2>Technical logs</h2></div><div class="logs-heading-actions"><span id="logs-stream-status" class="stream-status" role="status" aria-live="polite">Disconnected</span><button class="button button-quiet" data-action="refresh-logs">Refresh</button></div></div><div class="log-controls"><label>Filter<input id="logs-query" type="search" placeholder="message, error, event..." autocomplete="off"></label><label>Run ID<input id="logs-run-id" type="text" placeholder="run-01" autocomplete="off"></label><label>Level<select id="logs-level"><option value="">Any level</option><option value="DEBUG">DEBUG</option><option value="INFO">INFO</option><option value="WARN">WARN</option><option value="ERROR">ERROR</option></select></label><button id="logs-apply" class="button button-primary" type="button">Apply</button></div><p id="logs-error" class="form-error" role="alert"></p><div class="table-frame"><table><thead><tr><th>ID</th><th>TIME</th><th>LEVEL</th><th>SERVICE</th><th>RUN</th><th>MESSAGE</th></tr></thead><tbody id="logs-table"></tbody></table><div id="logs-empty" class="empty-state hidden">No technical logs matched the current filter.</div></div><div class="log-pagination"><span id="logs-page-state" class="stream-status">Latest page</span><div><button id="logs-older" class="button button-quiet" type="button" disabled>Older</button><button id="logs-newer" class="button button-quiet" type="button" disabled>Newer</button></div></div></section>
+        <section id="executions-view" class="view hidden">
+          <div class="section-heading"><div><p class="eyebrow">LIFECYCLE</p><h2>Execution records</h2></div><button class="button button-quiet" data-action="refresh-executions">Refresh</button></div>
+          <div id="exec-toolbar" class="exec-toolbar">
+            <div class="exec-filters"><button class="exec-filter-btn active" data-exec-filter="">All</button><button class="exec-filter-btn" data-exec-filter="queued">Queued</button><button class="exec-filter-btn" data-exec-filter="running">Running</button><button class="exec-filter-btn" data-exec-filter="succeeded">Succeeded</button><button class="exec-filter-btn" data-exec-filter="failed">Failed</button><button class="exec-filter-btn" data-exec-filter="cancelled">Cancelled</button><button class="exec-filter-btn" data-exec-filter="timed_out">Timed out</button></div>
+            <div class="exec-pagination"><span id="exec-page-info"></span><button id="exec-prev" class="button button-quiet" type="button" disabled>Prev</button><button id="exec-next" class="button button-quiet" type="button" disabled>Next</button></div>
+          </div>
+          <div class="table-frame"><table><thead><tr><th>EXECUTION</th><th>STATUS</th><th>TASKS</th><th>CREATED</th><th>UPDATED</th><th></th></tr></thead><tbody id="exec-table"></tbody></table><div id="exec-empty" class="empty-state hidden">No executions returned by the Provider.</div><div id="exec-loading" class="empty-state hidden">Loading execution records…</div></div>
+        </section>
+
+        <section id="execution-detail-view" class="view hidden">
+          <button id="exec-back" class="exec-back-btn" type="button">&larr; Back to executions</button>
+          <div id="exec-detail-content"></div>
+          <div id="exec-detail-loading" class="empty-state hidden">Loading execution detail from Provider…</div>
+        </section>
+
         <section id="users-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">ADMINISTRATION</p><h2>Access management</h2></div></div><form id="user-form" class="inline-form"><label>Username<input name="username" required minlength="3" autocomplete="off"></label><label>Temporary password<input name="password" type="password" required minlength="12" autocomplete="new-password"></label><label>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label><button class="button button-primary" type="submit">Add user</button></form><div class="table-frame"><table><thead><tr><th>USER</th><th>ROLE</th><th>STATUS</th><th>CREATED</th><th>ACTIONS</th></tr></thead><tbody id="users-table"></tbody></table><div id="users-empty" class="empty-state hidden">No users found.</div></div></section>
       </section>
     </div>

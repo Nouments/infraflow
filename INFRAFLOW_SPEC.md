@@ -54,6 +54,8 @@ The repository includes:
 - local outbox handling for delayed log synchronization.
 - an admin-only dashboard technical-log view and an admin-only point-in-time TUI
 	query using the existing HTTP log contract;
+- admin-only execution list, detail, and cancellation views in both the web dashboard
+	and the Linux TUI;
 - bounded incremental process stdout/stderr capture, with optional local outbox
 	persistence and synchronization over the existing agent gRPC log reporter.
 
@@ -64,7 +66,6 @@ The following items are not treated as operationally supported by the current co
 - real device provisioning adapters;
 - registered operational task executors and device execution;
 - vendor-specific configuration execution for Cisco, FortiGate, MikroTik, Proxmox, or other platforms;
-- execution-task views in the web dashboard and TUI;
 - remote network automation beyond controlled lab validation and repository tests;
 - bootstrap services that are not explicitly implemented and tested.
 
