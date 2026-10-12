@@ -784,14 +784,14 @@ func inspectArtifactStore(stateDir string) artifactStoreInspection {
 	count := len(entries)
 	var detail string
 	if count == 0 {
-		detail = "Accessible (0 entrée stockée)"
+		detail = "Répertoire accessible en lecture ; capacité d'écriture non vérifiée (0 entrée stockée)"
 	} else if count == 1 {
-		detail = "Accessible (1 entrée stockée)"
+		detail = "Répertoire accessible en lecture ; capacité d'écriture non vérifiée (1 entrée stockée)"
 	} else {
-		detail = fmt.Sprintf("Accessible (%d entrées stockées)", count)
+		detail = fmt.Sprintf("Répertoire accessible en lecture ; capacité d'écriture non vérifiée (%d entrées stockées)", count)
 	}
 	return artifactStoreInspection{
-		status:    "Opérationnel",
+		status:    "Accessible",
 		path:      stateDir,
 		detail:    detail,
 		integrity: "Non auditée par le TUI (intégrité SHA256 validée par l'agent lors des réceptions gRPC)",
@@ -926,8 +926,8 @@ func inspectToolRunner() toolRunnerInspection {
 func (instance model) artifactStoreSummary() string {
 	inspection := inspectArtifactStore(instance.agentInfo.StateDirectory)
 	switch inspection.status {
-	case "Opérationnel":
-		return successStyle.Render("Opérationnel") + " " + quietStyle.Render("("+inspection.detail+")")
+	case "Accessible":
+		return runningStyle.Render("Accessible") + " " + quietStyle.Render("("+inspection.detail+")")
 	case "Absent":
 		return quietStyle.Render("Absent") + " " + quietStyle.Render("("+inspection.detail+")")
 	case "Inaccessible":
@@ -985,8 +985,8 @@ func (instance model) servicesListView(width int) []string {
 	artifactInsp := inspectArtifactStore(instance.agentInfo.StateDirectory)
 	var artStatusBadge string
 	switch artifactInsp.status {
-	case "Opérationnel":
-		artStatusBadge = successStyle.Render("Opérationnel")
+	case "Accessible":
+		artStatusBadge = runningStyle.Render("Accessible")
 	case "Absent":
 		artStatusBadge = quietStyle.Render("Absent")
 	case "Inaccessible":

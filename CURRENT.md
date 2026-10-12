@@ -61,6 +61,26 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
   - `go test -count=1 ./...` : code 0, 100% des tests du dépôt passent sans cache.
   - `make build` : code 0, compilation réussie de `bin/infraflow-provider` et `bin/infraflow-agent`.
 
+## Evidence from Task 1.1 (Correction de la sémantique du statut du stockage local)
+
+- **Correction sémantique de `inspectArtifactStore()`** :
+  - La vérification par `os.Stat()` et `os.ReadDir()` ne validant que l'existence et l'accès en lecture du répertoire sans tester la capacité d'écriture, le statut retourné est désormais `Accessible` (au lieu de `Opérationnel`).
+  - Le détail associe explicitement le constat vérifié et la limite technique : `Répertoire accessible en lecture ; capacité d'écriture non vérifiée (N entrée(s) stockée(s))`.
+  - Aucun fichier temporaire ou artefact fictif n'est créé pour simuler une écriture.
+  - Vues TUI (`artifactStoreSummary()` et `servicesListView()`) : affichage du badge et du statut `Accessible` (palette Crisp Blue `runningStyle`), éliminant toute proclamation d'état `Opérationnel` pour le stockage sur la seule base d'une lecture.
+  - Préservation stricte des états `Absent`, `Inaccessible`, `Dégradé` et `Non configuré`.
+- **Tests unitaires adaptés et ajoutés (`agent/internal/delivery/tui/model_test.go`)** :
+  - `TestArtifactStoreInspectionScenarios` : valide que les répertoires vides ou avec entrées produisent `Accessible`, rejette tout statut `Opérationnel`, et vérifie la mention `capacité d'écriture non vérifiée`.
+  - `TestArtifactStoreRealAdapterIntegration` : valide la liaison avec le vrai `filesystem.NewStateStore` sous le statut `Accessible`.
+  - `TestArtifactStoreViewsSummaryAndDetail` : valide la cohérence des vues `artifactStoreSummary`, `homeView` et `servicesListView` (aucun libellé `Opérationnel` pour le stockage local).
+- **Vérifications réelles** :
+  - `make fmt-check` : code 0.
+  - `make vet` : code 0.
+  - `go test -v infraflow/agent/internal/delivery/tui` : 38 tests réussis (0 échec).
+  - `make test-agent` : code 0.
+  - `go test -count=1 ./...` : code 0 sur 100% des packages du dépôt.
+  - `make build` : code 0 (`bin/infraflow-provider` et `bin/infraflow-agent`).
+
 ## Remaining work
 
 - Register a real, explicitly authorized executor only after defining its allowed task type, parameter schema, privilege boundary, and independent evidence. Until then all unregistered execution types remain rejected.

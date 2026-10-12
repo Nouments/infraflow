@@ -748,17 +748,29 @@ func TestArtifactStoreInspectionScenarios(t *testing.T) {
 		t.Fatalf("absent detail must clarify non-initialized on disk: %q", abs.detail)
 	}
 
-	// 3. Operational empty
+	// 3. Accessible empty directory (read-only verified, write capability not verified)
 	emptyDir := t.TempDir()
 	opEmpty := inspectArtifactStore(emptyDir)
-	if opEmpty.status != "Opérationnel" || !strings.Contains(opEmpty.detail, "0 entrée stockée") {
-		t.Fatalf("expected operational empty directory, got %#v", opEmpty)
+	if opEmpty.status != "Accessible" {
+		t.Fatalf("expected 'Accessible' empty directory, got %q", opEmpty.status)
+	}
+	if opEmpty.status == "Opérationnel" {
+		t.Fatal("empty directory must not be qualified as Opérationnel")
+	}
+	if !strings.Contains(opEmpty.detail, "0 entrée stockée") {
+		t.Fatalf("expected 0 entries in detail, got %q", opEmpty.detail)
+	}
+	if !strings.Contains(opEmpty.detail, "capacité d'écriture non vérifiée") {
+		t.Fatalf("detail must explicitly indicate unverified write capability: %q", opEmpty.detail)
+	}
+	if !strings.Contains(opEmpty.detail, "Répertoire accessible en lecture") {
+		t.Fatalf("detail must state read-accessible directory: %q", opEmpty.detail)
 	}
 	if !strings.Contains(opEmpty.integrity, "Non auditée par le TUI") {
-		t.Fatalf("operational integrity must clarify TUI does not re-audit hash: %q", opEmpty.integrity)
+		t.Fatalf("integrity must clarify TUI does not re-audit hash: %q", opEmpty.integrity)
 	}
 
-	// 4. Operational with entries
+	// 4. Accessible with entries (still Accessible, never Opérationnel without write check)
 	if err := os.WriteFile(filepath.Join(emptyDir, "file1.txt"), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -766,8 +778,17 @@ func TestArtifactStoreInspectionScenarios(t *testing.T) {
 		t.Fatal(err)
 	}
 	opPop := inspectArtifactStore(emptyDir)
-	if opPop.status != "Opérationnel" || !strings.Contains(opPop.detail, "2 entrées stockées") {
-		t.Fatalf("expected operational with 2 entries, got %#v", opPop)
+	if opPop.status != "Accessible" {
+		t.Fatalf("expected 'Accessible' with 2 entries, got %q", opPop.status)
+	}
+	if opPop.status == "Opérationnel" {
+		t.Fatal("populated directory must not be qualified as Opérationnel")
+	}
+	if !strings.Contains(opPop.detail, "2 entrées stockées") {
+		t.Fatalf("expected 2 entries in detail, got %q", opPop.detail)
+	}
+	if !strings.Contains(opPop.detail, "capacité d'écriture non vérifiée") {
+		t.Fatalf("detail must explicitly indicate unverified write capability: %q", opPop.detail)
 	}
 
 	// 5. Inaccessible (non-readable) directory
@@ -803,8 +824,14 @@ func TestArtifactStoreRealAdapterIntegration(t *testing.T) {
 
 	// Initially empty directory
 	insp := inspectArtifactStore(stateDir)
-	if insp.status != "Opérationnel" || !strings.Contains(insp.detail, "0 entrée") {
+	if insp.status != "Accessible" || !strings.Contains(insp.detail, "0 entrée") {
 		t.Fatalf("expected initial empty directory to be accessible with 0 entries, got %#v", insp)
+	}
+	if insp.status == "Opérationnel" {
+		t.Fatal("initial state store directory must not be qualified as Opérationnel")
+	}
+	if !strings.Contains(insp.detail, "capacité d'écriture non vérifiée") {
+		t.Fatalf("expected unverified write capability in detail, got %#v", insp)
 	}
 
 	// Save an artifact via the real filesystem StateStore
@@ -816,8 +843,14 @@ func TestArtifactStoreRealAdapterIntegration(t *testing.T) {
 
 	// Verify that inspectArtifactStore directly observes the store.root directory
 	inspAfter := inspectArtifactStore(stateDir)
-	if inspAfter.status != "Opérationnel" || !strings.Contains(inspAfter.detail, "1 entrée") {
+	if inspAfter.status != "Accessible" || !strings.Contains(inspAfter.detail, "1 entrée") {
 		t.Fatalf("expected 1 entry (lab directory) in state store, got %#v", inspAfter)
+	}
+	if inspAfter.status == "Opérationnel" {
+		t.Fatal("state store with artifact must not be qualified as Opérationnel")
+	}
+	if !strings.Contains(inspAfter.detail, "capacité d'écriture non vérifiée") {
+		t.Fatalf("expected unverified write capability in detail, got %#v", inspAfter)
 	}
 
 	// Save a report via the real StateStore
@@ -825,8 +858,75 @@ func TestArtifactStoreRealAdapterIntegration(t *testing.T) {
 		t.Fatalf("failed to save report: %v", err)
 	}
 	inspWithReport := inspectArtifactStore(stateDir)
-	if inspWithReport.status != "Opérationnel" || !strings.Contains(inspWithReport.detail, "2 entrées") {
+	if inspWithReport.status != "Accessible" || !strings.Contains(inspWithReport.detail, "2 entrées") {
 		t.Fatalf("expected 2 entries in state store, got %#v", inspWithReport)
+	}
+	if inspWithReport.status == "Opérationnel" {
+		t.Fatal("state store with report must not be qualified as Opérationnel")
+	}
+	if !strings.Contains(inspWithReport.detail, "capacité d'écriture non vérifiée") {
+		t.Fatalf("expected unverified write capability in detail, got %#v", inspWithReport)
+	}
+}
+
+func TestArtifactStoreViewsSummaryAndDetail(t *testing.T) {
+	stateDir := t.TempDir()
+	backend := &mockBackend{user: adminUser()}
+	m := newModel(context.Background(), backend, adminUser(), testSession())
+	m.agentInfo.StateDirectory = stateDir
+	m.width = 120
+	m.height = 40
+
+	// 1. Summary view verification
+	summary := m.artifactStoreSummary()
+	if !strings.Contains(summary, "Accessible") {
+		t.Fatalf("summary must display Accessible, got %q", summary)
+	}
+	if strings.Contains(summary, "Opérationnel") {
+		t.Fatalf("summary must NOT display Opérationnel, got %q", summary)
+	}
+	if !strings.Contains(summary, "capacité d'écriture non vérifiée") {
+		t.Fatalf("summary must specify unverified write capability, got %q", summary)
+	}
+
+	// 2. Overview home view verification
+	homeOut := m.View()
+	if !strings.Contains(homeOut, "Artifact Store:") || !strings.Contains(homeOut, "Accessible") {
+		t.Fatalf("home view must display Accessible artifact store: %s", homeOut)
+	}
+
+	// 3. Services detailed view verification
+	m.view = servicesView
+	servicesOut := m.View()
+	if !strings.Contains(servicesOut, "1. Artifact Repository & Verification") {
+		t.Fatalf("services view must contain artifact repository section: %s", servicesOut)
+	}
+	if !strings.Contains(servicesOut, "Accessible") {
+		t.Fatalf("services view must display Accessible badge: %s", servicesOut)
+	}
+	if !strings.Contains(servicesOut, "Répertoire accessible en lecture") {
+		t.Fatalf("services view must indicate read-accessible directory: %s", servicesOut)
+	}
+	if !strings.Contains(servicesOut, "capacité d'écriture non vérifiée") {
+		t.Fatalf("services view must indicate unverified write capability: %s", servicesOut)
+	}
+
+	// 4. Absent directory in summary
+	m.agentInfo.StateDirectory = filepath.Join(t.TempDir(), "absent-dir")
+	absSummary := m.artifactStoreSummary()
+	if !strings.Contains(absSummary, "Absent") {
+		t.Fatalf("expected Absent in summary for absent directory, got %q", absSummary)
+	}
+
+	// 5. File path in summary
+	filePath := filepath.Join(t.TempDir(), "dummy.txt")
+	if err := os.WriteFile(filePath, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.agentInfo.StateDirectory = filePath
+	fileSummary := m.artifactStoreSummary()
+	if !strings.Contains(fileSummary, "Dégradé") {
+		t.Fatalf("expected Dégradé in summary for regular file, got %q", fileSummary)
 	}
 }
 
