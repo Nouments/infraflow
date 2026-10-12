@@ -312,9 +312,11 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 	// 6. Build and apply typed commands
 	var appliedCommands []string
 	var configErr error
+	mutationMayHaveStarted := false
 
 	if params.Hostname != "" {
 		cmd := "hostname " + params.Hostname
+		mutationMayHaveStarted = true
 		if _, err := session.RunCommand(ctx, cmd); err != nil {
 			configErr = fmt.Errorf("failed executing %q: %w", cmd, err)
 		} else {
@@ -337,6 +339,7 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 
 			if iface.Description != "" {
 				descCmd := "description " + iface.Description
+				mutationMayHaveStarted = true
 				if _, err := session.RunCommand(ctx, descCmd); err != nil {
 					configErr = fmt.Errorf("failed executing %q: %w", descCmd, err)
 					break
@@ -344,6 +347,7 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 				appliedCommands = append(appliedCommands, descCmd)
 			} else {
 				descCmd := "no description"
+				mutationMayHaveStarted = true
 				if _, err := session.RunCommand(ctx, descCmd); err != nil {
 					configErr = fmt.Errorf("failed executing %q: %w", descCmd, err)
 					break
@@ -354,6 +358,7 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 			if iface.IPv4CIDR != "" {
 				ipStr, maskStr := cidrToIPAndMask(iface.IPv4CIDR)
 				ipCmd := fmt.Sprintf("ip address %s %s", ipStr, maskStr)
+				mutationMayHaveStarted = true
 				if _, err := session.RunCommand(ctx, ipCmd); err != nil {
 					configErr = fmt.Errorf("failed executing %q: %w", ipCmd, err)
 					break
@@ -367,6 +372,7 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 			} else {
 				adminCmd = "shutdown"
 			}
+			mutationMayHaveStarted = true
 			if _, err := session.RunCommand(ctx, adminCmd); err != nil {
 				configErr = fmt.Errorf("failed executing %q: %w", adminCmd, err)
 				break
@@ -383,21 +389,30 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 	}
 
 	// Exit configuration mode
-	_, _ = session.RunCommand(ctx, "end")
+	if _, err := session.RunCommand(ctx, "end"); err != nil && configErr == nil {
+		configErr = fmt.Errorf("failed to exit configuration mode: %w", err)
+	}
 
 	if configErr != nil {
 		safeMsg := fmt.Sprintf("configuration application failed after %d command(s): %s", len(appliedCommands), sanitizeErrorWithCreds(configErr, creds))
+		if mutationMayHaveStarted {
+			safeMsg += "; router state is uncertain and must be re-read before any retry"
+		}
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
 	}
 
 	if ctx.Err() != nil {
+		if mutationMayHaveStarted {
+			safeMsg := "configuration application outcome is uncertain; router state must be re-read before any retry"
+			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+		}
 		return ports.ExecutionResult{Status: domain.ExecutionTaskCancelled}, ctx.Err()
 	}
 
 	// 7. Read-back verification phase
 	observed, verifyErr := e.verifyRunningConfig(ctx, session, params)
 	if verifyErr != nil {
-		safeMsg := fmt.Sprintf("verification failed: %s", sanitizeErrorWithCreds(verifyErr, creds))
+		safeMsg := fmt.Sprintf("verification failed: %s; router state must be re-read before any retry", sanitizeErrorWithCreds(verifyErr, creds))
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
 	}
 
@@ -492,18 +507,8 @@ func (e *CiscoIOSConfigureExecutor) verifyRunningConfig(ctx context.Context, ses
 	return observed, nil
 }
 
-// Retryable returns true only for transient network connection failures.
-func (e *CiscoIOSConfigureExecutor) Retryable(err error) bool {
-	if err == nil {
-		return false
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && (netErr.Timeout() || errors.Is(err, context.DeadlineExceeded)) {
-		return true
-	}
-	if errors.Is(err, ErrPromptTimeout) {
-		return true
-	}
+// Retryable always returns false because a failed command may have partially changed the router.
+func (e *CiscoIOSConfigureExecutor) Retryable(error) bool {
 	return false
 }
 

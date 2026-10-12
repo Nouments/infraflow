@@ -324,6 +324,9 @@ func (service *ExecutionService) validateRequest(request ExecutionRequest) ([]do
 		if input.MaxAttempts < 1 || input.MaxAttempts > maxExecutionAttempts || input.RetryInitialMillis < 0 || input.RetryInitialMillis > 30000 || input.RetryMaxMillis < 0 || input.RetryMaxMillis > 60000 || input.RetryInitialMillis > 0 && input.RetryMaxMillis == 0 || input.RetryMaxMillis > 0 && input.RetryInitialMillis > input.RetryMaxMillis {
 			return nil, "", fmt.Errorf("%w: retry policy is out of range", ErrInvalidExecution)
 		}
+		if input.Type == "cisco.ios.configure" && (input.MaxAttempts > 1 || input.RetryInitialMillis > 0 || input.RetryMaxMillis > 0) {
+			return nil, "", fmt.Errorf("%w: cisco.ios.configure does not allow automatic retries", ErrInvalidExecution)
+		}
 		parameters, err := normalizeExecutionJSON(input.Parameters, true)
 		if err != nil {
 			return nil, "", fmt.Errorf("%w: task parameters are unsafe or invalid", ErrInvalidExecution)

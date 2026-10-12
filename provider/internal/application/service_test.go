@@ -527,6 +527,26 @@ func TestExecutionServiceRetriesFailuresAndBlocksDependents(t *testing.T) {
 	}
 }
 
+func TestExecutionServiceRejectsCiscoAutomaticRetries(t *testing.T) {
+	executor := deterministicExecutionExecutor{
+		typeName: "cisco.ios.configure",
+		execute: func(context.Context, domain.ExecutionTask) (ports.ExecutionResult, error) {
+			return ports.ExecutionResult{Status: domain.ExecutionTaskSucceeded}, nil
+		},
+	}
+	service, _, _, _ := newPersistentExecutionService(t, []ports.ExecutionExecutor{executor}, 1)
+	_, _, err := service.Submit(context.Background(), "user-admin", "cisco-no-auto-retry", ExecutionRequest{
+		Tasks: []ExecutionTaskRequest{{
+			ID: "configure-router", Type: "cisco.ios.configure",
+			Parameters:  json.RawMessage(`{"configuration":true}`),
+			MaxAttempts: 2,
+		}},
+	})
+	if !errors.Is(err, ErrInvalidExecution) || !strings.Contains(err.Error(), "does not allow automatic retries") {
+		t.Fatalf("expected Cisco automatic retry policy rejection, got %v", err)
+	}
+}
+
 func TestExecutionServiceTimesOutNonCooperativeExecutor(t *testing.T) {
 	executor := deterministicExecutionExecutor{
 		typeName: "test.operation",
