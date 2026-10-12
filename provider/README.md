@@ -48,8 +48,8 @@ submitted YAML or bearer token.
 The admin-only `/api/v1/executions` API is separate from planning jobs. It
 persists generic scheduler-backed execution records, task attempts, results,
 errors, and transitions. Submission requires an `Idempotency-Key`; task types
-must have an explicitly registered executor. No operational executor is
-registered in the default Provider, so unsupported execution requests return
+must have an explicitly registered executor. The Provider registers the `artifact.verify`
+executor for read-only cryptographic artifact verification; unsupported execution requests return
 HTTP 409 and do not create an execution. Execution records can be inspected
 and cancelled by administrators via the web console and the Linux TUI.
 

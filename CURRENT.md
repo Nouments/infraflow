@@ -9,13 +9,14 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
 - Provider validation and deterministic planning are separate from generation and execution. Creating or retrying a job does not provision infrastructure.
 - Planning jobs are persisted as private JSON records; the authenticated API supports list, read, cancel, and retry within the implemented status rules.
 - A separate execution aggregate persists queued/running/succeeded/failed/cancelled/timed_out state, tasks, attempts, outputs, errors, actors, and transition history. It uses a typed executor port and the existing scheduler.
-- Admin HTTP routes submit with idempotency, list with filters/pagination, read attempts/results/events, and request cancellation. The default Provider registers no executor and rejects unsupported types instead of reporting a false success.
-- Artifact generation publishes deterministic, hash-verified catalog entries. Vendor artifacts remain marked unverified; execution and verification are not requested.
+- Admin HTTP routes submit with idempotency, list with filters/pagination, read attempts/results/events, and request cancellation. The Provider registers a single operational executor, `artifact.verify`, which performs read-only SHA-256 integrity verification of catalog-published provider artifacts; all unregistered or unsupported task types are rejected instead of reporting a false success.
+- Artifact generation publishes deterministic, hash-verified catalog entries. The `artifact.verify` task executor can cryptographically audit catalog artifacts in place without modifying files; deployment task execution on network devices (Cisco, MikroTik, FortiGate, Proxmox) is not implemented or validated.
 - The Agent downloads published artifacts, verifies the stream and content hashes, stores them locally, processes generic inventory/topology, and reports artifact-level outcomes.
 - The Agent has a local log outbox and can synchronize logs over the authenticated provider contract.
-- The scheduler implements dependency graphs, global concurrency, resource locks, cancellation, retries, and timeouts. Provider startup wires it to the persistent execution service; no device executor is registered.
+- The scheduler implements dependency graphs, global concurrency, resource locks, cancellation, retries, and timeouts. Provider startup wires it to the persistent execution service with `artifact.verify` as its sole registered executor; no device or network deployment executor is registered.
 - Bootstrap artifacts can be generated. Agent DHCPv4, read-only TFTP, and bootstrap HTTP servers are separate explicit commands; they are not started by the normal agent run. There is no DNS daemon.
 - Authenticated provider HTTP/gRPC APIs expose their existing planning, agent, event, and log records. The execution API is admin-only; administrators can inspect paginated execution lists, view task/attempt/error details, and request audited cancellation from both the web dashboard and the Linux TUI.
+- Verification evidence documented in this repository reflects automated unit and integration tests passing against simulated or local filesystem state; it is distinct from operational validation in a physical or virtual network lab, which remains a separate deployment gate.
 
 ## Evidence from Task 1 (Fiabilisation des états TUI et des contrôles locaux)
 
@@ -25,7 +26,7 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
     - Répertoire inexistant : `Absent` (`Répertoire inexistant (non initialisé sur le disque)`).
     - Chemin pointant vers un fichier : `Dégradé` (`Le chemin configuré pointe vers un fichier au lieu d'un répertoire`).
     - Répertoire inaccessible : `Inaccessible` (`Erreur d'accès / refusé`).
-    - Répertoire existant : `Opérationnel` avec mention `Accessible (N entrées stockées)`.
+    - Répertoire existant : `Accessible` (`Répertoire accessible en lecture ; capacité d'écriture non vérifiée`).
     - Intégrité : explicitement `Non auditée par le TUI (intégrité SHA256 validée par l'agent lors des réceptions gRPC)`.
 
 - **Sous-tâche B — Statut véridique des outils Ansible et Terraform** :

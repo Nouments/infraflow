@@ -36,11 +36,11 @@ The provider can also persist validated planning jobs and expose them through it
 
 The same API exposes a separate admin-only execution lifecycle at
 `/api/v1/executions`. It uses an idempotency key, persists task attempts and
-results, and is connected to the existing dependency scheduler. The default
-Provider registers no operational executor, so task types are rejected until
-an explicitly authorized executor is added. Execution is never inferred from
-planning or artifact generation; execution records can be inspected and cancelled
-by administrators via the web console and the Linux TUI.
+results, and is connected to the existing dependency scheduler. The Provider
+registers an explicitly authorized `artifact.verify` executor for read-only
+cryptographic artifact verification; unsupported task types are rejected. Execution
+is never inferred from planning or artifact generation; execution records can be
+inspected and cancelled by administrators via the web console and the Linux TUI.
 
 The provider HTTP API has two separate authentication domains. Agents continue
 to use the configured machine bearer token. Platform users use SQLite-backed

@@ -31,11 +31,13 @@ The provider currently implements:
 - local SQLite-backed user accounts, session management, and RBAC.
 
 The generic execution API is available at `/api/v1/executions`. The Provider
-registers an explicitly authorized `artifact.verify` task executor to perform
-read-only cryptographic verification of published artifacts against catalog manifests.
-Unregistered task types remain rejected. The execution lifecycle, attempts, and audit
-persistence are operational; network configuration deployment and device executors
-remain unimplemented.
+registers a single operational task executor, `artifact.verify`, to perform
+read-only cryptographic SHA-256 integrity verification of published artifacts against
+catalog manifests without modifying files or deploying network configurations.
+Unregistered or unsupported task types remain rejected. The execution lifecycle,
+attempts, results, and audit persistence are operational; network configuration
+deployment and device executors (Cisco, FortiGate, MikroTik, Proxmox) remain
+unimplemented and unverified.
 
 ### Agent
 
