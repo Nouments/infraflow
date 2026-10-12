@@ -550,6 +550,7 @@ func runTUI(arguments []string, stdout, stderr io.Writer) int {
 	caFile := flags.String("ca-file", "", "CA certificate file for the provider HTTPS API")
 	username := flags.String("username", "", "provider platform username")
 	passwordEnv := flags.String("password-env", "INFRAFLOW_TUI_PASSWORD", "environment variable containing the platform password")
+	configPath := flags.String("config", "", "optional agent YAML configuration file to inspect local agent state")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -562,12 +563,36 @@ func runTUI(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-agent: password environment variable %s is empty\n", *passwordEnv)
 		return 2
 	}
+	var agentInfo tui.AgentInfo
+	if *configPath != "" {
+		if cfg, err := config.Load(*configPath); err == nil {
+			agentInfo = tui.AgentInfo{
+				ID:              cfg.Agent.ID,
+				SiteID:          cfg.Agent.SiteID,
+				Capabilities:    cfg.Agent.Capabilities,
+				StateDirectory:  cfg.Agent.StateDirectory,
+				Configured:      true,
+				ConfigFile:      *configPath,
+				ProviderAddress: cfg.Provider.Address,
+				APIAddress:      cfg.Provider.APIAddress,
+				LogDirectory:    cfg.Logging.Directory,
+			}
+		}
+	} else if os.Getenv("INFRAFLOW_AGENT_ID") != "" {
+		agentInfo = tui.AgentInfo{
+			ID:              os.Getenv("INFRAFLOW_AGENT_ID"),
+			SiteID:          os.Getenv("INFRAFLOW_AGENT_SITE_ID"),
+			StateDirectory:  os.Getenv("INFRAFLOW_AGENT_DATA"),
+			Configured:      true,
+			ProviderAddress: *address,
+		}
+	}
 	client, err := providerhttp.NewUserClient(*address, *caFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 2
 	}
-	if err := tui.Run(context.Background(), os.Stdin, stdout, client, *username, password); err != nil {
+	if err := tui.RunWithAgent(context.Background(), os.Stdin, stdout, client, *username, password, agentInfo); err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 1
 	}

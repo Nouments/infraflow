@@ -82,6 +82,13 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	if !strings.Contains(asset.Body.String(), "cancelExecution") {
 		t.Fatal("console JavaScript must include execution cancellation logic")
 	}
+	cssAsset := fiberRequest(t, app, http.MethodGet, "/assets/app.css", nil, "")
+	if cssAsset.Code != http.StatusOK || !strings.Contains(cssAsset.Body.String(), "--canvas") {
+		t.Fatalf("console CSS was not served: %d %q", cssAsset.Code, cssAsset.Body.String())
+	}
+	if !strings.Contains(cssAsset.Body.String(), "--line") || !strings.Contains(cssAsset.Body.String(), "@media (max-width:") {
+		t.Fatal("console CSS must declare design tokens and responsive media queries")
+	}
 	streamAsset := fiberRequest(t, app, http.MethodGet, "/assets/log-stream.js", nil, "")
 	if streamAsset.Code != http.StatusOK || !strings.Contains(streamAsset.Body.String(), "decodeFrame") {
 		t.Fatalf("technical log stream JavaScript was not served: %d %q", streamAsset.Code, streamAsset.Body.String())

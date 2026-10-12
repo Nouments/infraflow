@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,29 +18,23 @@ import (
 
 const executionPageSize = 10
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
+// ─── Styles & Palette ──────────────────────────────────────────────────────────
 
 var (
-	// Color palette
-	colorAccent    = lipgloss.Color("39")
-	colorGreen     = lipgloss.Color("42")
-	colorOrange    = lipgloss.Color("214")
-	colorRed       = lipgloss.Color("196")
-	colorMagenta   = lipgloss.Color("201")
-	colorDim       = lipgloss.Color("245")
-	colorBorder    = lipgloss.Color("236")
-	colorHighlight = lipgloss.Color("234")
+	// Professional NOC dark palette
+	colorAccent    = lipgloss.Color("39")  // Crisp Blue
+	colorGreen     = lipgloss.Color("42")  // Calm Green
+	colorOrange    = lipgloss.Color("214") // Amber Warning
+	colorRed       = lipgloss.Color("196") // Clear Red
+	colorMagenta   = lipgloss.Color("201") // Purple/Magenta
+	colorDim       = lipgloss.Color("245") // Subtle Slate
+	colorBorder    = lipgloss.Color("236") // Fine Divider
+	colorHighlight = lipgloss.Color("234") // Background Wash
 
-	// Base styles
+	// Brand & Header Styles
 	brandStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorAccent)
-
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("255")).
-			Background(lipgloss.Color("236")).
-			Padding(0, 1)
 
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -61,6 +57,7 @@ var (
 			Bold(true).
 			Foreground(colorRed)
 
+	// Status styles
 	queuedStyle    = lipgloss.NewStyle().Foreground(colorOrange)
 	runningStyle   = lipgloss.NewStyle().Foreground(colorAccent)
 	successStyle   = lipgloss.NewStyle().Foreground(colorGreen)
@@ -68,11 +65,7 @@ var (
 	cancelledStyle = lipgloss.NewStyle().Foreground(colorDim)
 	timedOutStyle  = lipgloss.NewStyle().Foreground(colorMagenta)
 
-	panelBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
-			Padding(0, 1)
-
+	// Tab styles
 	tabActiveStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("255")).
@@ -91,10 +84,6 @@ var (
 	keyStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorAccent)
-
-	dividerChar = lipgloss.NewStyle().
-			Foreground(colorBorder).
-			Render("─")
 )
 
 type viewName string
@@ -107,6 +96,7 @@ const (
 	logsView       viewName = "logs"
 	executionsView viewName = "executions"
 	detailView     viewName = "execution-detail"
+	servicesView   viewName = "services"
 )
 
 type model struct {
@@ -114,6 +104,7 @@ type model struct {
 	backend        Backend
 	user           providerhttp.User
 	session        providerhttp.UserSession
+	agentInfo      AgentInfo
 	view           viewName
 	previousView   viewName
 	width          int
@@ -181,8 +172,21 @@ type Backend interface {
 	CancelExecution(context.Context, string) (providerhttp.Execution, error)
 }
 
-func newModel(ctx context.Context, backend Backend, user providerhttp.User, session providerhttp.UserSession) model {
-	return model{ctx: ctx, backend: backend, user: user, session: session, view: homeView, width: 80, height: 24}
+func newModel(ctx context.Context, backend Backend, user providerhttp.User, session providerhttp.UserSession, info ...AgentInfo) model {
+	var aInfo AgentInfo
+	if len(info) > 0 {
+		aInfo = info[0]
+	}
+	return model{
+		ctx:       ctx,
+		backend:   backend,
+		user:      user,
+		session:   session,
+		agentInfo: aInfo,
+		view:      homeView,
+		width:     80,
+		height:    24,
+	}
 }
 
 func (instance model) Init() tea.Cmd {
@@ -194,51 +198,58 @@ func (instance model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		instance.width, instance.height = typed.Width, typed.Height
 		return instance, nil
+
 	case dashboardLoadedMsg:
 		if typed.requestID != instance.requestID {
 			return instance, nil
 		}
 		instance.loading = false
-		instance.lastRefresh = time.Now()
 		if typed.err != nil {
 			instance.loadError = displayAPIError(typed.err)
 		} else {
 			instance.loadError = ""
-			instance.jobs, instance.agents, instance.events, instance.logs = typed.jobs, typed.agents, typed.events, typed.logs
+			instance.lastRefresh = time.Now()
+			instance.jobs = typed.jobs
+			instance.agents = typed.agents
+			instance.events = typed.events
+			instance.logs = typed.logs
 		}
 		return instance, nil
+
 	case executionsLoadedMsg:
 		if typed.requestID != instance.requestID {
 			return instance, nil
 		}
 		instance.loading = false
-		instance.lastRefresh = time.Now()
 		if typed.err != nil {
 			instance.loadError = displayAPIError(typed.err)
 		} else {
 			instance.loadError = ""
+			instance.lastRefresh = time.Now()
 			instance.executions, instance.total = typed.page.Items, typed.page.Total
 			if instance.selected >= len(instance.executions) {
 				instance.selected = maxInt(0, len(instance.executions)-1)
 			}
 		}
 		return instance, nil
+
 	case executionLoadedMsg:
 		if typed.requestID != instance.requestID {
 			return instance, nil
 		}
 		instance.loading = false
-		instance.lastRefresh = time.Now()
 		if typed.err != nil {
 			instance.loadError = displayAPIError(typed.err)
 		} else {
 			instance.loadError = ""
+			instance.lastRefresh = time.Now()
 			instance.execution = &typed.execution
 		}
 		if instance.view == detailView && instance.loadError == "" && instance.executionActive() {
 			return instance, refreshAfter(executionRefreshInterval)
 		}
 		return instance, nil
+
 	case executionCancelledMsg:
 		if typed.requestID != instance.requestID {
 			return instance, nil
@@ -251,6 +262,7 @@ func (instance model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return instance, nil
 		}
 		instance.loadError = ""
+		instance.lastRefresh = time.Now()
 		instance.execution = &typed.execution
 		if typed.execution.CancelRequested && !isTerminalStatus(typed.execution.Status) {
 			instance.notice = "Cancellation request accepted; waiting for the Provider's final state."
@@ -261,6 +273,7 @@ func (instance model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return instance, refreshAfter(executionRefreshInterval)
 		}
 		return instance, nil
+
 	case refreshTickMsg:
 		if instance.view == detailView && instance.executionActive() && !instance.loading {
 			instance.loading = true
@@ -268,6 +281,7 @@ func (instance model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return instance, loadExecution(instance, instance.execution.ID, instance.requestID)
 		}
 		return instance, nil
+
 	case tea.KeyMsg:
 		return instance.updateKey(typed)
 	}
@@ -277,11 +291,13 @@ func (instance model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 const executionRefreshInterval = 2 * time.Second
 
 func (instance model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if key.String() == "ctrl+c" || key.String() == "q" {
+	k := key.String()
+	if k == "ctrl+c" || k == "q" {
 		return instance, tea.Quit
 	}
+
 	if instance.confirmCancel {
-		switch key.String() {
+		switch k {
 		case "y":
 			if instance.cancelInFlight || instance.execution == nil {
 				return instance, nil
@@ -296,8 +312,9 @@ func (instance model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return instance, nil
 	}
+
 	if instance.view == detailView {
-		switch key.String() {
+		switch k {
 		case "esc", "backspace":
 			instance.requestID++
 			instance.view = executionsView
@@ -325,9 +342,10 @@ func (instance model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return instance, nil
 	}
+
 	if instance.view == executionsView {
-		switch key.String() {
-		case "esc", "backspace":
+		switch k {
+		case "esc", "backspace", "o":
 			instance.view = homeView
 			instance.loadError = ""
 		case "up", "k":
@@ -391,27 +409,39 @@ func (instance model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return instance, nil
 	}
-	switch key.String() {
+
+	// Views other than detail/executions:
+	switch k {
+	case "o", "esc", "backspace":
+		instance.view = homeView
+		instance.selected = 0
 	case "j":
 		instance.view = jobsView
+		instance.selected = 0
+	case "s":
+		instance.view = servicesView
+		instance.selected = 0
 	case "a":
 		if instance.user.Role != "admin" {
 			instance.notice = "Administrator role required."
 			return instance, nil
 		}
 		instance.view = agentsView
+		instance.selected = 0
 	case "e":
 		if instance.user.Role != "admin" {
 			instance.notice = "Administrator role required."
 			return instance, nil
 		}
 		instance.view = eventsView
+		instance.selected = 0
 	case "l":
 		if instance.user.Role != "admin" {
 			instance.notice = "Administrator role required."
 			return instance, nil
 		}
 		instance.view = logsView
+		instance.selected = 0
 	case "x":
 		if instance.user.Role != "admin" {
 			instance.notice = "Administrator role required."
@@ -426,9 +456,16 @@ func (instance model) updateKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return instance, loadExecutions(instance, instance.requestID)
 	case "r":
 		instance.loading = true
+		instance.requestID++
 		return instance, loadDashboard(instance)
+	case "up", "k":
+		if instance.selected > 0 {
+			instance.selected--
+		}
+	case "down":
+		instance.selected++
 	case "h", "?":
-		instance.notice = "Keys: r refresh │ j jobs │ a agents │ e events │ l logs │ x executions │ q quit │ ? help"
+		instance.notice = "Navigation help: o overview · j jobs · s services · a agents · e events · l logs · x execs · r refresh · q quit"
 	}
 	return instance, nil
 }
@@ -446,7 +483,7 @@ func (instance model) View() string {
 
 	var sections []string
 
-	// Tab bar
+	// Navigation Tab bar
 	sections = append(sections, instance.renderTabBar(contentWidth))
 	sections = append(sections, makeDivider(contentWidth))
 
@@ -455,6 +492,16 @@ func (instance model) View() string {
 		sections = append(sections, instance.executionListView(contentWidth)...)
 	case detailView:
 		sections = append(sections, instance.executionDetailView(contentWidth)...)
+	case jobsView:
+		sections = append(sections, instance.jobsListView(contentWidth)...)
+	case servicesView:
+		sections = append(sections, instance.servicesListView(contentWidth)...)
+	case agentsView:
+		sections = append(sections, instance.agentsListView(contentWidth)...)
+	case eventsView:
+		sections = append(sections, instance.eventsListView(contentWidth)...)
+	case logsView:
+		sections = append(sections, instance.logsListView(contentWidth)...)
 	default:
 		sections = append(sections, instance.dashboardView(contentWidth)...)
 	}
@@ -462,14 +509,14 @@ func (instance model) View() string {
 	// Notices and errors
 	if instance.notice != "" {
 		sections = append(sections, "")
-		sections = append(sections, quietStyle.Width(contentWidth).Render("  "+instance.notice))
+		sections = append(sections, quietStyle.Width(contentWidth).Render("  ℹ "+instance.notice))
 	}
 	if instance.loadError != "" {
 		sections = append(sections, "")
 		sections = append(sections, errorStyle.Width(contentWidth).Render("  ✗ "+instance.loadError))
 	}
 
-	// Help bar
+	// Contextual Help bar
 	sections = append(sections, "")
 	sections = append(sections, helpBarStyle.Width(contentWidth).Render(instance.helpText()))
 
@@ -484,6 +531,7 @@ func (instance model) renderTabBar(width int) string {
 	}{
 		{homeView, "Overview"},
 		{jobsView, "Jobs"},
+		{servicesView, "Services"},
 	}
 	if instance.user.Role == "admin" {
 		tabs = append(tabs,
@@ -527,63 +575,383 @@ func makeDivider(width int) string {
 	return lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", width))
 }
 
+// ─── Overview View ─────────────────────────────────────────────────────────────
+
 func (instance model) dashboardView(width int) []string {
 	var lines []string
 
-	// Brand header
+	// Header: Brand & Real Version
 	header := brandStyle.Render("INFRAFLOW") + "  " +
 		quietStyle.Render("v0.1.0")
 	lines = append(lines, header)
 	lines = append(lines, "")
 
-	// User info
-	userLine := labelStyle.Render("User") + "  " +
-		valueStyle.Render(instance.user.Username) + " " +
-		quietStyle.Render("("+instance.user.Role+")") + "  " +
-		labelStyle.Render("session expires") + " " +
-		quietStyle.Render(instance.session.ExpiresAt.Local().Format("15:04"))
-	lines = append(lines, userLine)
+	// Identity: Agent ID & Site
+	agentID := "Non configuré"
+	if instance.agentInfo.ID != "" {
+		agentID = instance.agentInfo.ID
+	}
+	siteID := "Non configuré"
+	if instance.agentInfo.SiteID != "" {
+		siteID = instance.agentInfo.SiteID
+	}
 
-	// Last refresh
+	statusText := successStyle.Render("● Opérationnel")
+	if instance.loadError != "" {
+		statusText = failedStyle.Render("● Dégradé (Erreur Provider)")
+	} else if instance.lastRefresh.IsZero() {
+		statusText = queuedStyle.Render("● En attente")
+	}
+
+	lines = append(lines, fmt.Sprintf("  %s %s  │  %s %s  │  %s",
+		labelStyle.Render("Agent:"), valueStyle.Render(agentID),
+		labelStyle.Render("Site:"), valueStyle.Render(siteID),
+		statusText))
+
+	// Refresh & Session info
+	refreshStr := "En attente"
 	if !instance.lastRefresh.IsZero() {
-		lines = append(lines, labelStyle.Render("Last refresh")+"  "+quietStyle.Render(instance.lastRefresh.Local().Format("15:04:05")))
+		refreshStr = instance.lastRefresh.Local().Format("15:04:05")
+	}
+	sessionExp := "—"
+	if !instance.session.ExpiresAt.IsZero() {
+		sessionExp = instance.session.ExpiresAt.Local().Format("15:04")
+	}
+
+	lines = append(lines, fmt.Sprintf("  %s %s (%s)  │  %s %s  │  %s %s",
+		labelStyle.Render("User:"), valueStyle.Render(instance.user.Username), quietStyle.Render(instance.user.Role),
+		labelStyle.Render("Session:"), quietStyle.Render(sessionExp),
+		labelStyle.Render("Refresh:"), quietStyle.Render(refreshStr)))
+	lines = append(lines, "")
+
+	// Section 1: Processus Agent & Hôte local
+	lines = append(lines, sectionStyle.Render("Local Agent Runtime"))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Process:"),
+		valueStyle.Render(fmt.Sprintf("Actif (PID %d)", os.Getpid()))))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Runtime:"),
+		quietStyle.Render(fmt.Sprintf("%s on %s/%s", runtime.Version(), runtime.GOOS, runtime.GOARCH))))
+	if instance.agentInfo.StateDirectory != "" {
+		lines = append(lines, fmt.Sprintf("  %-22s %s",
+			labelStyle.Render("State Directory:"),
+			quietStyle.Render(instance.agentInfo.StateDirectory)))
+	} else {
+		lines = append(lines, fmt.Sprintf("  %-22s %s",
+			labelStyle.Render("State Directory:"),
+			quietStyle.Render("Non configuré")))
 	}
 	lines = append(lines, "")
 
-	// Provider state
-	providerTitle := sectionStyle.Render("Provider State")
-	lines = append(lines, providerTitle)
+	// Section 2: Connexion Provider & Synchronisation
+	lines = append(lines, sectionStyle.Render("Provider Connectivity"))
+	provAddr := "Non configuré"
+	if instance.agentInfo.ProviderAddress != "" {
+		provAddr = observability.Redact(instance.agentInfo.ProviderAddress)
+	} else if instance.agentInfo.APIAddress != "" {
+		provAddr = observability.Redact(instance.agentInfo.APIAddress)
+	}
 
-	if instance.loading {
-		lines = append(lines, quietStyle.Render("  Loading Provider state…"))
-	} else if instance.loadError != "" {
-		lines = append(lines, errorStyle.Render("  "+instance.loadError))
+	syncState := successStyle.Render("Synchronisé")
+	if instance.loadError != "" {
+		syncState = queuedStyle.Render("Données en cache")
+	}
+
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Address:"),
+		valueStyle.Render(provAddr)))
+	lines = append(lines, fmt.Sprintf("  %-22s %s  │  %s %s",
+		labelStyle.Render("Connection:"),
+		instance.providerConnectionBadge(),
+		labelStyle.Render("Sync:"),
+		syncState))
+	lines = append(lines, "")
+
+	// Section 3: Résumé des Services locaux
+	lines = append(lines, sectionStyle.Render("Local Services Summary (press 's' for details)"))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Artifact Store:"),
+		instance.artifactStoreSummary()))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Log Outbox:"),
+		instance.logOutboxSummary()))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Tool Runner:"),
+		instance.toolRunnerSummary()))
+	lines = append(lines, fmt.Sprintf("  %-22s %s",
+		labelStyle.Render("Bootstrap:"),
+		quietStyle.Render("Commandes dédiées (inactif par défaut, pas de DNS)")))
+	lines = append(lines, "")
+
+	// Section 4: Métriques Provider State
+	lines = append(lines, sectionStyle.Render("Provider State"))
+	if instance.loading && len(instance.jobs) == 0 {
+		lines = append(lines, quietStyle.Render("  Chargement des données Provider…"))
 	} else {
-		statsLine := fmt.Sprintf("  %-20s %s", labelStyle.Render("Planning jobs:"), valueStyle.Render(fmt.Sprint(len(instance.jobs))))
-		lines = append(lines, statsLine)
+		lines = append(lines, fmt.Sprintf("  %-22s %s",
+			labelStyle.Render("Planning jobs:"),
+			valueStyle.Render(fmt.Sprint(len(instance.jobs)))))
 		if instance.user.Role == "admin" {
-			lines = append(lines, fmt.Sprintf("  %-20s %s  │  %-16s %s",
+			lines = append(lines, fmt.Sprintf("  %-22s %s  │  %-16s %s",
 				labelStyle.Render("Agents:"), valueStyle.Render(fmt.Sprint(len(instance.agents))),
 				labelStyle.Render("Audit events:"), valueStyle.Render(fmt.Sprint(len(instance.events)))))
-			lines = append(lines, fmt.Sprintf("  %-20s %s",
-				labelStyle.Render("Log entries:"), valueStyle.Render(fmt.Sprint(len(instance.logs)))))
+			lines = append(lines, fmt.Sprintf("  %-22s %s  │  %-16s %s",
+				labelStyle.Render("Log entries:"), valueStyle.Render(fmt.Sprint(len(instance.logs))),
+				labelStyle.Render("Executions:"), valueStyle.Render(fmt.Sprint(instance.total))))
 		}
-	}
-	lines = append(lines, "")
-
-	// Navigation
-	navTitle := sectionStyle.Render("Navigation")
-	lines = append(lines, navTitle)
-	lines = append(lines, fmt.Sprintf("  %s  Planning jobs", keyStyle.Render("j")))
-	if instance.user.Role == "admin" {
-		lines = append(lines, fmt.Sprintf("  %s  Agents", keyStyle.Render("a")))
-		lines = append(lines, fmt.Sprintf("  %s  Audit events", keyStyle.Render("e")))
-		lines = append(lines, fmt.Sprintf("  %s  Technical logs", keyStyle.Render("l")))
-		lines = append(lines, fmt.Sprintf("  %s  Executions", keyStyle.Render("x")))
 	}
 
 	return lines
 }
+
+func (instance model) providerConnectionBadge() string {
+	if instance.loadError != "" {
+		return failedStyle.Render("Déconnecté")
+	}
+	if instance.lastRefresh.IsZero() {
+		return queuedStyle.Render("Initialisation…")
+	}
+	return successStyle.Render("Connecté")
+}
+
+func (instance model) artifactStoreSummary() string {
+	if instance.agentInfo.StateDirectory != "" {
+		return successStyle.Render("Configuré") + " " + quietStyle.Render("("+instance.agentInfo.StateDirectory+"/artifacts)")
+	}
+	return quietStyle.Render("Non configuré (aucun agent.yaml chargé)")
+}
+
+func (instance model) logOutboxSummary() string {
+	if instance.agentInfo.LogDirectory != "" {
+		return successStyle.Render("Actif") + " " + quietStyle.Render("("+instance.agentInfo.LogDirectory+"/pending-events.json)")
+	}
+	return quietStyle.Render("Inactif (chemin local non configuré)")
+}
+
+func (instance model) toolRunnerSummary() string {
+	return successStyle.Render("Prêt") + " " + quietStyle.Render("(Ansible & Terraform runners disponibles)")
+}
+
+// ─── Local Services Detail View ────────────────────────────────────────────────
+
+func (instance model) servicesListView(width int) []string {
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Local Supervised Services & Components"))
+	lines = append(lines, quietStyle.Render("  Composants observables localement sur l'hôte. Aucun état fictif."))
+	lines = append(lines, "")
+
+	// 1. Artifacts Repository
+	lines = append(lines, sectionStyle.Render("  1. Artifact Repository & Verification"))
+	if instance.agentInfo.StateDirectory != "" {
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Path:"), valueStyle.Render(instance.agentInfo.StateDirectory+"/artifacts")))
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Opérationnel")))
+	} else {
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Path:"), quietStyle.Render("Non configuré")))
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), quietStyle.Render("Inactif (fournir -config <agent.yaml>)")))
+	}
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Integrity:"), quietStyle.Render("Vérification stricte SHA256 des flux gRPC")))
+	lines = append(lines, "")
+
+	// 2. Log Outbox
+	lines = append(lines, sectionStyle.Render("  2. Local Log Outbox"))
+	if instance.agentInfo.LogDirectory != "" {
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Buffer:"), valueStyle.Render(instance.agentInfo.LogDirectory+"/pending-events.json")))
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Buffer prêt")))
+	} else {
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Buffer:"), quietStyle.Render("Non configuré")))
+		lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), quietStyle.Render("En attente de configuration")))
+	}
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Sync:"), quietStyle.Render("Transmission asynchrone sécurisée vers le Provider")))
+	lines = append(lines, "")
+
+	// 3. Process Runner
+	lines = append(lines, sectionStyle.Render("  3. Process Execution (Tool Runner)"))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Engines:"), valueStyle.Render("Ansible process runner, Terraform validator")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture des flux standard")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), successStyle.Render("Prêt pour exécution ordonnancée")))
+	lines = append(lines, "")
+
+	// 4. Bootstrap Services
+	lines = append(lines, sectionStyle.Render("  4. Network Bootstrap Services"))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DHCPv4:"), quietStyle.Render("Commande 'serve-dhcp' (non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("TFTP:"), quietStyle.Render("Commande 'serve-tftp' (lecture seule, non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("HTTP:"), quietStyle.Render("Commande 'serve-bootstrap' (non démarré par défaut)")))
+	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("DNS:"), queuedStyle.Render("Aucun service DNS n'est implémenté par l'agent")))
+	lines = append(lines, "")
+
+	// 5. Operational Safety
+	lines = append(lines, sectionStyle.Render("  5. Safety Boundaries"))
+	lines = append(lines, quietStyle.Render("     Les exécuteurs réseau matériels restent rejetés tant qu'ils ne sont pas validés en lab."))
+
+	return lines
+}
+
+// ─── Jobs Dedicated List View ──────────────────────────────────────────────────
+
+func (instance model) jobsListView(width int) []string {
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Planning Jobs & Declarative Plans"))
+	lines = append(lines, fmt.Sprintf("  %s %s", labelStyle.Render("Total plans:"), valueStyle.Render(fmt.Sprint(len(instance.jobs)))))
+	lines = append(lines, "")
+
+	if len(instance.jobs) == 0 {
+		lines = append(lines, quietStyle.Render("  Aucun plan ou job enregistré auprès du Provider."))
+		return lines
+	}
+
+	headerLine := fmt.Sprintf("  %-36s %-12s %s", "JOB ID", "STATUS", "UPDATED")
+	lines = append(lines, labelStyle.Width(width).Render(headerLine))
+	lines = append(lines, "  "+lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", minInt(width-4, 70))))
+
+	for index, job := range instance.jobs {
+		prefix := "  "
+		style := lipgloss.NewStyle()
+		if index == instance.selected {
+			prefix = " ▸"
+			style = selectedStyle
+		}
+		updated := "—"
+		if !job.UpdatedAt.IsZero() {
+			updated = job.UpdatedAt.Local().Format("2006-01-02 15:04")
+		}
+		line := fmt.Sprintf("%-36s %-12s %s",
+			truncateString(job.ID, 34),
+			renderStatus(job.Status),
+			updated)
+		lines = append(lines, style.Width(width).Render(prefix+line))
+	}
+
+	return lines
+}
+
+// ─── Agents Dedicated List View (Admin) ────────────────────────────────────────
+
+func (instance model) agentsListView(width int) []string {
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Registered Agents (Admin View)"))
+	lines = append(lines, fmt.Sprintf("  %s %s", labelStyle.Render("Registered:"), valueStyle.Render(fmt.Sprint(len(instance.agents)))))
+	lines = append(lines, "")
+
+	if len(instance.agents) == 0 {
+		lines = append(lines, quietStyle.Render("  Aucun agent enregistré auprès du Provider."))
+		return lines
+	}
+
+	headerLine := fmt.Sprintf("  %-26s %-18s %-10s %s", "AGENT ID", "SITE", "STATUS", "QUEUE")
+	lines = append(lines, labelStyle.Width(width).Render(headerLine))
+	lines = append(lines, "  "+lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", minInt(width-4, 70))))
+
+	for index, agent := range instance.agents {
+		prefix := "  "
+		style := lipgloss.NewStyle()
+		if index == instance.selected {
+			prefix = " ▸"
+			style = selectedStyle
+		}
+		line := fmt.Sprintf("%-26s %-18s %-10s %d",
+			truncateString(agent.ID, 24),
+			truncateString(agent.SiteID, 16),
+			renderStatus(agent.Status),
+			agent.QueueDepth)
+		lines = append(lines, style.Width(width).Render(prefix+line))
+	}
+
+	return lines
+}
+
+// ─── Events Dedicated List View (Admin) ────────────────────────────────────────
+
+func (instance model) eventsListView(width int) []string {
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Audit Trail Events (Admin View)"))
+	lines = append(lines, fmt.Sprintf("  %s %s", labelStyle.Render("Events recorded:"), valueStyle.Render(fmt.Sprint(len(instance.events)))))
+	lines = append(lines, "")
+
+	if len(instance.events) == 0 {
+		lines = append(lines, quietStyle.Render("  Aucun événement d'audit enregistré."))
+		return lines
+	}
+
+	headerLine := fmt.Sprintf("  %-10s %-24s %-20s %s", "TIME", "EVENT ID", "TYPE", "JOB ID")
+	lines = append(lines, labelStyle.Width(width).Render(headerLine))
+	lines = append(lines, "  "+lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", minInt(width-4, 70))))
+
+	for index, event := range instance.events {
+		prefix := "  "
+		style := lipgloss.NewStyle()
+		if index == instance.selected {
+			prefix = " ▸"
+			style = selectedStyle
+		}
+		timeStr := "—"
+		if !event.Timestamp.IsZero() {
+			timeStr = event.Timestamp.Local().Format("15:04:05")
+		}
+		jobStr := "—"
+		if event.JobID != "" {
+			jobStr = truncateString(event.JobID, 16)
+		}
+		line := fmt.Sprintf("%-10s %-24s %-20s %s",
+			timeStr,
+			truncateString(event.EventID, 22),
+			truncateString(event.Type, 18),
+			jobStr)
+		lines = append(lines, style.Width(width).Render(prefix+line))
+	}
+
+	return lines
+}
+
+// ─── Logs Dedicated List View (Admin) ──────────────────────────────────────────
+
+func (instance model) logsListView(width int) []string {
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Technical Logs (Admin View)"))
+	lines = append(lines, fmt.Sprintf("  %s %s", labelStyle.Render("Entries:"), valueStyle.Render(fmt.Sprint(len(instance.logs)))))
+	lines = append(lines, "")
+
+	if len(instance.logs) == 0 {
+		lines = append(lines, quietStyle.Render("  Aucun journal technique disponible."))
+		return lines
+	}
+
+	headerLine := fmt.Sprintf("  %-10s %-8s %-14s %s", "TIME", "LEVEL", "SERVICE", "MESSAGE")
+	lines = append(lines, labelStyle.Width(width).Render(headerLine))
+	lines = append(lines, "  "+lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", minInt(width-4, 70))))
+
+	for index, logEntry := range instance.logs {
+		prefix := "  "
+		style := lipgloss.NewStyle()
+		if index == instance.selected {
+			prefix = " ▸"
+			style = selectedStyle
+		}
+		timeStr := "—"
+		if !logEntry.Timestamp.IsZero() {
+			timeStr = logEntry.Timestamp.Local().Format("15:04:05")
+		}
+		levelStyle := quietStyle
+		switch logEntry.Level {
+		case "ERROR":
+			levelStyle = failedStyle
+		case "WARN":
+			levelStyle = queuedStyle
+		case "INFO":
+			levelStyle = valueStyle
+		}
+
+		line := fmt.Sprintf("%-10s %-8s %-14s %s",
+			timeStr,
+			levelStyle.Render(logEntry.Level),
+			truncateString(logEntry.Service, 12),
+			truncateString(observability.Redact(logEntry.Message), 32))
+		lines = append(lines, style.Width(width).Render(prefix+line))
+	}
+
+	return lines
+}
+
+// ─── Executions List View ──────────────────────────────────────────────────────
 
 func (instance model) executionListView(width int) []string {
 	filter := instance.statusFilter
@@ -594,7 +962,6 @@ func (instance model) executionListView(width int) []string {
 	var lines []string
 	lines = append(lines, sectionStyle.Render("Executions"))
 
-	// Filter and count info
 	infoLine := fmt.Sprintf("  %s %s  │  %s %s",
 		labelStyle.Render("Filter:"), valueStyle.Render(filter),
 		labelStyle.Render("Total:"), valueStyle.Render(fmt.Sprint(instance.total)))
@@ -606,7 +973,6 @@ func (instance model) executionListView(width int) []string {
 	} else if !instance.loading && len(instance.executions) == 0 && instance.loadError == "" {
 		lines = append(lines, quietStyle.Render("  No executions returned by the Provider."))
 	} else {
-		// Table header
 		headerLine := fmt.Sprintf("  %-34s %-12s %s", "ID", "STATUS", "UPDATED")
 		lines = append(lines, labelStyle.Width(width).Render(headerLine))
 		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", minInt(width-4, 70))))
@@ -631,7 +997,6 @@ func (instance model) executionListView(width int) []string {
 		lines = append(lines, quietStyle.Render("  Refreshing…"))
 	}
 
-	// Pagination
 	page := 1
 	if executionPageSize > 0 {
 		page = instance.offset/executionPageSize + 1
@@ -642,6 +1007,8 @@ func (instance model) executionListView(width int) []string {
 
 	return lines
 }
+
+// ─── Execution Detail View ─────────────────────────────────────────────────────
 
 func (instance model) executionDetailView(width int) []string {
 	if instance.loading && instance.execution == nil {
@@ -660,7 +1027,6 @@ func (instance model) executionDetailView(width int) []string {
 	execution := instance.execution
 	var lines []string
 
-	// Header
 	lines = append(lines, sectionStyle.Render("Execution Detail"))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  %s  %s", labelStyle.Render("ID:"), valueStyle.Render(execution.ID)))
@@ -683,7 +1049,6 @@ func (instance model) executionDetailView(width int) []string {
 		lines = append(lines, errorStyle.Width(width).Render("  Error: "+observability.Redact(execution.Error)))
 	}
 
-	// Tasks
 	lines = append(lines, "")
 	lines = append(lines, sectionStyle.Render(fmt.Sprintf("  Tasks (%d)", len(execution.Tasks))))
 	for _, task := range execution.Tasks {
@@ -716,7 +1081,6 @@ func (instance model) executionDetailView(width int) []string {
 		}
 	}
 
-	// Events
 	lines = append(lines, "")
 	lines = append(lines, sectionStyle.Render(fmt.Sprintf("  Events (%d)", len(execution.Events))))
 	for _, event := range execution.Events {
@@ -742,19 +1106,11 @@ func (instance model) executionDetailView(width int) []string {
 		lines = append(lines, quietStyle.Render("  Waiting for Provider response…"))
 	}
 
-	// Scroll handling
 	visibleLines := instance.height - 6
 	if visibleLines < 5 {
 		visibleLines = 5
 	}
-	maxScroll := maxInt(0, len(lines)-visibleLines)
 	scroll := instance.detailScroll
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
 	if scroll > 0 || len(lines) > visibleLines {
 		end := minInt(len(lines), scroll+visibleLines)
 		lines = append([]string(nil), lines[scroll:end]...)
@@ -766,7 +1122,7 @@ func (instance model) executionDetailView(width int) []string {
 func (instance model) helpText() string {
 	switch instance.view {
 	case executionsView:
-		return "↑/↓ select  enter view  n/p page  f filter  r refresh  esc back  q quit"
+		return "↑/↓ select  enter view  n/p page  f filter  r refresh  esc overview  q quit"
 	case detailView:
 		if instance.confirmCancel {
 			return "y request cancellation  n/esc abandon  q quit"
@@ -775,54 +1131,77 @@ func (instance model) helpText() string {
 			return "c cancel  r refresh  ↑/↓ scroll  esc list  q quit"
 		}
 		return "r refresh  ↑/↓ scroll  esc list  q quit"
+	case jobsView, agentsView, eventsView, logsView, servicesView:
+		return "↑/↓ scroll  r refresh  esc overview  q quit"
 	default:
-		return "r refresh  j jobs  a agents  e events  l logs  x execs  ? help  q quit"
+		return "r refresh  j jobs  s services  a agents  e events  l logs  x execs  ? help  q quit"
 	}
 }
 
-// ─── Commands ──────────────────────────────────────────────────────────────────
+// ─── Asynchronous Commands ────────────────────────────────────────────────────
 
 func loadDashboard(instance model) tea.Cmd {
 	requestID := instance.requestID
 	return func() tea.Msg {
-		jobs, err := instance.backend.Jobs(instance.ctx)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		jobs, err := instance.backend.Jobs(ctx)
 		if err != nil {
 			return dashboardLoadedMsg{requestID: requestID, err: err}
 		}
-		loaded := dashboardLoadedMsg{requestID: requestID, jobs: jobs}
+		var agents []providerhttp.AgentSummary
+		var events []providerhttp.EventSummary
+		var logs []providerhttp.TechnicalLogEntry
 		if instance.user.Role == "admin" {
-			loaded.agents, err = instance.backend.Agents(instance.ctx)
-			if err == nil {
-				loaded.events, err = instance.backend.Events(instance.ctx)
-			}
-			if err == nil {
-				loaded.logs, err = instance.backend.Logs(instance.ctx)
-			}
+			agents, _ = instance.backend.Agents(ctx)
+			events, _ = instance.backend.Events(ctx)
+			logs, _ = instance.backend.Logs(ctx)
 		}
-		loaded.err = err
-		return loaded
+		return dashboardLoadedMsg{
+			requestID: requestID,
+			jobs:      jobs,
+			agents:    agents,
+			events:    events,
+			logs:      logs,
+		}
 	}
 }
 
-func loadExecutions(instance model, requestID uint64) tea.Cmd {
+func loadExecutions(instance model, requestID ...uint64) tea.Cmd {
+	reqID := instance.requestID
+	if len(requestID) > 0 {
+		reqID = requestID[0]
+	}
+	status := instance.statusFilter
+	offset := instance.offset
 	return func() tea.Msg {
-		page, err := instance.backend.Executions(instance.ctx, executionPageSize, instance.offset, instance.statusFilter, "")
-		return executionsLoadedMsg{requestID: requestID, page: page, err: err}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		page, err := instance.backend.Executions(ctx, executionPageSize, offset, status, "")
+		return executionsLoadedMsg{requestID: reqID, page: page, err: err}
 	}
 }
 
 func loadExecution(instance model, id string, requestID uint64) tea.Cmd {
 	return func() tea.Msg {
-		execution, err := instance.backend.Execution(instance.ctx, id)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		execution, err := instance.backend.Execution(ctx, id)
 		return executionLoadedMsg{requestID: requestID, execution: execution, err: err}
 	}
 }
 
 func cancelExecution(instance model, id string, requestID uint64) tea.Cmd {
 	return func() tea.Msg {
-		execution, err := instance.backend.CancelExecution(instance.ctx, id)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		execution, err := instance.backend.CancelExecution(ctx, id)
 		return executionCancelledMsg{requestID: requestID, execution: execution, err: err}
 	}
+}
+
+func (instance model) executionActive() bool {
+	return instance.execution != nil && !isTerminalStatus(instance.execution.Status)
 }
 
 func refreshAfter(delay time.Duration) tea.Cmd {
@@ -834,13 +1213,13 @@ func refreshAfter(delay time.Duration) tea.Cmd {
 func renderStatus(status string) string {
 	label := strings.ToUpper(status)
 	switch status {
-	case "queued", "retrying":
+	case "queued", "retrying", "blocked", "offline":
 		return queuedStyle.Render(label)
 	case "running":
 		return runningStyle.Render(label)
-	case "succeeded":
+	case "succeeded", "completed", "planned", "ready", "online":
 		return successStyle.Render(label)
-	case "failed", "blocked":
+	case "failed", "error":
 		return failedStyle.Render(label)
 	case "cancelled":
 		return cancelledStyle.Render(label)
@@ -849,10 +1228,6 @@ func renderStatus(status string) string {
 	default:
 		return quietStyle.Render(label)
 	}
-}
-
-func (instance model) executionActive() bool {
-	return instance.execution != nil && (instance.execution.Status == "queued" || instance.execution.Status == "running")
 }
 
 func isTerminalStatus(status string) bool {
@@ -871,28 +1246,26 @@ func formatExecutionTime(value time.Time) string {
 	return value.Local().Format("2006-01-02 15:04:05 MST")
 }
 
-func compactJSON(value json.RawMessage) string {
-	if len(value) == 0 {
+func compactJSON(data json.RawMessage) string {
+	if len(data) == 0 {
 		return ""
 	}
-	var formatted any
-	if err := json.Unmarshal(value, &formatted); err != nil {
-		return observability.Redact(string(value))
-	}
-	encoded, err := json.Marshal(formatted)
-	if err != nil {
-		return "[invalid JSON]"
-	}
-	return observability.Redact(string(encoded))
+	text := strings.TrimSpace(string(data))
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.ReplaceAll(text, "\t", " ")
+	return truncateString(observability.Redact(text), 80)
 }
 
 func displayAPIError(err error) string {
-	message := err.Error()
-	if strings.Contains(message, "HTTP 401") {
-		return "Session expired; sign in again. " + message
+	if err == nil {
+		return ""
 	}
-	if strings.Contains(message, "HTTP 403") {
-		return "Provider denied this action. " + message
+	message := err.Error()
+	if strings.Contains(message, "401") || strings.Contains(message, "unauthorized") {
+		return "Session expired or credentials rejected. Sign in again."
+	}
+	if strings.Contains(message, "403") || strings.Contains(message, "forbidden") {
+		return "Action requires administrative privileges."
 	}
 	return message
 }

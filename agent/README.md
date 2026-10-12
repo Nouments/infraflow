@@ -87,24 +87,25 @@ and synchronize process events. The agent must already be registered with the
 provider. Without `-config`, process output is local to the command and is not
 sent to the dashboard.
 
-The Linux TUI is a separate human client of the provider HTTP API:
+The Linux TUI is a separate human client of the provider HTTP API and local agent environment:
 
 ```sh
 export INFRAFLOW_TUI_PASSWORD="$(./provider-data/get-admin-password.sh)"
 go run ./agent/cmd tui \
   -address https://10.0.0.5:8080 \
   -username admin \
-  -ca-file /etc/infraflow/provider-ca.crt
+  -ca-file /etc/infraflow/provider-ca.crt \
+  [-config /etc/infraflow/agent.yaml]
 ```
 
-Use `r`, `j`, `a`, `e`, `l`, `x`, `?`, or `q` to refresh, inspect jobs, agents,
-recent backend-reported results, a point-in-time page of technical logs, or
-executions, show help, or quit. Event, technical-log, and execution views are
-admin-only. In the executions view, use `↑`/`↓` to select, `n`/`p` for pagination,
-`f` to cycle status filters, `Enter` to view tasks and attempts, and `c` then `y`/`n`
-to request audited cancellation. The TUI does not stream continuously. The server
-address and port are command-line editable. The TUI never displays the full session
-token or password. A generation result is not an execution or verification result.
+Use `o` for Overview, `j` for Jobs, `s` for local supervised Services, `a` for Agents (admin),
+`e` for Audit events (admin), `l` for Technical logs (admin), `x` for Executions (admin),
+`r` to refresh, `?` for help, or `q` to quit. In lists, use `↑`/`↓` to select/scroll. In the
+executions view, use `n`/`p` for pagination, `f` to cycle status filters, `Enter` to view
+tasks and attempts, and `c` then `y`/`n` to request audited cancellation. When the Provider
+is temporarily unreachable, the TUI operates in resilient offline mode, preserving cached data
+marked as `[Données en cache]` and displaying local runtime diagnostic without freezing.
+The TUI never displays tokens or passwords.
 
 Edit `examples/agent-config.yaml` for local deployments. The Docker image
 overrides the provider host/port, API address, TLS CA path, agent identity, and

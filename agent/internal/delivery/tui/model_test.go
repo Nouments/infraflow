@@ -545,3 +545,171 @@ func TestFormatExecutionTime(t *testing.T) {
 		t.Fatal("non-zero time should render a timestamp")
 	}
 }
+
+func TestAgentInfoRenderingConfigured(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+	info := AgentInfo{
+		ID:              "agent-edge-01",
+		SiteID:          "datacenter-a",
+		StateDirectory:  "/var/lib/infraflow-agent",
+		LogDirectory:    "/var/log/infraflow",
+		Configured:      true,
+		ProviderAddress: "https://provider.internal:8080",
+	}
+	m := newModel(context.Background(), backend, adminUser(), testSession(), info)
+	m.width = 120
+	m.height = 40
+
+	output := m.View()
+	if !strings.Contains(output, "agent-edge-01") {
+		t.Fatal("configured agent ID must be visible in overview")
+	}
+	if !strings.Contains(output, "datacenter-a") {
+		t.Fatal("configured site ID must be visible in overview")
+	}
+	if !strings.Contains(output, "/var/lib/infraflow-agent") {
+		t.Fatal("configured state directory must be visible in overview")
+	}
+	if !strings.Contains(output, "Local Agent Runtime") {
+		t.Fatal("overview must contain Local Agent Runtime section")
+	}
+	if !strings.Contains(output, "PID") {
+		t.Fatal("overview must display local process PID")
+	}
+}
+
+func TestAgentInfoRenderingUnconfigured(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+	m := newModel(context.Background(), backend, adminUser(), testSession())
+	m.width = 120
+	m.height = 40
+
+	output := m.View()
+	if !strings.Contains(output, "Non configuré") {
+		t.Fatal("unconfigured agent must display 'Non configuré'")
+	}
+}
+
+func TestServicesViewRendering(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+	info := AgentInfo{
+		ID:             "agent-edge-01",
+		StateDirectory: "/var/lib/infraflow-agent",
+		LogDirectory:   "/var/log/infraflow",
+		Configured:     true,
+	}
+	m := newModel(context.Background(), backend, adminUser(), testSession(), info)
+	m.width = 120
+	m.height = 40
+	m.view = servicesView
+
+	output := m.View()
+	if !strings.Contains(output, "Local Supervised Services") {
+		t.Fatal("services view must display title")
+	}
+	if !strings.Contains(output, "Artifact Repository") {
+		t.Fatal("services view must describe Artifact Repository")
+	}
+	if !strings.Contains(output, "Local Log Outbox") {
+		t.Fatal("services view must describe Local Log Outbox")
+	}
+	if !strings.Contains(output, "Tool Runner") {
+		t.Fatal("services view must describe Tool Runner")
+	}
+	if !strings.Contains(output, "DHCPv4") || !strings.Contains(output, "TFTP") {
+		t.Fatal("services view must describe bootstrap services")
+	}
+	if !strings.Contains(output, "DNS") {
+		t.Fatal("services view must explicitly state absence of DNS daemon")
+	}
+}
+
+func TestOfflineResilienceAndCachedData(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+	m := newModel(context.Background(), backend, adminUser(), testSession())
+	m.width = 120
+	m.height = 40
+	m.jobs = []providerhttp.JobSummary{{ID: "cached-job-1", Status: "planned"}}
+	m.lastRefresh = time.Now().Add(-5 * time.Minute)
+	m.loadError = "Provider connection failed: connection refused"
+
+	output := m.View()
+	if !strings.Contains(output, "Dégradé") {
+		t.Fatal("offline view must indicate degraded state")
+	}
+	if !strings.Contains(output, "Données en cache") {
+		t.Fatal("offline view must indicate cached data")
+	}
+	if !strings.Contains(output, "Planning jobs") {
+		t.Fatal("cached job data must remain visible during disconnect")
+	}
+
+	// TUI must remain navigable even with load error
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if updated.(model).view != servicesView {
+		t.Fatalf("expected services view, got %q", updated.(model).view)
+	}
+}
+
+func TestDedicatedListViews(t *testing.T) {
+	backend := &mockBackend{
+		user:   adminUser(),
+		jobs:   []providerhttp.JobSummary{{ID: "job-001", Status: "planned"}},
+		agents: []providerhttp.AgentSummary{{ID: "agent-001", SiteID: "site-a", Status: "online", QueueDepth: 2}},
+		events: []providerhttp.EventSummary{{EventID: "evt-001", Type: "audit.run", JobID: "job-001"}},
+		logs:   []providerhttp.TechnicalLogEntry{{ID: "log-001", Level: "INFO", Service: "agent", Message: "process started"}},
+	}
+	m := newModel(context.Background(), backend, adminUser(), testSession())
+	m.width = 120
+	m.height = 40
+	m.jobs = backend.jobs
+	m.agents = backend.agents
+	m.events = backend.events
+	m.logs = backend.logs
+
+	// Jobs view
+	m.view = jobsView
+	jobsOut := m.View()
+	if !strings.Contains(jobsOut, "job-001") || !strings.Contains(jobsOut, "JOB ID") {
+		t.Fatal("jobs view must display job list")
+	}
+
+	// Agents view
+	m.view = agentsView
+	agentsOut := m.View()
+	if !strings.Contains(agentsOut, "agent-001") || !strings.Contains(agentsOut, "AGENT ID") {
+		t.Fatal("agents view must display agent list")
+	}
+
+	// Events view
+	m.view = eventsView
+	eventsOut := m.View()
+	if !strings.Contains(eventsOut, "evt-001") || !strings.Contains(eventsOut, "EVENT ID") {
+		t.Fatal("events view must display event list")
+	}
+
+	// Logs view
+	m.view = logsView
+	logsOut := m.View()
+	if !strings.Contains(logsOut, "process started") || !strings.Contains(logsOut, "SERVICE") {
+		t.Fatal("logs view must display log entries")
+	}
+}
+
+func TestNewNavigationShortcuts(t *testing.T) {
+	backend := &mockBackend{user: adminUser()}
+	m := newModel(context.Background(), backend, adminUser(), testSession())
+
+	// 's' navigates to services
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if updated.(model).view != servicesView {
+		t.Fatalf("expected services view, got %q", updated.(model).view)
+	}
+
+	// 'o' navigates back to overview
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	if updated.(model).view != homeView {
+		t.Fatalf("expected home view, got %q", updated.(model).view)
+	}
+}
