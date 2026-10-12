@@ -1,198 +1,154 @@
-# INFRAFLOW — PHASE 3 : INTÉGRATION COMPLÈTE DES EXÉCUTIONS DANS LE DASHBOARD WEB ET LE TUI GO
+# INFRAFLOW — TASK 3.1 : DURCISSEMENT DU TRANSPORT SSH CISCO IOS
 
 **Repository :** `Nouments/infraflow`  
 **Branche :** `develop`  
-**Mode de travail :** implémentation réelle, tests locaux légers, aucune reconstruction Docker.
+**Commit de départ :** `b034adca9dca8e644a8b6ace11805017b315d872`
+**Commit attendu :** `fix(provider): harden Cisco IOS SSH execution lifecycle`
 
-## 1. Objectif et périmètre strict
+## OBJECTIF
 
-Le moteur d’exécution, la persistance et les routes API des exécutions existent déjà dans le projet.
+Corriger les problèmes de cycle de vie SSH, de mémoire, d’annulation, de répétition après échec et de sécurité documentaire détectés lors de la revue de `cisco.ios.configure`.
 
-Cette tâche consiste exclusivement à intégrer ces fonctionnalités dans :
+Ne réécris pas l’exécuteur. Ne développe pas NAT, OSPF, ACL, VLAN ou d’autres constructeurs dans cette tâche.
 
-1. Le dashboard web existant.
-2. Le TUI Linux existant, développé en Go avec Lip Gloss et les bibliothèques de l’écosystème Charmbracelet.
+## 1. Cycle de vie des goroutines et des sessions SSH
 
-Il ne faut pas réimplémenter le moteur d’exécution, créer un second scheduler, inventer des données ou commencer les adaptateurs Cisco, MikroTik, FortiGate et Proxmox.
+Examine `provider/internal/adapters/executors/cisco_ios_transport.go`.
 
-Avant toute modification, examine le code réel et les dépendances présentes dans `go.mod` et `go.sum`. Lis `CURRENT.md`, `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md`, `README.md`, les routes `/api/v1/executions`, le client HTTP du TUI, les tests existants et les composants du dashboard.
+Corrige les points suivants :
 
-Ne suppose pas que les fonctionnalités sont absentes avant d’avoir vérifié leur implémentation actuelle.
+- Une lecture bloquée ne doit pas laisser une goroutine en attente après expiration du délai ou annulation.
+- La fermeture normale d’une session doit libérer le goroutine surveillant le contexte.
+- Le mécanisme de fermeture doit être idempotent et sûr en présence de concurrence.
+- Toute expiration de délai, erreur de lecture ou annulation doit permettre de fermer proprement la connexion et les ressources associées.
+- Une session fermée ne doit plus accepter de nouvelles commandes.
+- Les accès concurrents aux flux de lecture et d’écriture doivent être sûrs.
+- Évite de lancer une nouvelle goroutine de lecture à chaque itération si un lecteur persistant avec canal de données permet une gestion plus fiable.
 
-## 2. TUI : exigences techniques obligatoires
+N’introduis ni polling inutile, ni attente arbitraire, ni fuite de goroutines.
 
-Le TUI InfraFlow est une application terminal interactive écrite en **Go**, utilisant **Lip Gloss** pour le style et l’écosystème **Charmbracelet** pour les composants interactifs.
+Ajoute des tests déterministes couvrant fermeture normale, annulation, délai dépassé, lecture interrompue, appels concurrents à `Close` et tentative d’utilisation après fermeture.
 
-Il doit rester une application TUI native, légère, adaptée à Linux et utilisable à travers SSH. Il ne doit pas devenir une interface CLI rudimentaire composée uniquement de `fmt.Printf`, de menus numériques ou de saisies ligne par ligne.
+## 2. Limitation de la sortie SSH
 
-### 2.1 Respect de l’architecture existante
+La sortie des commandes IOS doit avoir une limite configurable ou une constante documentée, adaptée à la première version.
 
-- Conserve le langage Go et la structure actuelle des packages.
-- Conserve Lip Gloss et les bibliothèques Charmbracelet déjà installées.
-- Réutilise Bubble Tea si le projet l’utilise déjà pour la boucle interactive, les messages, les commandes et les mises à jour d’état.
-- Si le TUI actuel n’utilise pas encore Bubble Tea, vérifie l’architecture existante et justifie toute évolution nécessaire avant d’introduire cette dépendance.
-- N’ajoute pas une seconde architecture de rendu ni des bibliothèques redondantes.
-- Sépare proprement les appels HTTP, les modèles de données, l’état de l’interface, les interactions et le rendu.
-- Conserve l’authentification et la gestion de session actuelles.
-- Respecte les conventions de code et de tests existantes.
+- Ne conserve jamais une sortie réseau sans limite en mémoire.
+- En cas de dépassement, retourne une erreur explicite et non sensible.
+- Ferme proprement la session et interromps la lecture.
+- N’accepte jamais une sortie tronquée comme une configuration vérifiée.
+- Teste une sortie dépassant la limite et vérifie qu’aucun succès n’est déclaré.
 
-### 2.2 Expérience interactive attendue
+Les limites doivent être compatibles avec les commandes réellement utilisées par l’exécuteur. Documente-les.
 
-Intègre une section **Executions** dans la navigation actuelle du TUI.
+## 3. Prompt IOS et détection des erreurs
 
-Elle doit offrir :
+Dans le transport, vérifie que la fin d’une commande est déterminée par le prompt final attendu, et non par n’importe quelle ligne ressemblant à un prompt au milieu de la sortie.
 
-- Une liste paginée des exécutions réelles provenant du Provider.
-- Une sélection interactive d’une exécution.
-- Une vue détaillée avec ses tâches, leurs états, leurs tentatives, leurs résultats et leurs erreurs.
-- L’affichage des dates et durées réellement disponibles.
-- Des indicateurs visuels distincts pour les états `queued`, `running`, `retrying`, `succeeded`, `failed`, `cancelled` et `timed_out`, lorsque ces états sont présents dans les données.
-- Un rafraîchissement manuel.
-- Un rafraîchissement automatique limité pour les exécutions actives, si compatible avec l’architecture actuelle.
-- Une navigation claire entre la liste, le détail et l’écran précédent.
-- Des raccourcis clavier cohérents avec les autres vues et affichés dans une barre d’aide.
-- Des états d’interface propres pour le chargement, les listes vides, les erreurs API, la perte de connexion et les sessions expirées.
-- Une demande d’annulation avec confirmation interactive pour les exécutions non terminales.
+- Gère les retours à la ligne, les séquences ANSI et les espaces terminaux.
+- Préserve les erreurs IOS explicites.
+- N’interprète pas un timeout comme une réponse valide.
+- Évite les boucles de lecture infinies.
+- Ajoute des tests où la sortie contient une ligne ressemblant à un prompt avant la véritable fin de commande.
+- Ajoute des tests sur les sorties vides, les bannières, les erreurs IOS et les connexions fermées.
 
-L’utilisation de Lip Gloss doit assurer une présentation cohérente : titres, panneaux, tableaux ou listes, statuts colorés, erreurs visibles et aide contextuelle. Respecte les contraintes de largeur du terminal, les retours à la ligne et les terminaux SSH sans couleurs.
+N’élargis pas excessivement la regex des prompts pour faire passer les tests.
 
-Si Bubble Tea est déjà utilisé, les interactions doivent suivre son modèle `Model`, `Init`, `Update` et `View`, selon la version installée. Les appels réseau potentiellement bloquants ne doivent pas figer l’interface ; utilise les commandes asynchrones appropriées.
+## 4. Rejouabilité des tâches de configuration
 
-Ne réécris pas tout le TUI. Étends la structure existante avec le minimum de modifications architecturales nécessaires.
+Examine `CiscoIOSConfigureExecutor.Retryable` et le contrat du scheduler.
 
-### 2.3 Commandes et interactions
+Une configuration peut modifier plusieurs lignes avant qu’une erreur de transport survienne. Le scheduler ne doit pas relancer automatiquement une tâche de configuration après une application partielle ou incertaine.
 
-Le parcours doit permettre de :
+Implémente une politique prudente :
 
-1. Ouvrir la vue des exécutions.
-2. Parcourir la liste et changer de page.
-3. Sélectionner une exécution.
-4. Examiner son état général et le détail de ses tâches.
-5. Consulter les erreurs, les tentatives et les résultats.
-6. Demander une annulation et confirmer ou abandonner cette demande.
-7. Voir la réponse réelle du Provider, puis actualiser l’état.
-8. Revenir à la liste et rafraîchir les données.
+- Ne rends pas rejouable automatiquement une configuration dont l’application a commencé et dont le résultat est incertain.
+- Si le contrat actuel `Retryable(err)` ne permet pas de connaître la phase d’exécution, modifie l’intégration minimale nécessaire ou désactive le retry automatique pour `cisco.ios.configure`.
+- Préserve les retries des tâches pour lesquelles ils sont réellement sûrs, notamment les cas existants de `artifact.verify`.
+- Une erreur de connexion avant toute mutation peut être distinguée d’une erreur après le début des modifications, mais uniquement si cette distinction est réellement conservée par l’architecture.
+- Si une mutation partielle a pu se produire, retourne un résultat d’échec qui indique que l’état du routeur doit être relu avant toute nouvelle tentative.
+- N’annonce jamais un rollback si aucune restauration réelle et vérifiée n’a été effectuée.
 
-Les raccourcis exacts doivent suivre les conventions existantes. Évite les collisions avec les raccourcis déjà utilisés.
+Ajoute des tests prouvant qu’un timeout après la première commande de configuration ne déclenche pas une nouvelle application automatique non contrôlée.
 
-## 3. Dashboard web
+## 5. Sécurité de la procédure SSH
 
-Étends le dashboard actuel sans reconstruire son design global.
+Mets à jour `docs/cisco-ios-executor.md` :
 
-Ajoute une vue **Executions** intégrée à la navigation existante et cohérente avec les styles, composants et mécanismes d’authentification actuels.
+- Ne recommande pas d’ajouter aveuglément le résultat de `ssh-keyscan` au fichier de confiance.
+- Explique comment obtenir l’empreinte du routeur par un canal indépendant et la comparer avant approbation.
+- Précise que toute clé inconnue ou modifiée doit faire échouer la connexion.
+- Remplace les mots de passe en clair par des placeholders non utilisables, par exemple `<MOT_DE_PASSE_DE_TEST>`.
+- N’inscris jamais un secret réel dans le YAML, le JSON d’exécution, les commandes enregistrées ou les logs.
+- Explique comment retirer les variables d’environnement de test après la validation.
 
-Elle doit afficher exclusivement les données renvoyées par l’API :
+Ne désactive jamais la vérification de clé d’hôte.
 
-- Identifiant, état et dates de l’exécution.
-- Tâches et types de tâches.
-- Tentatives, résultats, erreurs et durées disponibles.
-- Historique des événements de l’exécution, si présent dans le contrat retourné.
-- Filtres par état et type.
-- Pagination utilisant les paramètres réels de l’API.
-- Détail d’une exécution.
-- Action d’annulation avec confirmation, contrôle de l’état et retour explicite de la réponse du serveur.
+## 6. Inventaire et documentation
 
-Si la progression globale n’est pas fournie par le backend, n’invente pas un pourcentage. Tu peux afficher un décompte calculé à partir des tâches et de leurs états réels, en indiquant clairement qu’il s’agit d’un décompte et non d’une mesure de progression garantie.
+Vérifie `ArtifactInventoryDeviceResolver` et la manière dont `CURRENT.md` présente l’autorisation des cibles.
 
-N’ajoute pas de fausses données pour remplir le dashboard.
+- Le site et l’équipement doivent correspondre à une cible Cisco autorisée.
+- Les données de l’inventaire doivent être validées avant connexion.
+- Vérifie les comportements en cas d’inventaire absent, malformé, incohérent ou d’adresse de gestion invalide.
+- Ne prétends pas que le fichier est vérifié cryptographiquement si ce n’est pas le cas.
+- Corrige les liens vers la procédure de validation GNS3 : soit crée réellement le fichier référencé, soit remplace les liens par le chemin existant `docs/cisco-ios-executor.md`.
+- Conserve clairement le statut `NON EXÉCUTÉ` pour le test GNS3 tant qu’il n’a pas réellement été effectué.
 
-## 4. API et contrats
+Ne transforme pas cette tâche en refonte de l’inventaire complet.
 
-Réutilise les routes existantes :
+## 7. Tests obligatoires
 
-- `GET /api/v1/executions`
-- `POST /api/v1/executions`
-- `GET /api/v1/executions/{id}`
-- `POST /api/v1/executions/{id}/cancel`
+Ajoute ou adapte des tests couvrant :
 
-Vérifie les contrats dans le code source avant de les intégrer. Respecte les paramètres de pagination, les filtres et les champs JSON réellement disponibles.
+1. Fermeture et annulation SSH sans fuite de goroutines.
+2. Timeout avec libération des ressources.
+3. Sortie dépassant la limite mémoire.
+4. Détection fiable du prompt final.
+5. Détection des erreurs IOS.
+6. Échec de vérification sans succès partiel.
+7. Absence de retry automatique après une configuration partiellement appliquée.
+8. Préservation des retries sûrs de `artifact.verify`.
+9. Refus d’une cible non autorisée.
+10. Absence de secrets dans les résultats et les logs.
 
-Ne crée pas de routes supplémentaires si les routes actuelles suffisent.
+Utilise des transports injectables pour les tests déterministes. Ne prétends pas que ces tests remplacent un test IOS réel.
 
-Si un changement backend s’avère indispensable, explique pourquoi, limite sa portée et ajoute les tests correspondants. Ne modifie pas le modèle d’exécution simplement pour simplifier le rendu.
+## 8. Validation à exécuter
 
-Le TUI et le dashboard doivent utiliser le Provider comme source de vérité. Ils ne doivent pas modifier localement un état en prétendant que l’opération a réussi.
+Depuis la racine du dépôt, adapte les commandes au Makefile réel puis exécute :
 
-## 5. Sécurité et autorisations
+```bash
+gofmt -w <fichiers-go-modifiés>
+make fmt-check
+go test -count=1 ./provider/internal/adapters/executors
+go test -count=1 ./provider/internal/application/...
+go test -count=1 ./...
+make vet
+make build
+git diff --check
+git status --short
+git diff --stat
+```
 
-- Réutilise l’authentification existante.
-- Respecte les rôles et permissions imposés par le Provider.
-- Ne contourne jamais le RBAC côté interface.
-- Ne stocke pas de nouveau jeton dans le navigateur.
-- Ne révèle pas de secrets dans les paramètres, résultats, erreurs ou journaux.
-- Ne présente pas une annulation demandée comme une annulation achevée.
-- Gère les erreurs HTTP, les refus d’accès et les sessions expirées.
+Si un chemin de package n’existe pas, identifie les packages réels avant de lancer les tests. N’ignore pas un échec et ne prétends pas avoir exécuté une commande qui ne l’a pas été.
 
-Les autorisations doivent être vérifiées côté serveur, même si les actions interdites sont masquées dans l’interface.
+## 9. Commit et rapport
 
-## 6. Tests à ajouter
+Fais un commit dédié sur `develop` :
 
-### Go / TUI
+`fix(provider): harden Cisco IOS SSH execution lifecycle`
 
-Ajoute des tests adaptés aux packages existants pour vérifier :
+Dans le compte rendu, donne :
 
-- Le décodage des réponses API.
-- Les listes vides, la pagination et les erreurs réseau.
-- L’affichage des différents états.
-- La navigation liste/détail/retour.
-- La confirmation et le refus d’une annulation.
-- La mise à jour après la réponse du Provider.
-- Les sessions expirées et les accès refusés.
-- Le comportement de l’interface lorsqu’une requête échoue ou arrive en retard.
+- le SHA du commit ;
+- les fichiers modifiés et les corrections apportées ;
+- la politique exacte de retry retenue ;
+- la limite de sortie SSH retenue ;
+- les tests réellement exécutés avec leurs résultats ;
+- les limites restantes ;
+- le statut réel de validation GNS3.
 
-Utilise les mécanismes de test déjà présents. Si Bubble Tea est utilisé, teste les transitions de modèle et les commandes de manière déterministe sans exiger un terminal interactif réel.
+Ne mélange pas cette tâche avec le dashboard, le TUI, Docker ou de nouveaux adaptateurs.
 
-### Dashboard web
-
-Ajoute ou complète les tests JavaScript déjà utilisés par le projet :
-
-- Rendu de la liste et des détails.
-- Filtres et pagination.
-- États de chargement, liste vide et erreur.
-- Confirmation d’annulation.
-- Gestion des réponses HTTP non réussies.
-- Absence de faux état de succès.
-- Absence de données fictives dans les vues d’exécution.
-
-Exécute les tests ciblés, les tests Go concernés et les vérifications légères disponibles. Corrige les régressions introduites par cette tâche.
-
-Ne reconstruis pas les images Docker et ne prétends pas avoir validé le fonctionnement sur GNS3 ou sur des équipements réels.
-
-## 7. Documentation et suivi
-
-Mets à jour `CURRENT.md`, `INFRAFLOW_SPEC.md`, `ARCHITECTURE.md` et `README.md` uniquement pour refléter ce qui est effectivement livré.
-
-Documente les interactions du TUI, ses raccourcis, la navigation et la nouvelle vue web.
-
-Distingue les tests exécutés des tests restant à effectuer. Ne marque aucune fonctionnalité comme terminée sans implémentation et vérification correspondantes.
-
-Ne crée pas de fichiers YAML d’exemple supplémentaires, de données de démonstration ou de mocks utilisés comme données de production. Les mocks sont autorisés uniquement dans les tests automatisés lorsque nécessaire.
-
-Ne pousse pas de modifications sans autorisation.
-
-## 8. Hors périmètre explicite
-
-Ne pas réaliser dans cette tâche :
-
-- Les adaptateurs Cisco, MikroTik, FortiGate ou Proxmox.
-- L’application de configurations sur de vrais équipements.
-- La reconstruction des images Docker.
-- Une refonte générale du dashboard.
-- Une réécriture complète du TUI.
-- Un nouveau moteur d’exécution ou un second scheduler.
-- Une nouvelle API de jobs si les routes existantes suffisent.
-- Des données fictives pour simuler une exécution.
-- Une déclaration de validation GNS3 sans test réel.
-
-## 9. Compte rendu obligatoire
-
-À la fin, indique :
-
-1. L’état du TUI avant modification : bibliothèques réellement utilisées et architecture constatée.
-2. Les fonctionnalités web et TUI ajoutées ou corrigées.
-3. Les fichiers modifiés et les raisons de chaque modification.
-4. Les commandes de tests exécutées et leurs résultats réels.
-5. Les éventuelles limitations et les tests reportés à la campagne finale.
-6. La prochaine tâche recommandée.
-
-**Critère de fin :** les administrateurs peuvent consulter et suivre les exécutions réelles depuis le dashboard web et le TUI Go interactif utilisant Lip Gloss et l’écosystème Charmbracelet, examiner les résultats et demander une annulation sans contourner le Provider, ses autorisations ou son audit.
+**Critère d’acceptation :** aucune fuite connue de goroutines, aucune sortie SSH non bornée, aucune réussite à partir d’une réponse incomplète et aucune nouvelle tentative automatique dangereuse après une configuration dont le résultat est incertain. La validation GNS3 doit rester explicitement non exécutée tant qu’elle ne l’est pas réellement.
