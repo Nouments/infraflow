@@ -17,8 +17,10 @@ import (
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/config"
+	"infraflow/provider/internal/adapters/executors"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
@@ -398,7 +400,13 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize execution store: %v\n", err)
 		return 2
 	}
-	executionService, err := application.NewExecutionService(executionStore, eventStore, nil, 4)
+	artifactRepo := filesystem.NewArtifactRepository(settings.ArtifactDirectory)
+	artifactVerifier, err := executors.NewArtifactVerifyExecutor(artifactRepo)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize artifact verifier: %v\n", err)
+		return 2
+	}
+	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier}, 4)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize execution service: %v\n", err)
 		return 2
@@ -424,7 +432,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		ArtifactDirectory: settings.ArtifactDirectory,
 		Logs:              logStore,
 	}
-	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
+	service := application.NewServiceWithJobsAgentsEvents(artifactRepo, reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
 		transportCredentials, err = credentials.NewServerTLSFromFile(settings.TLS.CertificateFile, settings.TLS.KeyFile)

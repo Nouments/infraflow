@@ -81,12 +81,54 @@ Base Commit: `b2c65cce4d0ad76c1514817e4de1285bc0d3856f`
   - `go test -count=1 ./...` : code 0 sur 100% des packages du dépôt.
   - `make build` : code 0 (`bin/infraflow-provider` et `bin/infraflow-agent`).
 
+## Evidence from Task 2 (Premier exécuteur réel, limité et vérifiable)
+
+- **Implémentation de `artifact.verify` (`provider/internal/adapters/executors/artifact_verify.go`)** :
+  - Premier exécuteur opérationnel d'InfraFlow implémentant `ports.ExecutionExecutor`.
+  - Portée volontairement et strictement bornée : vérification d'intégrité cryptographique en lecture seule d'artefacts persistés dans le catalogue du Provider, sans modification de fichier, sans commande shell, sans script arbitraire et sans déploiement réseau sur équipement.
+  - **Validation stricte des paramètres JSON** :
+    - Contrat minimal : `{"path": "<site>/<relative-artifact-path>"}` (`ArtifactVerifyParameters`).
+    - Rejet systématique des champs inconnus via `decoder.DisallowUnknownFields()`.
+    - Rejet des chemins vides, absolus, contenant des séquences de traversée (`../`), des antislashs, des caractères de contrôle ou des segments non autorisés.
+    - Vérification de la structure du chemin par rapport aux spécifications autorisées (`protocol.ValidArtifactPath`).
+    - Aucune confiance accordée à un hash fourni par le demandeur ; la source de vérité est le manifeste catalogué (`OutputHash`).
+  - **Exécution et intégrité** :
+    - Résolution via l'interface `ports.ArtifactRepository.Open(path)` existante.
+    - Lecture en flux borné (plafond strict à 32 MiB) avec calcul dynamique du condensat SHA-256 et vérification réactive de `ctx.Err()`.
+    - Détection immédiate des altérations : si `actualHash != published.OutputHash`, la tâche échoue avec un diagnostic explicite mentionnant le hash attendu et le hash calculé.
+    - Échec explicite si l'artefact est absent ou inaccessible (aucun faux succès).
+    - **Résultat structuré persistant** (`ArtifactVerificationResult`) contenant : `path`, `type`, `input_hash`, `output_hash`, `actual_hash`, `size_bytes`, `verified: true`, et horodatage UTC RFC3339 `verified_at`.
+    - Non-rejouable / non-retryable (`Retryable(err) == false`) car les erreurs de hash ou d'absence sont déterministes.
+  - **Intégration dans la composition réelle du Provider** :
+    - Enregistré dans `provider/internal/delivery/cli/cli.go` lors de l'initialisation de `application.NewExecutionService(..., []ports.ExecutionExecutor{artifactVerifier}, 4)`.
+    - Le Provider accepte désormais les tâches `artifact.verify` et continue de rejeter tout type inconnu ou non enregistré (`ErrExecutionUnsupported`).
+- **Tests unitaires et d'intégration ajoutés** :
+  - `provider/internal/adapters/executors/artifact_verify_test.go` :
+    - `TestArtifactVerifyValidateParameters` : 20 scénarios couvrant les paramètres valides, invalides, incomplets, traversées, champs inconnus et JSON corrompu.
+    - `TestArtifactVerifyExecuteSuccess` : vérification réussie avec sortie structurée et preuve cryptographique.
+    - `TestArtifactVerifyExecuteNotFound` : échec explicite pour artefact absent du catalogue.
+    - `TestArtifactVerifyExecuteTamperedHashMismatch` : échec explicite en cas d'altération du contenu.
+    - `TestArtifactVerifyExecuteUnauthorizedArtifactSpecification` : rejet des spécifications hors catalogue officiel.
+    - `TestArtifactVerifyExecuteInvalidCatalogHashMetadata` : rejet des métadonnées de hash non conformes.
+    - `TestArtifactVerifyExecuteContextCancellation` : respect du contexte d'annulation et des délais.
+    - `TestArtifactVerifyRetryable` : non-rejouabilité des erreurs d'intégrité.
+    - `TestArtifactVerifyIntegrationWithRealGeneratorAndExecutionService` : test d'intégration complet avec le véritable générateur `generation.Generate`, le vrai stockage de fichiers, le vrai `ExecutionService` et détection d'altération réelle sur le disque.
+  - `provider/internal/delivery/httpapi/jobs_test.go` :
+    - `TestExecutionAPIRunsArtifactVerifyTaskSuccessfully` : soumission HTTP POST `/api/v1/executions` authentifiée admin, attente du scheduler, et vérification de la persistance via GET `/api/v1/executions/:id`.
+- **Vérifications et Tests exécutés** :
+  - `make fmt-check` : code 0, 100% conforme `gofmt`.
+  - `make vet` : code 0, aucune anomalie statique.
+  - `make test-agent` : code 0, tests agent préservés.
+  - `go test -count=1 ./provider/internal/adapters/executors` : 10 tests réussis (0 échec).
+  - `go test -count=1 ./...` : code 0, 100% de la suite de tests du dépôt passe sans cache.
+  - `make build` : code 0, compilation réussie de `bin/infraflow-provider` et `bin/infraflow-agent`.
+
 ## Remaining work
 
-- Register a real, explicitly authorized executor only after defining its allowed task type, parameter schema, privilege boundary, and independent evidence. Until then all unregistered execution types remain rejected.
+- Implement device-specific task executors (Cisco, FortiGate, MikroTik, Proxmox) only after defining their parameter schemas, privilege boundaries, and real lab verification evidence.
 - Implement or explicitly defer a DNS service and other unimplemented bootstrap services.
 - Run the final full test suite and binary builds in the separate final campaign. Docker and GNS3 validation remain separate deployment gates.
 
 ## Next implementation task
 
-Define and authorize the first operational task executor adapter with its strict safety policy, schema validation, and acceptance evidence. Do not register vendor executors without real lab verification.
+Define and authorize the first device-specific task executor adapter with strict privilege isolation, parameter validation, and acceptance evidence in a controlled lab environment. Do not register vendor executors without real lab verification.

@@ -11,11 +11,13 @@ import (
 	"time"
 
 	configadapter "infraflow/internal/adapters/config"
+	coregeneration "infraflow/internal/adapters/generation"
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
+	"infraflow/provider/internal/adapters/executors"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
@@ -588,6 +590,89 @@ func TestExecutionAPIRejectsUnsupportedTypesAndMissingIdempotency(t *testing.T) 
 	stored, err := executions.List()
 	if err != nil || len(stored) != 0 {
 		t.Fatalf("unsupported operation was persisted: %#v, %v", stored, err)
+	}
+}
+
+func TestExecutionAPIRunsArtifactVerifyTaskSuccessfully(t *testing.T) {
+	root := t.TempDir()
+	infraYAML := []byte("sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n")
+	infra, err := configadapter.Parse(infraYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactsDir := root + "/artifacts"
+	if _, err := coregeneration.Generate(infra, artifactsDir); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactRepo := filesystem.NewArtifactRepository(artifactsDir)
+	verifier, err := executors.NewArtifactVerifyExecutor(artifactRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, []ports.ExecutionExecutor{verifier}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executionService.Close(context.Background()) })
+
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	handler, adminToken := newUserSessionHandler(t, root, strings.Repeat("a", security.MinAgentTokenBytes), service)
+	handler.(*Handler).SetExecutionService(executionService)
+
+	// 1. Submit artifact.verify task via POST /api/v1/executions
+	body := `{"tasks":[{"id":"verify-1","type":"artifact.verify","parameters":{"path":"lab/inventory.json"}}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+adminToken)
+	request.Header.Set("Idempotency-Key", "verify-http-key-0001")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit returned %d: %s", response.Code, response.Body.String())
+	}
+
+	var submitted domain.Execution
+	if err := json.Unmarshal(response.Body.Bytes(), &submitted); err != nil || submitted.ID == "" {
+		t.Fatalf("failed to decode submitted execution: %#v, %v", submitted, err)
+	}
+
+	// 2. Wait for completion
+	completed, err := executionService.Wait(t.Context(), submitted.ID)
+	if err != nil || completed.Status != domain.ExecutionSucceeded {
+		t.Fatalf("execution did not succeed: %#v, %v", completed, err)
+	}
+
+	// 3. Inspect through GET /api/v1/executions/:id
+	getResult := authRequest(t, handler, http.MethodGet, "/api/v1/executions/"+submitted.ID, "", adminToken)
+	if getResult.Code != http.StatusOK {
+		t.Fatalf("get execution returned %d: %s", getResult.Code, getResult.Body.String())
+	}
+	var fetched domain.Execution
+	if err := json.Unmarshal(getResult.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode fetched execution: %v", err)
+	}
+	if fetched.Status != domain.ExecutionSucceeded || len(fetched.Tasks) != 1 || fetched.Tasks[0].Status != domain.ExecutionTaskSucceeded {
+		t.Fatalf("unexpected fetched execution: %#v", fetched)
+	}
+
+	var output executors.ArtifactVerificationResult
+	if err := json.Unmarshal(fetched.Tasks[0].Result, &output); err != nil {
+		t.Fatalf("decode verification result: %v", err)
+	}
+	if !output.Verified || output.Path != "lab/inventory.json" || output.ActualHash == "" || output.ActualHash != output.OutputHash {
+		t.Fatalf("invalid verification output: %#v", output)
 	}
 }
 

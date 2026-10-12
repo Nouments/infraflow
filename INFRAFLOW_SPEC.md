@@ -30,10 +30,12 @@ The provider currently implements:
 - authenticated HTTP API for user sessions, planning jobs, admin-only execution tasks, agents, and audit events;
 - local SQLite-backed user accounts, session management, and RBAC.
 
-The generic execution API is available at `/api/v1/executions`. Its default
-Provider composition registers no task executor, so submissions are rejected
-unless their task type has an explicitly registered executor. The lifecycle
-foundation is implemented; operational task execution is not.
+The generic execution API is available at `/api/v1/executions`. The Provider
+registers an explicitly authorized `artifact.verify` task executor to perform
+read-only cryptographic verification of published artifacts against catalog manifests.
+Unregistered task types remain rejected. The execution lifecycle, attempts, and audit
+persistence are operational; network configuration deployment and device executors
+remain unimplemented.
 
 ### Agent
 
@@ -63,8 +65,7 @@ The repository includes:
 
 The following items are not treated as operationally supported by the current codebase:
 
-- real device provisioning adapters;
-- registered operational task executors and device execution;
+- real device provisioning adapters and remote network configuration deployment;
 - vendor-specific configuration execution for Cisco, FortiGate, MikroTik, Proxmox, or other platforms;
 - remote network automation beyond controlled lab validation and repository tests;
 - bootstrap services that are not explicitly implemented and tested.
