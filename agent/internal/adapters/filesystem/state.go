@@ -47,7 +47,7 @@ func validStoredArtifactPath(relativePath string) bool {
 		return false
 	}
 	for _, artifactType := range []string{
-		"inventory", "topology", "ansible_inventory", "ansible_playbook",
+		"inventory", "topology", "ansible_inventory", "ansible_inspection_playbook", "ansible_playbook",
 		"ansible_vendor_inventory", "ansible_requirements", "ansible_vendor_manifest",
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",

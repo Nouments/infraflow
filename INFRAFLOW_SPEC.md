@@ -49,6 +49,12 @@ The agent currently implements:
 - processing of generated generic Ansible and Terraform artifacts in read-only validation mode;
 - local structured logging and delayed synchronization to the provider when available.
 
+### Ansible artifact semantics
+
+The generic `site.yml` is an inspection playbook that uses only `ansible.builtin.debug` to display declared inventory metadata. It is cataloged as `ansible_inspection_playbook`; the Agent stages and validates the artifact, but normal artifact processing does not run Ansible or configure a device. The optional local inspection command forces Ansible check mode.
+
+Vendor configuration is a separate `vendor-playbook.yml` artifact of type `ansible_playbook`, accompanied by collection requirements and a provenance manifest. These renderers support only their explicitly mapped intent, use an explicit mutation guard, and remain `UNVERIFIED` and manual-only. Successful rendering or YAML parsing is not evidence of playbook execution or device state.
+
 ### Observability
 
 The repository includes:

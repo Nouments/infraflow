@@ -10,7 +10,7 @@ func TestVendorProfileForRecognizesSupportedVendorFamilies(t *testing.T) {
 		wantType   string
 		wantMethod string
 	}{
-		{name: "cisco iosxe", device: Device{Vendor: "cisco", Family: "iosxe", Model: "csr1000v"}, wantName: "cisco", wantType: "iosxe", wantMethod: "netconf"},
+		{name: "cisco iosxe", device: Device{Vendor: "cisco", Family: "iosxe", Model: "csr1000v"}, wantName: "cisco", wantType: "iosxe", wantMethod: "ssh"},
 		{name: "mikrotik routeros", device: Device{Vendor: "MikroTik", Family: "RouterOS", Model: "CCR1036"}, wantName: "mikrotik", wantType: "routeros", wantMethod: "api"},
 		{name: "fortinet fortios", device: Device{Vendor: "fortigate", Family: "fortios", Model: "60E"}, wantName: "fortinet", wantType: "fortios", wantMethod: "https"},
 	}

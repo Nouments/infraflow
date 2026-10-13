@@ -108,10 +108,6 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			}
 			result.Tasks[taskIndex].Capability = profile.Status
 			device.Provisioning.Method = method
-			network := *device.Network
-			network.Routes = nil
-			network.NAT = domain.NATConfig{}
-			device.Network = &network
 			filteredSite.Devices = append(filteredSite.Devices, device)
 		}
 		if len(filteredSite.Devices) > 0 {
@@ -284,6 +280,9 @@ func interfaceGeneratorSupport(device domain.Device) (domain.VendorProfile, stri
 	}
 	if (profile.Family == "routeros" || profile.Family == "fortios") && !hasIPv4Interface(device.Network.Interfaces) {
 		return profile, method, "the existing vendor renderer requires at least one explicit IPv4 interface address"
+	}
+	if len(device.Network.Routes) > 0 || len(device.Network.NAT.Source) > 0 || len(device.Network.NAT.Destination) > 0 {
+		return profile, method, "the current plan models interface configuration only; static routes and NAT intent are unsupported"
 	}
 	return profile, method, ""
 }

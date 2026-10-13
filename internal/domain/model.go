@@ -175,10 +175,9 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			Vendor:        "cisco",
 			Family:        "iosxe",
 			Model:         model,
-			DefaultMethod: "netconf",
+			DefaultMethod: "ssh",
 			Methods: map[string]string{
-				"netconf": "iosxe NETCONF management path",
-				"ssh":     "IOS XE CLI management path",
+				"ssh": "IOS XE Ansible network_cli management path",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real Cisco IOS XE device execution or observed state recorded yet.",
@@ -191,7 +190,6 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			DefaultMethod: "api",
 			Methods: map[string]string{
 				"api": "RouterOS API via community.routeros",
-				"ssh": "RouterOS SSH/CLI management path",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet.",
@@ -204,7 +202,6 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			DefaultMethod: "https",
 			Methods: map[string]string{
 				"https": "FortiGate HTTPS API path",
-				"ssh":   "FortiOS SSH/CLI management path",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real FortiGate/FortiOS lab verification or observed state recorded yet.",

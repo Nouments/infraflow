@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
@@ -165,6 +166,9 @@ func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRe
 		return status.Error(codes.NotFound, "artifact not found")
 	}
 	if err != nil {
+		if errors.Is(err, coregeneration.ErrArtifactHashMismatch) {
+			return status.Error(codes.DataLoss, "artifact hash does not match manifest")
+		}
 		return status.Error(codes.NotFound, "artifact is unavailable")
 	}
 	defer reader.Close()

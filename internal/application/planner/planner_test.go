@@ -266,7 +266,7 @@ func TestBuildPlanMethodDoesNotImplyVerification(t *testing.T) {
 		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "Gi1"}}},
 	}
 	plan := Build(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{defaulted}}}})
-	if plan.Tasks[0].Method != "netconf" || plan.Lifecycle.Verified {
+	if plan.Tasks[0].Method != "ssh" || plan.Lifecycle.Verified {
 		t.Fatalf("known default method implied incorrect state: %#v", plan)
 	}
 }

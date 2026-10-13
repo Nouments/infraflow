@@ -264,10 +264,7 @@ func TestGRPCDoesNotCommitTamperedArtifactStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stream.Recv(); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := stream.Recv(); status.Code(err) != codes.DataLoss {
-		t.Fatalf("expected hash mismatch to abort before final EOF, got %v", err)
+		t.Fatalf("expected corrupted artifact to be rejected before streaming, got %v", err)
 	}
 }

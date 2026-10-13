@@ -1,101 +1,89 @@
-# InfraFlow Current Status
+# InfraFlow — Bloc 1 Audit
 
-Updated: 2026-10-13
-Branch: develop
-Audit status: Block 1 executed and verified against the current repo state.
+Audit date: 2026-10-13
+Branch: `develop`
+Reference commit inspected before edits: `a4b7cb07605be5503c608e97343ab9f78348bbfe`
+Initial worktree: only `current_step.md` was modified; it contained the user's audit prompt and was replaced with the requested operational status. No other pre-existing edits were present.
 
-## Block 1 audit result
+## Scope and decision
 
-The current `develop` branch was audited directly from the repository contents and verified by live Go tests and static checks. No confirmed P0/P1 defect requiring source-code mutation was found in the current branch. The actual codebase already enforces separation between validation, planning, generation and execution, rejects unsupported task types, and maintains auditable execution state and hashing.
+The audit covered YAML parsing and network validation, planning, deterministic generation, generic and vendor Ansible, Terraform, manifests/catalog integrity, Provider publication and execution, HTTP/gRPC auth, Agent artifact processing/reporting/TUI, Web console provenance, Cisco IOS SSH execution, logging/security, tests, and current documentation. No live Cisco/GNS3 session occurred.
 
-The remaining blocker is external to the code: live Cisco equipment validation is still not executed because no lab or authorized device is available in this environment. This remains explicitly blocked and is not reported as success.
+Decision: **BLOC 1 INCOMPLET — PREUVES MANQUANTES**. Confirmed code defects found in this scope were corrected and repository checks pass. Ansible collection-level syntax validation and authorized device/lab verification remain unexecuted; neither is represented as a pass. Bloc 2 was not started. InfraFlow is not declared production-ready.
 
-## Verified feature matrix for Block 1
+## QA matrix
 
-| Component | Status | Evidence in repo | Tests / verification performed | Notes |
-| --- | --- | --- | --- | --- |
-| YAML configuration parsing and validation | Confirmed implemented and test-backed | [internal/adapters/config/load.go](internal/adapters/config/load.go), [internal/adapters/config/config_test.go](internal/adapters/config/config_test.go) | Go test suite exercised validation for unknown keys, duplicate names, invalid CIDR/MAC/IP values, and single-document YAML input | Repository-level verified behavior; not a lab operation |
-| Planning and desired-state task construction | Confirmed implemented and test-backed | [internal/application/planner](internal/application/planner), [internal/application/planner/planner_test.go](internal/application/planner/planner_test.go) | Tests cover deterministic plan IDs, stable ordering, empty desired state, and no invented runtime state | Planner generates planned tasks only; it does not claim execution or verification |
-| Inventory/topology/manifest generation | Confirmed implemented and test-backed | [internal/adapters/generation/generator.go](internal/adapters/generation/generator.go), [internal/adapters/generation/generator_test.go](internal/adapters/generation/generator_test.go) | Tests validate deterministic generation, canonical link handling, multi-site output, symlink refusal, and complete catalog publication for the agent | Verified in code and by unit tests |
-| Generic Ansible inventory/playbook generation | Confirmed implemented and test-backed | [internal/adapters/generation/generator.go](internal/adapters/generation/generator.go) | Tests assert deterministic output and symlink rejection for Ansible-only generation | Covers the generic provider artifact path, not live device mutation |
-| Vendor-specific Ansible rendering | Confirmed implemented and test-backed; runtime mutation remains guarded | [internal/adapters/generation/vendor_ansible.go](internal/adapters/generation/vendor_ansible.go), [internal/adapters/generation/vendor_ansible_test.go](internal/adapters/generation/vendor_ansible_test.go) | Tests assert vendor profile rendering for Cisco interfaces, no invented NAT/route/VLAN/DHCP data, explicit `INFRAFLOW_APPLY=true` enforcement, and manual-only execution semantics | The generated bundle is explicitly marked `UNVERIFIED` and `manual-only`; no lab evidence exists |
-| Terraform data declaration generation | Confirmed implemented and test-backed | [internal/adapters/generation/generator.go](internal/adapters/generation/generator.go), [internal/adapters/generation/generator_test.go](internal/adapters/generation/generator_test.go) | Tests assert deterministic output and data-only semantics; the generated config intentionally declares no external provider or resources | This is a declarative model, not provisioning of infrastructure |
-| Artifact catalog and hash integrity | Confirmed implemented and test-backed | [pkg/protocol/artifact.go](pkg/protocol/artifact.go), [internal/adapters/generation/generator.go](internal/adapters/generation/generator.go), [internal/adapters/generation/generator_test.go](internal/adapters/generation/generator_test.go) | Tests verify the generated catalog is complete and that outputs match the recorded SHA-256 values | This is an integrity/audit mechanism, not a live-target validation step |
-| Provider execution lifecycle | Confirmed implemented and test-backed | [provider/internal/application/executions.go](provider/internal/application/executions.go), [provider/internal/delivery/httpapi/jobs_test.go](provider/internal/delivery/httpapi/jobs_test.go) | Tests cover authenticated planning jobs, plan preview without persistence, generation audits, and execution API behavior | Execution state and cancellation logic are verified in-process; no live device execution was performed |
-| Provider web console / dashboard | Confirmed implemented and test-backed; no live connectivity claim | [provider/internal/delivery/web/app.go](provider/internal/delivery/web/app.go), [provider/internal/delivery/web/app_test.go](provider/internal/delivery/web/app_test.go) | Tests verify the web UI loads, enforces auth, serves required assets, and does not embed fake execution data | UI/API wiring only; not live network-device verification |
-| Agent TUI dashboard | Confirmed implemented and test-backed; no fake data | [agent/internal/delivery/tui/model_test.go](agent/internal/delivery/tui/model_test.go) | Tests assert the dashboard contains the InfraFlow branding and user identity, and explicitly reject `192.168.*` fake IPs and fake uptime percentages | Presentation contract only; not a network validation result |
-| Cisco IOS executor logic | Implemented, but not lab-validated in this environment | [provider/internal/adapters/executors/cisco_ios_configure.go](provider/internal/adapters/executors/cisco_ios_configure.go) | No live device execution was performed here; repository inspection indicates strict validation and read-back logic, but this remains unverified against physical or virtual lab targets | External blocker remains open |
-| Real lab validation (Cisco / GNS3 / vendor devices) | Blocked externally | Not available in this workspace or environment | No live lab execution performed; not reported as success | This is the remaining blocker for production-grade network mutation confidence |
+| Component | Status and files inspected | Relevant tests | Findings, evidence, and limits |
+| --- | --- | --- | --- |
+| YAML parsing, normalization, network validation | Implemented: `internal/adapters/config/load.go` | `internal/adapters/config/load_test.go`, `internal/adapters/config/config_test.go` | Strict known-field, one-document YAML parsing; endpoint normalization; IPv4/CIDR, MAC, duplicate, overlap, route and NAT checks. Full Go suite passed. |
+| Planning and intent classification | Implemented: `internal/application/planner/planner.go`, `provider/internal/application/plan_generation.go` | `internal/application/planner/planner_test.go`, `provider/internal/application/service_test.go` | Stable plan IDs/order and `PLANNED` lifecycle are tested. Fixed silent route/NAT removal in interface-only `PlanAndGenerate`: such requests now return `UNSUPPORTED` and publish no vendor artifacts. |
+| Inventory, topology, bootstrap, manifests | Implemented: `internal/adapters/generation/generator.go`, `internal/adapters/generation/bootstrap.go` | `internal/adapters/generation/generator_test.go`, `internal/adapters/generation/catalog_test.go` | Deterministic output, canonical ordering, multi-site generation, symlink rejection and combined manifest publication are test-backed. Generation does not imply execution. |
+| Generic Ansible | Implemented as inventory plus metadata inspection only: `internal/adapters/generation/generator.go` | `internal/adapters/generation/generator_test.go`, `agent/internal/application/toolrunner/runner_test.go` | `site.yml` contains only `ansible.builtin.debug`; normal Agent processing stages artifacts, and the optional inspection runner forces `--check`. Fixed the ambiguous artifact metadata: `site.yml` is now `ansible_inspection_playbook`, not the vendor configuration type. YAML parsing/determinism tests pass. |
+| Vendor Ansible profiles | Implemented, rendered and explicitly `UNVERIFIED`: `internal/adapters/generation/vendor_ansible.go`, `internal/domain/model.go` | `internal/adapters/generation/vendor_ansible_test.go`, `internal/domain/vendor_capabilities_test.go` | Profiles are Cisco IOS-XE/SSH, MikroTik RouterOS/API, and FortiOS/HTTPS. Fixed FortiOS module argument/loop placement, invented `port1`/`allowaccess`, Cisco invented `enabled`, DHCP omission, and transport mismatches. Unsupported NAT/route/method intent is rejected or classified unsupported. Mutation requires check mode or `INFRAFLOW_APPLY=true`; generation is manual-only and not lab-verified. Tests parse generated YAML, check connection metadata, hashes and determinism. |
+| Terraform | Implemented as data-only output: `internal/adapters/generation/generator.go` | `internal/adapters/generation/generator_test.go`, `agent/internal/application/toolrunner/runner_test.go` | Seven deterministic files model normalized desired state; no provider/resource provisioning is declared. Terraform CLI was unavailable, so `terraform validate` was not run. |
+| Artifact catalog, paths, hashes, publication | Implemented: `internal/adapters/generation/catalog.go`, `pkg/protocol/artifact.go`, `internal/infrastructure/safefs/atomic.go` | `internal/adapters/generation/catalog_test.go`, `internal/infrastructure/safefs/atomic_test.go`, `pkg/protocol/artifact_test.go` | Fixed catalog listing of altered bytes: `Catalog` now hashes content before publishing it, and reads use `safefs.OpenReadOnly`. Provider delivery uses the safe opener; gRPC preserves `DataLoss` on hash mismatch. Tests cover tampering, paths and normal reads. |
+| Provider planning/generation/execution | Implemented: `provider/internal/application/service.go`, `provider/internal/application/plan_generation.go`, `provider/internal/application/executions.go`, `internal/application/scheduler/scheduler.go` | `provider/internal/application/service_test.go`, `provider/internal/delivery/httpapi/jobs_test.go`, `internal/application/scheduler/scheduler_test.go` | Created, queued, running, succeeded, failed, cancelled and timed-out states are distinct. Generation returns `NOT_REQUESTED` execution and `NOT_PERFORMED` verification; Cisco's `Verified` result is produced only after read-back. Tests passed. |
+| HTTP API, authentication, authorization | Implemented: `provider/internal/delivery/httpapi/jobs.go`, `provider/internal/application/auth.go`, `provider/internal/adapters/sqlite/users.go` | `provider/internal/delivery/httpapi/jobs_test.go`, `provider/internal/adapters/sqlite/users_test.go` | Human sessions/RBAC are separate from the Agent bearer token; execution/log administration is admin-only. Tests cover auth, role restrictions, invalid headers, planning and execution APIs. |
+| gRPC, Agent artifact lifecycle and reports | Implemented: `provider/internal/delivery/grpcapi/server.go`, `agent/internal/application/runner.go`, `agent/internal/adapters/providergrpc/client.go`, `agent/internal/adapters/filesystem/state.go` | `provider/internal/delivery/grpcapi/server_test.go`, `agent/internal/application/runner_test.go`, `agent/internal/adapters/filesystem/state_test.go` | Catalog and report use the machine token. Agent download verifies hashes before atomic storage; report `completed` means artifact processing/staging, not device configuration. Tampered download is rejected. |
+| Agent TUI/dashboard | Implemented: `agent/internal/delivery/tui/model.go` | `agent/internal/delivery/tui/model_test.go` | Views use API/model state; tests reject fake IP and uptime values and cover role-based navigation. This does not evidence live device state. |
+| Provider Web dashboard and provenance | Implemented: `provider/internal/delivery/web/app.go`, `provider/internal/delivery/web/assets/app.js` | `provider/internal/delivery/web/app_test.go`, `provider/internal/delivery/httpapi/jobs_test.go` | Tests cover auth, assets, responsive CSS, no fake execution records, and distinct generation/execution/verification statuses. UI tests are not browser E2E or lab evidence. |
+| Cisco `cisco.ios.configure` | Implemented over SSH: `provider/internal/adapters/executors/cisco_ios_configure.go`, `cisco_ios_transport.go`, `hostkey.go`, `device_target.go`, `provider/internal/infrastructure/credentials/` | `provider/internal/adapters/executors/cisco_ios_configure_test.go`, `cisco_ios_transport_test.go`, `device_target_test.go` | Strict JSON/field, host/interface/CIDR/admin-state checks; authorized target and credential resolvers; strict host-key verification; bounded command output/timeouts; secret redaction; read-back verification; no automatic retry or `write memory`. Tests use mocks/local transports, not a router. Lab status: **NON EXÉCUTÉ**. |
+| Logs, audit, input safety | Implemented: `pkg/observability/logger.go`, `pkg/observability/store.go`, `provider/internal/delivery/httpapi/logs.go`, `internal/infrastructure/security/token.go` | `pkg/observability/logger_test.go`, `pkg/observability/store_test.go`, `provider/internal/delivery/httpapi/jobs_test.go`, `internal/infrastructure/security/token_test.go` | Bounded/rotated structured logs and secret redaction are tested; API log reads are admin-only and ingestion is correlated. No confirmed P0/P1 issue remained. |
+| Documentation and build/test contracts | Inspected and updated: `README.md`, `ARCHITECTURE.md`, `INFRAFLOW_SPEC.md`, `provider/README.md`, `agent/README.md`, `Makefile` | Repository Go tests and Makefile gates below | Docs now distinguish inspection playbooks from vendor configuration and data-only Terraform. No Ansible CLI was available for `--syntax-check`; no Terraform CLI was available for `validate`. |
 
-## Defect assessment for Block 1
+## Confirmed defects and corrections
 
-- Confirmed defects found during the repo audit: none at the source-code level.
-- Confirmed P0/P1 code defect requiring mutation: none.
-- The only material blocker is environmental: no access to a live Cisco, GNS3, or authorized vendor lab target during this session.
-- Unsupported vendor-specific execution flows remain rejected instead of being silently presented as successful.
+- **P1, generation reporting:** interface-only `PlanAndGenerate` silently removed routes/NAT and could mark the remaining interface task `GENERATED`. It now reports unsupported intent and emits no artifacts. Regression test: `TestPlanAndGenerateRejectsIntentOutsidePlannedInterfaceTask`.
+- **P1, FortiOS renderer:** loop keys were nested in module arguments; route schema was malformed and hardcoded `port1`; interface output invented `allowaccess: ping`. Renderer now follows collection task structure and input route/interface fields. Regression coverage: `TestRenderFortinetTasksUsesCollectionSchemaAndExplicitRouteInterface` and three-profile YAML test.
+- **P1, artifact availability:** catalog could list file bytes that disagreed with the manifest. Catalog now checks SHA-256 before listing; safe reads are used by Provider delivery; gRPC maps mismatch to `DataLoss` before streaming. Regression coverage: `TestCatalogRejectsTamperedArtifact`, `TestGRPCDoesNotCommitTamperedArtifactStream`, artifact verification integration.
+- **P2, profile correctness:** Cisco Ansible output invented `enabled: true`, omitted explicit DHCP intent, and accepted `netconf` despite using `network_cli`. Cisco Ansible now uses SSH/network_cli and renders only declared addressing; transport methods are restricted to Cisco SSH, RouterOS API and FortiOS HTTPS.
+- **P2, provenance ambiguity:** generic debug `site.yml` and mutating vendor playbooks shared the `ansible_playbook` type, and `GenerateAnsible` also wrote vendor artifacts. Generic and vendor generators are now separate; `GenerateAll` explicitly invokes both; generic metadata uses `ansible_inspection_playbook`.
+- No confirmed P0 defect. No Cisco/GNS3 execution was used to justify a success claim.
 
-## Evidence level
+## Commands executed in this session
 
-- Verified by direct inspection and live Go test execution: configuration validation, planning, generation, hashing, catalog integrity, API auth, UI tests, and TUI anti-fake-data tests.
-- Documented but not live-validated here: Cisco IOS executor behavior, vendor-specific execution bundles, and live network operations.
-- Blocked by environment: device-level execution, Cisco/virtual lab verification, and any claim of production readiness.
+Repository baseline:
 
-## Files inspected
-
-- README.md
-- ARCHITECTURE.md
-- INFRAFLOW_SPEC.md
-- CURRENT.md
-- current_step.md
-- Makefile
-- provider/internal/application/executions.go
-- provider/internal/adapters/executors/artifact_verify.go
-- provider/internal/adapters/executors/cisco_ios_configure.go
-- provider/internal/adapters/executors/*.go
-- provider/internal/delivery/httpapi/*.go
-- provider/internal/adapters/config/*.go
-- provider/internal/infrastructure/credentials/*.go
-- internal/adapters/generation/*.go
-- internal/application/planner/*.go
-- agent/internal/delivery/tui/*.go
-- provider/internal/delivery/web/*.go
-- pkg/protocol/*.go
-
-## Confirmed status by domain
-
-- Validation, planning, and deterministic generation: implemented and verified
-- Artifact integrity verification: implemented and verified
-- Execution lifecycle and scheduler integration: implemented and verified
-- Cisco IOS executor logic: implemented but not live-lab verified
-- Real GNS3 / physical-device validation: blocked by environment access
-- Non-Cisco device provisioning: not implemented and explicitly not treated as supported
-
-## Defects found
-
-- No confirmed P0 or P1 defect in the current source tree was found during the Block 1 audit.
-- The only material blocker is the lack of a real Cisco lab or authorized target environment.
-- Unsupported vendor-specific executors remain rejected rather than masquerading as successful deployments.
-
-## Corrections made
-
-- No source-code patch was required for the current repository state because the actual implementation and tests already match the documented safety boundary.
-- The repository state was updated to reflect the verified status and the real external blocker.
-
-## Direct verification commands used
-
-```bash
-cd /home/noums/Projects/infraflow && git --no-pager log --oneline -n 5
-cd /home/noums/Projects/infraflow && go test -count=1 ./...
-cd /home/noums/Projects/infraflow && make fmt-check && make vet && make build && git diff --check
-cd /home/noums/Projects/infraflow && git status --short
+```text
+git branch --show-current -> develop (exit 0)
+git status --short -> M current_step.md (exit 0; pre-existing user edit)
+git log -5 --oneline -> a4b7cb0 (HEAD/origin/develop), b584461, 77e2d4e, 0be997c, e73b3bf (exit 0)
+git rev-parse HEAD -> a4b7cb07605be5503c608e97343ab9f78348bbfe (exit 0)
 ```
 
-All of the above were executed in this session. The Go suite passed, and the static checks passed. The repo remained clean with no fabricated production-claim edits.
+Final repository gates executed after source corrections:
 
-## Hard blocker
+```text
+go test -count=1 ./... -> PASS (exit 0)
+make fmt-check -> PASS (exit 0)
+make vet -> PASS (exit 0)
+make build -> PASS (exit 0; Provider and Agent binaries built)
+git diff --check -> PASS (exit 0; printed explicit PASS marker)
+```
 
-Real Cisco or GNS3 verification remains blocked because no lab endpoint, authorized target device, or operating environment was available in this session. That is reported as blocked, not as tested success.
+`git diff --check` before replacing the pre-existing `current_step.md` prompt reported trailing Markdown hard-break spaces in its metadata (exit 2). A check of the first replacement draft also found trailing spaces in this file's three metadata lines (exit 2); they were removed, and the final check passed.
 
-## Block 2 status
+Final Git review commands executed before commit:
 
-Blocked pending explicit validation to continue. The current code is not treated as production-ready for live network mutation because the external lab gate remains open.
+```text
+git status --short -> audit source, tests and docs modified; no untracked entries
+git diff --stat -> 27 files changed, 701 insertions(+), 259 deletions(-)
+git diff -- CURRENT.md current_step.md -> reviewed; status documents consistently say incomplete and Bloc 2 awaits approval
+```
+
+Regression probes were run before fixes and failed for the asserted defects: FortiOS renderer task shape, mixed generic/vendor output, Cisco method mismatch, route intent reported generated, and tampered catalog visibility. After the fixes, the affected package suites passed; the full Go suite above also passed. An initial full suite run exposed stale expectations for Cisco default method and artifact integrity error mapping; both contracts/tests were corrected and the full suite was rerun successfully.
+
+## Checks not executed and limits
+
+- `ansible-playbook --version` -> `zsh: command not found` (exit 127); `yamllint --version` -> `zsh: command not found` (exit 127). Generated YAML was parsed using the repository's `gopkg.in/yaml.v3` tests; this is not Ansible collection/module validation.
+- `terraform version` -> `zsh: command not found` (exit 127). Go tests verify deterministic data-only output, not Terraform parser acceptance.
+- Cisco IOS/GNS3 lab: **NON EXÉCUTÉ**; no authorized reachable endpoint, credentials, or lab evidence was available.
+- Cisco SSH tests are mock-based and do not establish platform/version compatibility. Vendor Ansible manifests remain `UNVERIFIED`; startup-config saving remains disabled.
+
+Residual risk: collection-specific runtime behavior, target model/firmware compatibility, check-mode behavior on actual equipment, and the Cisco executor's live CLI/read-back semantics require external validation. The score below does not replace those checks.
+
+## Maturity score and next gate
+
+**72/100 for the repository behavior and tests actually inspected.** The score credits strict input validation, deterministic artifacts, state separation, integrity checks, access control, and a passing Go/build/static baseline. It is reduced for unexecuted Ansible/Terraform CLI validation and absent lab/E2E evidence. It is not a production-readiness score.
+
+**Decision: BLOC 1 INCOMPLET — PREUVES MANQUANTES.** The next step remains external syntax/runtime validation and QA review. Bloc 2 requires explicit Product Owner / QA approval.

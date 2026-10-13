@@ -1,8 +1,8 @@
 capability_registry:
   entries:
     cisco:iosxe:ios-xe:
-      netconf:
-        method: netconf
+      ssh:
+        method: ssh
         state: UNVERIFIED
         evidence: no lab execution or verified adapter was recorded
 
@@ -29,7 +29,7 @@ sites:
         family: iosxe
         model: ios-xe
         provisioning:
-          method: netconf
+          method: ssh
           template_version: "1"
         management:
           ipv4: 192.168.200.10

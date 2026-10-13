@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/domain"
 	"infraflow/internal/ports"
 	"infraflow/pkg/protocol"
@@ -116,6 +117,10 @@ func (executor *ArtifactVerifyExecutor) Execute(ctx context.Context, task domain
 
 	reader, published, err := executor.repository.Open(cleanedPath)
 	if err != nil {
+		if errors.Is(err, coregeneration.ErrArtifactHashMismatch) {
+			msg := fmt.Sprintf("artifact %q integrity check failed: %v", cleanedPath, err)
+			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, errors.New(msg)
+		}
 		msg := fmt.Sprintf("artifact %q not found or inaccessible: %v", cleanedPath, err)
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, fmt.Errorf("artifact %q not found or inaccessible: %w", cleanedPath, err)
 	}

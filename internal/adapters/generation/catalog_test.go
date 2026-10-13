@@ -2,6 +2,7 @@ package generator
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,9 @@ func TestCatalogRejectsTamperedArtifact(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(root, "lab", "inventory.json"), []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := Catalog(root); !errors.Is(err, ErrArtifactHashMismatch) {
+		t.Fatal("expected catalog to reject an artifact whose content does not match its manifest hash")
 	}
 	if _, _, err := ReadArtifact(root, "lab/inventory.json"); err == nil {
 		t.Fatal("expected hash mismatch to be rejected when reading artifact")

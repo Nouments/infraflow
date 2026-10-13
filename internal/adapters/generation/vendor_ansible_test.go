@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"infraflow/internal/adapters/config"
@@ -42,12 +44,8 @@ func TestRenderCiscoInterfacesMultipleInterfacesFromDeviceNetwork(t *testing.T) 
 		if !ok {
 			t.Fatalf("expected interface name to be a string, got %#v", entry["name"])
 		}
-		enabled, ok := entry["enabled"].(bool)
-		if !ok {
-			t.Fatalf("expected interface enabled to be bool, got %#v", entry["enabled"])
-		}
-		if !enabled {
-			t.Fatalf("expected interface %q to be enabled", name)
+		if _, exists := entry["enabled"]; exists {
+			t.Fatalf("renderer invented interface admin state for %q: %#v", name, entry)
 		}
 		wantIP, exists := expected[name]
 		if !exists {
@@ -83,7 +81,7 @@ func TestRenderCiscoInterfacesMultipleInterfacesFromDeviceNetwork(t *testing.T) 
 	}
 }
 
-func TestRenderCiscoInterfacesWithoutIPv4DoesNotInventData(t *testing.T) {
+func TestRenderCiscoInterfacesMapsDHCPIntentWithoutInventingAddress(t *testing.T) {
 	interfaces := []domain.NetworkInterface{
 		{Name: "GigabitEthernet5", Role: "management", IPv4Mode: "dhcp"},
 	}
@@ -100,13 +98,15 @@ func TestRenderCiscoInterfacesWithoutIPv4DoesNotInventData(t *testing.T) {
 	if got, ok := entry["name"].(string); !ok || got != "GigabitEthernet5" {
 		t.Fatalf("expected interface name to be %q, got %#v", "GigabitEthernet5", entry["name"])
 	}
-	if got, ok := entry["enabled"].(bool); !ok || !got {
-		t.Fatalf("expected interface to be enabled, got %#v", entry["enabled"])
+	ipv4, ok := entry["ipv4"].([]any)
+	if !ok || len(ipv4) != 1 {
+		t.Fatalf("expected DHCP configuration for the declared mode, got %#v", entry["ipv4"])
 	}
-	if _, exists := entry["ipv4"]; exists {
-		t.Fatalf("expected no ipv4 field for interface without IPv4Address, got %#v", entry)
+	dhcp, ok := ipv4[0].(map[string]any)["dhcp"].(map[string]any)
+	if !ok || dhcp["enable"] != true {
+		t.Fatalf("expected explicit DHCP enablement, got %#v", ipv4[0])
 	}
-	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "vlan", "enabled"} {
 		if _, exists := entry[forbidden]; exists {
 			t.Fatalf("unexpected automatic %q field for interface without IP, got %#v", forbidden, entry)
 		}
@@ -222,8 +222,8 @@ func TestBuildVendorTasksRendersCiscoInterfacesIntegration(t *testing.T) {
 			t.Fatalf("expected config entry to be a map, got %#v", item)
 		}
 		name := entry["name"].(string)
-		if got, ok := entry["enabled"].(bool); !ok || !got {
-			t.Fatalf("expected interface %q enabled=true, got %#v", name, entry["enabled"])
+		if _, exists := entry["enabled"]; exists {
+			t.Fatalf("renderer invented interface admin state for %q: %#v", name, entry)
 		}
 		wantIP, exists := expected[name]
 		if !exists {
@@ -297,20 +297,22 @@ func TestBuildVendorTasksKeepsCiscoInterfaceWithoutIPv4ButNoInventedData(t *test
 	if got := entry["name"]; got != "GigabitEthernet5" {
 		t.Fatalf("expected interface name GigabitEthernet5, got %#v", got)
 	}
-	if got, ok := entry["enabled"].(bool); !ok || !got {
-		t.Fatalf("expected explicit enabled=true for interface without IP, got %#v", entry["enabled"])
+	ipv4, ok := entry["ipv4"].([]any)
+	if !ok || len(ipv4) != 1 {
+		t.Fatalf("expected explicit DHCP configuration for interface: %#v", entry)
 	}
-	if _, exists := entry["ipv4"]; exists {
-		t.Fatalf("unexpected ipv4 field invented for interface without IP: %#v", entry)
+	dhcp, ok := ipv4[0].(map[string]any)["dhcp"].(map[string]any)
+	if !ok || dhcp["enable"] != true {
+		t.Fatalf("expected DHCP configuration, got %#v", ipv4[0])
 	}
-	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "vlan", "enabled"} {
 		if _, exists := entry[forbidden]; exists {
 			t.Fatalf("unexpected automatic %q field for interface without IP: %#v", forbidden, entry)
 		}
 	}
 }
 
-func TestGenerateAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
+func TestGenerateVendorAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
 	infrastructure, err := config.Parse([]byte(`sites:
   - name: lab
     devices:
@@ -343,7 +345,7 @@ func TestGenerateAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	if _, err := GenerateAnsible(infrastructure, outDir); err != nil {
+	if _, err := GenerateVendorAnsible(infrastructure, outDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -405,8 +407,8 @@ func TestGenerateAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
 		if name == "" {
 			t.Fatalf("expected config entry name to be non-empty, got %#v", entry)
 		}
-		if got, ok := entry["enabled"].(bool); !ok || !got {
-			t.Fatalf("expected enabled=true for %q, got %#v", name, entry["enabled"])
+		if _, exists := entry["enabled"]; exists {
+			t.Fatalf("renderer invented interface admin state for %q: %#v", name, entry)
 		}
 		if ipv4Raw, exists := entry["ipv4"]; exists {
 			ipv4List, ok := ipv4Raw.([]any)
@@ -448,7 +450,7 @@ func TestGenerateVendorAnsibleWritesOnlyTraceableVendorArtifacts(t *testing.T) {
         family: iosxe
         model: csr1000v
         provisioning:
-          method: netconf
+          method: ssh
         network:
           interfaces:
             - name: GigabitEthernet1
@@ -501,12 +503,12 @@ func TestGenerateVendorAnsibleWritesOnlyTraceableVendorArtifacts(t *testing.T) {
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.TemplateVersion != TemplateVersion || manifest.Status != "UNVERIFIED" || manifest.Methods["R1"] != "netconf" {
+	if manifest.TemplateVersion != TemplateVersion || manifest.Status != "UNVERIFIED" || manifest.Methods["R1"] != "ssh" {
 		t.Fatalf("generated manifest overstated provenance: %#v", manifest)
 	}
 }
 
-func TestGenerateAnsibleWritesCiscoInterfaceWithoutIPv4WithoutInventingAddress(t *testing.T) {
+func TestGenerateVendorAnsibleWritesCiscoDHCPIntentWithoutInventingAddress(t *testing.T) {
 	infrastructure, err := config.Parse([]byte(`sites:
   - name: lab
     devices:
@@ -524,7 +526,7 @@ func TestGenerateAnsibleWritesCiscoInterfaceWithoutIPv4WithoutInventingAddress(t
 	}
 
 	outDir := t.TempDir()
-	if _, err := GenerateAnsible(infrastructure, outDir); err != nil {
+	if _, err := GenerateVendorAnsible(infrastructure, outDir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -551,12 +553,261 @@ func TestGenerateAnsibleWritesCiscoInterfaceWithoutIPv4WithoutInventingAddress(t
 	if got := entry["name"]; got != "GigabitEthernet5" {
 		t.Fatalf("expected interface name GigabitEthernet5, got %#v", got)
 	}
-	if _, exists := entry["ipv4"]; exists {
-		t.Fatalf("expected no ipv4 to be invented for GigabitEthernet5, got %#v", entry)
+	ipv4, ok := entry["ipv4"].([]any)
+	if !ok || len(ipv4) != 1 {
+		t.Fatalf("expected declared DHCP mode to produce one DHCP entry, got %#v", entry)
 	}
-	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "dhcp", "vlan"} {
+	dhcp, ok := ipv4[0].(map[string]any)["dhcp"].(map[string]any)
+	if !ok || dhcp["enable"] != true {
+		t.Fatalf("expected explicit DHCP configuration, got %#v", ipv4[0])
+	}
+	for _, forbidden := range []string{"nat", "ospf", "bgp", "route", "vlan", "enabled"} {
 		if _, exists := entry[forbidden]; exists {
 			t.Fatalf("unexpected automatic %q field in artifact for GigabitEthernet5: %#v", forbidden, entry)
 		}
+	}
+}
+
+func TestRenderFortinetTasksUsesCollectionSchemaAndExplicitRouteInterface(t *testing.T) {
+	device := domain.Device{
+		Name:   "FG1",
+		Vendor: "fortinet",
+		Family: "fortios",
+		Network: &domain.DeviceNetwork{
+			VDOM: "root",
+			Interfaces: []domain.NetworkInterface{{
+				Name: "port2", IPv4Mode: "static", IPv4Address: "192.0.2.1/24",
+			}},
+			Routes: []domain.StaticRoute{{
+				Destination: "198.51.100.0/24", NextHop: "192.0.2.254", Interface: "port2",
+				Distance: 25, FortinetSequence: 17,
+			}},
+		},
+	}
+
+	tasks := renderFortinetTasks(device)
+	if len(tasks) != 2 {
+		t.Fatalf("expected interface and route tasks, got %#v", tasks)
+	}
+
+	interfaceTask, ok := tasks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected interface task map, got %#v", tasks[0])
+	}
+	interfaceModule, ok := interfaceTask["fortinet.fortios.fortios_system_interface"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected FortiOS interface module arguments, got %#v", interfaceTask)
+	}
+	interfaceConfig, ok := interfaceModule["system_interface"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested system_interface payload, got %#v", interfaceModule)
+	}
+	if interfaceConfig["name"] != "{{ item.name }}" || interfaceConfig["mode"] != "{{ item.mode }}" || interfaceConfig["ip"] != "{{ item.ip | default(omit) }}" {
+		t.Fatalf("interface payload does not map explicit input fields: %#v", interfaceConfig)
+	}
+	if _, exists := interfaceConfig["allowaccess"]; exists {
+		t.Fatalf("renderer invented FortiGate management access: %#v", interfaceConfig)
+	}
+	if _, exists := interfaceTask["loop"]; !exists {
+		t.Fatalf("expected Ansible loop at task level, got %#v", interfaceTask)
+	}
+	if _, exists := interfaceModule["with_items"]; exists {
+		t.Fatalf("Ansible loop was incorrectly nested in module arguments: %#v", interfaceModule)
+	}
+
+	routeTask, ok := tasks[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected route task map, got %#v", tasks[1])
+	}
+	routeModule, ok := routeTask["fortinet.fortios.fortios_router_static"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected FortiOS route module arguments, got %#v", routeTask)
+	}
+	routeConfig, ok := routeModule["router_static"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested router_static payload, got %#v", routeModule)
+	}
+	if routeConfig["dst"] != "{{ item.destination }}" || routeConfig["gateway"] != "{{ item.gateway | default(omit) }}" || routeConfig["device"] != "{{ item.device }}" {
+		t.Fatalf("route payload does not map explicit input fields: %#v", routeConfig)
+	}
+	if routeConfig["seq_num"] != "{{ item.sequence }}" || routeConfig["distance"] != "{{ item.distance | default(omit) }}" {
+		t.Fatalf("route sequence or distance is not mapped from input: %#v", routeConfig)
+	}
+	if _, exists := routeTask["loop"]; !exists {
+		t.Fatalf("expected route loop at task level, got %#v", routeTask)
+	}
+	if _, exists := routeModule["with_items"]; exists {
+		t.Fatalf("Ansible loop was incorrectly nested in route module arguments: %#v", routeModule)
+	}
+}
+
+func TestGenerateVendorAnsibleRejectsMethodIncompatibleWithCollection(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        provisioning:
+          method: netconf
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := GenerateVendorAnsible(infrastructure, t.TempDir()); err == nil {
+		t.Fatal("expected Ansible IOS L3 renderer to reject NETCONF, which its network_cli module does not use")
+	}
+}
+
+func TestVendorProfilesGenerateDeterministicValidYAMLWithExplicitMethods(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		method         string
+		connection     string
+		networkOS      string
+		moduleRequired string
+	}{
+		{
+			name: "cisco iosxe",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        provisioning:
+          method: ssh
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`,
+			method: "ssh", connection: "ansible.netcommon.network_cli", networkOS: "cisco.ios.ios",
+			moduleRequired: "cisco.ios.ios_l3_interfaces",
+		},
+		{
+			name: "mikrotik routeros",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: mikrotik
+        family: routeros
+        provisioning:
+          method: api
+        management:
+          ipv4: 192.0.2.10
+        network:
+          interfaces:
+            - name: ether1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`,
+			method: "api", moduleRequired: "community.routeros.api_modify",
+		},
+		{
+			name: "fortigate fortios",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: FG1
+        vendor: fortigate
+        family: fortios
+        provisioning:
+          method: https
+        management:
+          ipv4: 192.0.2.20
+        network:
+          vdom: root
+          interfaces:
+            - name: port2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`,
+			method: "https", connection: "ansible.netcommon.httpapi", networkOS: "fortinet.fortios.fortios",
+			moduleRequired: "fortinet.fortios.fortios_system_interface",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte(test.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstDirectory, secondDirectory := t.TempDir(), t.TempDir()
+			first, err := GenerateVendorAnsible(infrastructure, firstDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := GenerateVendorAnsible(infrastructure, secondDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(first, second) || len(first) != 4 {
+				t.Fatalf("vendor generation is not deterministic or complete: %#v %#v", first, second)
+			}
+
+			var inventory map[string]any
+			inventoryData, err := os.ReadFile(filepath.Join(firstDirectory, "lab", "ansible", "vendor-inventory.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(inventoryData, &inventory); err != nil {
+				t.Fatalf("generated inventory is not valid YAML: %v", err)
+			}
+			var playbook []any
+			playbookData, err := os.ReadFile(filepath.Join(firstDirectory, "lab", "ansible", "vendor-playbook.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(playbookData, &playbook); err != nil || len(playbook) != 1 {
+				t.Fatalf("generated vendor playbook is not valid YAML: plays=%#v err=%v", playbook, err)
+			}
+			if !strings.Contains(string(playbookData), test.moduleRequired) {
+				t.Fatalf("playbook omitted profile module %q: %s", test.moduleRequired, playbookData)
+			}
+			for _, safetyMarker := range []string{"ansible.builtin.assert", "ansible_check_mode", "INFRAFLOW_APPLY"} {
+				if !strings.Contains(string(playbookData), safetyMarker) {
+					t.Fatalf("vendor playbook omitted mutation guard marker %q", safetyMarker)
+				}
+			}
+
+			all := inventory["all"].(map[string]any)
+			children := all["children"].(map[string]any)
+			network := children["network"].(map[string]any)
+			hosts := network["hosts"].(map[string]any)
+			var host map[string]any
+			for _, value := range hosts {
+				host = value.(map[string]any)
+			}
+			if host["infraflow_method"] != test.method {
+				t.Fatalf("inventory method = %#v, want %q", host["infraflow_method"], test.method)
+			}
+			if test.connection != "" && (host["ansible_connection"] != test.connection || host["ansible_network_os"] != test.networkOS) {
+				t.Fatalf("inventory connection contract is wrong: %#v", host)
+			}
+			if _, exists := host["ansible_password"]; exists {
+				t.Fatalf("inventory must not contain credentials: %#v", host)
+			}
+			for _, artifact := range first {
+				data, err := os.ReadFile(filepath.Join(firstDirectory, filepath.FromSlash(artifact.Path)))
+				if err != nil || protocol.SHA256(data) != artifact.OutputHash {
+					t.Fatalf("artifact %s hash mismatch: %v", artifact.Path, err)
+				}
+			}
+		})
 	}
 }

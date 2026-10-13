@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	coregeneration "infraflow/internal/adapters/generation"
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 
@@ -41,26 +42,9 @@ func (repository *ArtifactRepository) Open(path string) (io.ReadCloser, protocol
 	if err != nil {
 		return nil, protocol.Artifact{}, fmt.Errorf("resolve artifact root: %w", err)
 	}
-	filePath := filepath.Join(root, filepath.FromSlash(published.Path))
-	info, err := os.Lstat(filePath)
+	file, err := safefs.OpenReadOnly(root, published.Path)
 	if err != nil {
 		return nil, protocol.Artifact{}, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, protocol.Artifact{}, fmt.Errorf("artifact is not a regular file")
-	}
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, protocol.Artifact{}, err
-	}
-	openedInfo, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, protocol.Artifact{}, err
-	}
-	if !openedInfo.Mode().IsRegular() {
-		_ = file.Close()
-		return nil, protocol.Artifact{}, fmt.Errorf("opened artifact is not a regular file")
 	}
 	return file, published, nil
 }

@@ -18,6 +18,7 @@ type vendorProfile struct {
 	group      string
 	collection string
 	family     string
+	method     string
 }
 
 type vendorTemplateManifest struct {
@@ -73,15 +74,6 @@ func GenerateVendorAnsible(infrastructure domain.Infrastructure, outputDirectory
 	return artifacts, nil
 }
 
-func hasVendorNetworkIntent(site domain.Site) bool {
-	for _, device := range site.Devices {
-		if device.Network != nil {
-			return true
-		}
-	}
-	return false
-}
-
 func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Artifact, error) {
 	profiles := make(map[string]vendorProfile)
 	hosts := make(map[string]any)
@@ -95,9 +87,21 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 		if err != nil {
 			return nil, nil, err
 		}
+		if len(device.Network.Routes) > 0 && profile.group == "cisco_iosxe" {
+			return nil, nil, fmt.Errorf("device %s: Cisco Ansible renderer does not support static routes", device.Name)
+		}
+		if len(device.Network.NAT.Source)+len(device.Network.NAT.Destination) > 0 {
+			return nil, nil, fmt.Errorf("device %s: vendor Ansible renderer does not support NAT intent", device.Name)
+		}
+		for _, iface := range device.Network.Interfaces {
+			if profile.group == "mikrotik_routeros" && iface.IPv4Mode != "static" {
+				return nil, nil, fmt.Errorf("device %s: MikroTik Ansible renderer supports only explicit static interface addresses", device.Name)
+			}
+		}
 		profiles[device.Name] = profile
-		methods[device.Name] = device.Provisioning.Method
-		hosts[device.Name] = map[string]any{
+		methods[device.Name] = profile.method
+		device.Provisioning.Method = profile.method
+		host := map[string]any{
 			"ansible_host":     device.Management.IPv4,
 			"infraflow_method": device.Provisioning.Method,
 			"infraflow_vendor": device.Vendor,
@@ -105,6 +109,17 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 			"infraflow_model":  device.Model,
 			"infraflow_role":   device.Role,
 		}
+		switch profile.group {
+		case "cisco_iosxe":
+			host["ansible_connection"] = "ansible.netcommon.network_cli"
+			host["ansible_network_os"] = "cisco.ios.ios"
+		case "fortinet_fortios":
+			host["ansible_connection"] = "ansible.netcommon.httpapi"
+			host["ansible_network_os"] = "fortinet.fortios.fortios"
+			host["ansible_httpapi_use_ssl"] = true
+			host["ansible_httpapi_validate_certs"] = true
+		}
+		hosts[device.Name] = host
 		deviceNames = append(deviceNames, device.Name)
 	}
 	if len(deviceNames) == 0 {
@@ -143,11 +158,11 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 	manifest := vendorTemplateManifest{
 		TemplateVersion: "1",
 		InputHash:       inputHash,
-		ExecutionMode:   "manual-only; check mode by default; INFRAFLOW_APPLY=true is required for mutation",
+		ExecutionMode:   "manual-only; run with --check for preview; INFRAFLOW_APPLY=true is required for mutation",
 		Devices:         deviceNames,
 		Methods:         methods,
 		Status:          "UNVERIFIED",
-		Evidence:        "Rendered from validated desired-state input; no device execution or lab verification occurred",
+		Evidence:        "Rendered only for supported interface and static-route intent; no device execution or lab verification occurred",
 	}
 	manifestBytes, err := marshal(manifest)
 	if err != nil {
@@ -183,16 +198,27 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 func vendorProfileFor(device domain.Device) (vendorProfile, error) {
 	vendor := strings.ToLower(strings.TrimSpace(device.Vendor))
 	family := strings.ToLower(strings.TrimSpace(device.Family))
+	capability, supported := domain.VendorProfileFor(device)
+	if !supported {
+		return vendorProfile{}, fmt.Errorf("device %s: unsupported vendor profile %s/%s", device.Name, device.Vendor, device.Family)
+	}
+	method := strings.TrimSpace(device.Provisioning.Method)
+	if method == "" {
+		method = capability.DefaultMethod
+	}
+	if _, exists := capability.Methods[method]; !exists {
+		return vendorProfile{}, fmt.Errorf("device %s: unsupported Ansible method %q for %s/%s", device.Name, method, device.Vendor, device.Family)
+	}
 	switch {
 	case vendor == "cisco" && (family == "iosxe" || family == "ios-xe" || family == "ios_xe"):
-		return vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"}, nil
+		return vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe", method: method}, nil
 	case vendor == "mikrotik" && family == "routeros":
-		return vendorProfile{group: "mikrotik_routeros", collection: "community.routeros", family: "routeros"}, nil
+		return vendorProfile{group: "mikrotik_routeros", collection: "community.routeros", family: "routeros", method: method}, nil
 	case (vendor == "fortinet" || vendor == "fortigate") && (family == "fortios" || family == "fortigate"):
 		if strings.TrimSpace(device.Network.VDOM) == "" {
 			return vendorProfile{}, fmt.Errorf("device %s: FortiGate network intent requires network.vdom", device.Name)
 		}
-		return vendorProfile{group: "fortinet_fortios", collection: "fortinet.fortios", family: "fortios"}, nil
+		return vendorProfile{group: "fortinet_fortios", collection: "fortinet.fortios", family: "fortios", method: method}, nil
 	default:
 		return vendorProfile{}, fmt.Errorf("device %s: unsupported vendor profile %s/%s", device.Name, device.Vendor, device.Family)
 	}
@@ -261,9 +287,12 @@ func renderCiscoTasks(device domain.Device) []any {
 func renderCiscoInterfaces(interfaces []domain.NetworkInterface) []any {
 	out := make([]any, 0, len(interfaces))
 	for _, item := range interfaces {
-		entry := map[string]any{"name": item.Name, "enabled": true}
-		if item.IPv4Address != "" {
+		entry := map[string]any{"name": item.Name}
+		switch item.IPv4Mode {
+		case "static":
 			entry["ipv4"] = []any{map[string]any{"address": item.IPv4Address}}
+		case "dhcp":
+			entry["ipv4"] = []any{map[string]any{"dhcp": map[string]any{"enable": true}}}
 		}
 		out = append(out, entry)
 	}
@@ -296,6 +325,8 @@ func renderMikroTikTasks(device domain.Device) []any {
 			"name": "Render MikroTik interface addresses",
 			"community.routeros.api_modify": map[string]any{
 				"hostname": device.Management.IPv4,
+				"username": "{{ ansible_user }}",
+				"password": "{{ ansible_password }}",
 				"path":     "ip address",
 				"data":     renderMikroTikInterfaces(device.Network.Interfaces),
 			},
@@ -306,6 +337,8 @@ func renderMikroTikTasks(device domain.Device) []any {
 			"name": "Render MikroTik static routes",
 			"community.routeros.api_modify": map[string]any{
 				"hostname": device.Management.IPv4,
+				"username": "{{ ansible_user }}",
+				"password": "{{ ansible_password }}",
 				"path":     "ip route",
 				"data":     renderMikroTikRoutes(device.Network.Routes),
 			},
@@ -328,7 +361,11 @@ func renderMikroTikInterfaces(interfaces []domain.NetworkInterface) []any {
 func renderMikroTikRoutes(routes []domain.StaticRoute) []any {
 	out := make([]any, 0, len(routes))
 	for _, route := range routes {
-		out = append(out, map[string]any{"dst": route.Destination, "gateway": route.NextHop})
+		gateway := route.NextHop
+		if gateway == "" {
+			gateway = route.Interface
+		}
+		out = append(out, map[string]any{"dst": route.Destination, "gateway": gateway})
 	}
 	return out
 }
@@ -339,26 +376,32 @@ func renderFortinetTasks(device domain.Device) []any {
 		tasks = append(tasks, map[string]any{
 			"name": "Render FortiGate interface addresses",
 			"fortinet.fortios.fortios_system_interface": map[string]any{
-				"vdom":        device.Network.VDOM,
-				"state":       "present",
-				"name":        "{{ item.name }}",
-				"ip":          "{{ item.ipv4_address }}",
-				"allowaccess": "ping",
-				"with_items":  renderFortinetInterfaces(device.Network.Interfaces),
+				"vdom":  device.Network.VDOM,
+				"state": "present",
+				"system_interface": map[string]any{
+					"name": "{{ item.name }}",
+					"mode": "{{ item.mode }}",
+					"ip":   "{{ item.ip | default(omit) }}",
+				},
 			},
+			"loop": renderFortinetInterfaces(device.Network.Interfaces),
 		})
 	}
 	if len(device.Network.Routes) > 0 {
 		tasks = append(tasks, map[string]any{
 			"name": "Render FortiGate static routes",
 			"fortinet.fortios.fortios_router_static": map[string]any{
-				"vdom":        device.Network.VDOM,
-				"state":       "present",
-				"destination": "{{ item.destination }}",
-				"gateway":     "{{ item.gateway }}",
-				"device":      "{{ item.device }}",
-				"with_items":  renderFortinetRoutes(device.Network.Routes),
+				"vdom":  device.Network.VDOM,
+				"state": "present",
+				"router_static": map[string]any{
+					"dst":      "{{ item.destination }}",
+					"gateway":  "{{ item.gateway | default(omit) }}",
+					"device":   "{{ item.device }}",
+					"seq_num":  "{{ item.sequence }}",
+					"distance": "{{ item.distance | default(omit) }}",
+				},
 			},
+			"loop": renderFortinetRoutes(device.Network.Routes),
 		})
 	}
 	return tasks
@@ -367,10 +410,11 @@ func renderFortinetTasks(device domain.Device) []any {
 func renderFortinetInterfaces(interfaces []domain.NetworkInterface) []any {
 	out := make([]any, 0, len(interfaces))
 	for _, item := range interfaces {
-		if item.IPv4Address == "" {
-			continue
+		entry := map[string]any{"name": item.Name, "mode": item.IPv4Mode}
+		if item.IPv4Mode == "static" {
+			entry["ip"] = item.IPv4Address
 		}
-		out = append(out, map[string]any{"name": item.Name, "ipv4_address": item.IPv4Address})
+		out = append(out, entry)
 	}
 	return out
 }
@@ -378,7 +422,18 @@ func renderFortinetInterfaces(interfaces []domain.NetworkInterface) []any {
 func renderFortinetRoutes(routes []domain.StaticRoute) []any {
 	out := make([]any, 0, len(routes))
 	for _, route := range routes {
-		out = append(out, map[string]any{"destination": route.Destination, "gateway": route.NextHop, "device": "port1"})
+		entry := map[string]any{
+			"destination": route.Destination,
+			"device":      route.Interface,
+			"sequence":    route.FortinetSequence,
+		}
+		if route.NextHop != "" {
+			entry["gateway"] = route.NextHop
+		}
+		if route.Distance > 0 {
+			entry["distance"] = route.Distance
+		}
+		out = append(out, entry)
 	}
 	return out
 }

@@ -173,7 +173,7 @@ func TestPlanAndGenerateReturnsVerifiedArtifactProvenance(t *testing.T) {
         family: iosxe
         model: csr1000v
         provisioning:
-          method: netconf
+          method: ssh
         network:
           interfaces:
             - name: GigabitEthernet1
@@ -192,7 +192,7 @@ func TestPlanAndGenerateReturnsVerifiedArtifactProvenance(t *testing.T) {
 	if result.ExecutionStatus != "NOT_REQUESTED" || result.VerificationStatus != "NOT_PERFORMED" {
 		t.Fatalf("generation implied execution or verification: %#v", result)
 	}
-	if len(result.Tasks) != 1 || result.Tasks[0].Status != "GENERATED" || result.Tasks[0].Capability != domain.CapabilityUnverified || result.Tasks[0].Method != "netconf" {
+	if len(result.Tasks) != 1 || result.Tasks[0].Status != "GENERATED" || result.Tasks[0].Capability != domain.CapabilityUnverified || result.Tasks[0].Method != "ssh" {
 		t.Fatalf("unexpected per-task state: %#v", result.Tasks)
 	}
 	if len(result.Tasks[0].Artifacts) != 4 {
@@ -279,6 +279,42 @@ func TestPlanAndGenerateReportsUnsupportedAndFailuresHonestly(t *testing.T) {
 	failed, err := NewService(nil, nil, failingVendorGenerator{}, dependencies).PlanAndGenerate(input)
 	if err == nil || failed.GenerationStatus != "FAILED" || failed.Plan.Lifecycle.Generated || failed.Tasks[0].Status != "FAILED" {
 		t.Fatalf("generator failure was not represented honestly: %#v, %v", failed, err)
+	}
+}
+
+func TestPlanAndGenerateRejectsIntentOutsidePlannedInterfaceTask(t *testing.T) {
+	outputDirectory := t.TempDir()
+	dependencies := testDependencies()
+	dependencies.ArtifactDirectory = outputDirectory
+	service := NewService(nil, nil, generation.Generator{}, dependencies)
+	input := []byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        provisioning:
+          method: ssh
+        network:
+          interfaces:
+            - name: Gi1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+          routes:
+            - destination: 198.51.100.0/24
+              next_hop: 192.0.2.254
+`)
+
+	result, err := service.PlanAndGenerate(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GenerationStatus != "UNSUPPORTED" || result.Plan.Lifecycle.Generated || len(result.Tasks) != 1 || result.Tasks[0].Status != "UNSUPPORTED" {
+		t.Fatalf("route intent absent from the planned interface task was misreported: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "ansible", "vendor-playbook.yml")); !os.IsNotExist(err) {
+		t.Fatalf("unsupported route intent produced vendor artifacts: %v", err)
 	}
 }
 

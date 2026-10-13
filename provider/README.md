@@ -134,8 +134,9 @@ session or machine agent token; a normal user session cannot access them.
 
 `generate-ansible` creates `site/ansible/inventory.yml` and
 `site/ansible/site.yml`. The files contain generic metadata and a read-only
-inspection task. They are not vendor configuration, do not run Ansible, and do
-not publish an execution job.
+inspection task; the playbook is cataloged as `ansible_inspection_playbook` to
+distinguish it from the vendor `ansible_playbook` artifact. They are not vendor
+configuration, do not run Ansible, and do not publish an execution job.
 
 `generate-terraform` creates a data-only configuration under
 `site/terraform/`: `versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`,

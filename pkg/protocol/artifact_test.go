@@ -34,8 +34,11 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !IsSHA256(SHA256([]byte("test"))) || IsSHA256("short") {
 		t.Fatal("SHA-256 validation failed")
 	}
-	if !ValidArtifactPath("lab", Artifact{Type: "ansible_inventory", Path: "lab/ansible/inventory.yml"}) || !ValidArtifactPath("lab", Artifact{Type: "ansible_playbook", Path: "lab/ansible/site.yml"}) {
+	if !ValidArtifactPath("lab", Artifact{Type: "ansible_inventory", Path: "lab/ansible/inventory.yml"}) || !ValidArtifactPath("lab", Artifact{Type: "ansible_inspection_playbook", Path: "lab/ansible/site.yml"}) {
 		t.Fatal("expected valid Ansible artifact paths")
+	}
+	if ValidArtifactPath("lab", Artifact{Type: "ansible_playbook", Path: "lab/ansible/site.yml"}) {
+		t.Fatal("generic inspection playbook must not use the vendor configuration artifact type")
 	}
 	for _, artifact := range []Artifact{
 		{Type: "ansible_vendor_inventory", Path: "lab/ansible/vendor-inventory.yml"},

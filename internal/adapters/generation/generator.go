@@ -387,17 +387,9 @@ func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory strin
 		inventoryPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "inventory.yml"))
 		playbookPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "site.yml"))
 		inventoryArtifact := Artifact{Type: "ansible_inventory", Path: inventoryPath, InputHash: inputHash, OutputHash: protocol.SHA256(inventoryBytes)}
-		playbookArtifact := Artifact{Type: "ansible_playbook", Path: playbookPath, InputHash: inputHash, OutputHash: protocol.SHA256(playbookBytes)}
+		playbookArtifact := Artifact{Type: "ansible_inspection_playbook", Path: playbookPath, InputHash: inputHash, OutputHash: protocol.SHA256(playbookBytes)}
 		artifacts = append(artifacts, inventoryArtifact, playbookArtifact)
 		files = append(files, pendingFile{path: inventoryPath, data: inventoryBytes}, pendingFile{path: playbookPath, data: playbookBytes})
-		if hasVendorNetworkIntent(site) {
-			vendorFiles, vendorArtifacts, err := vendorAnsibleFiles(site, inputHash)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, vendorFiles...)
-			artifacts = append(artifacts, vendorArtifacts...)
-		}
 	}
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
@@ -518,6 +510,7 @@ func GenerateAll(infrastructure domain.Infrastructure, outputDirectory string) (
 	for _, generate := range []func(domain.Infrastructure, string) ([]Artifact, error){
 		Generate,
 		GenerateAnsible,
+		GenerateVendorAnsible,
 		GenerateTerraform,
 		GenerateBootstrap,
 	} {
