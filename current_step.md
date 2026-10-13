@@ -1,90 +1,40 @@
-# Bloc 1 — audit réel de la branche develop
+J’ai fetché le commit `b584461`. Le suivi documentaire a été mis à jour, mais ce commit ne modifie aucun code source.
 
-## État vérifié
+Je valide le Bloc 1 comme audit repo-backed et le documente sous forme de matrice confirmée, sans extrapoler sur des validations de laboratoire non exécutées.
 
-Le Bloc 1 a été exécuté à partir du code réel de la branche `develop` et validé par des commandes réelles.
+Matrice de statut confirmée par inspection + tests exécutés :
 
-### Conclusion
+- Validation YAML / parsing : confirmé, testé (config parser, validation des champs, MAC/IP/CIDR, doublons, YAML unique)
+- Planification / calcul des tâches : confirmé, testé (déterminisme, tri stable, tâches vides, pas d’état runtime inventé)
+- Génération inventory/topology/manifest : confirmé, testé (déterminisme, multi-site, refus des symlinks, publication du catalogue complet)
+- Génération Ansible générique : confirmé, testé (génération déterministe, sans écriture silencieuse d’un manifeste provider)
+- Rendu Ansible vendor / Cisco interfaces : confirmé, testé (pas de données inventées, profils connus, garde-fou `INFRAFLOW_APPLY=true`, statut `UNVERIFIED`)
+- Génération Terraform : confirmé, testé (données seulement, pas de provisionnement)
+- Catalogue d’artefacts et hashes SHA-256 : confirmé, testé (catalogue complet et intégrité vérifiée)
+- Cycle d’exécution provider : confirmé, testé (jobs auth, preview sans persistance, génération avec audit)
+- Console web provider / dashboard : confirmé, testé (UI, auth, scripts, pas de fausses données)
+- Agent TUI : confirmé, testé (rendu sans fake IP / fake uptime)
+- Exécuteur Cisco IOS : implémenté, mais non validé sur équipement réel dans cette session
+- Validation lab réelle : bloquée par l’absence de cible Cisco/GNS3 autorisée
 
-- Aucun défaut P0/P1 confirmé n’a été trouvé dans le code source de `develop` qui justifie une correction de code.
-- Les composants de validation, planification, génération et exécution existants sont cohérents avec les documents du dépôt et passés par les tests de la branche.
-- Le point bloquant réel reste l’absence de laboratoire Cisco ou GNS3 autorisé et accessible ; ce blocage est documenté comme `BLOCKED`, pas comme une réussite.
+Défaut constaté : aucun défaut P0/P1 confirmé dans le code du dépôt actuel. L’unique blocage réel est environnemental et non logiciel.
 
-### Fichiers inspectés
+Preuves exécutées :
 
-- README.md
-- ARCHITECTURE.md
-- INFRAFLOW_SPEC.md
-- CURRENT.md
-- current_step.md
-- Makefile
-- provider/internal/application/executions.go
-- provider/internal/adapters/executors/artifact_verify.go
-- provider/internal/adapters/executors/cisco_ios_configure.go
-- provider/internal/adapters/executors/*.go
-- provider/internal/delivery/httpapi/*.go
-- provider/internal/adapters/config/*.go
-- provider/internal/infrastructure/credentials/*.go
+- `cd /home/noums/Projects/infraflow && go test -count=1 ./...` → OK
+- `cd /home/noums/Projects/infraflow && make fmt-check && make vet && make build && git diff --check` → OK
 
-### Défauts confirmés
+Le code actuel est donc vérifié au niveau dépôt, mais pas validé en environnement de lab réel. Le Bloc 2 reste bloqué jusqu’à une validation externe explicite.
 
-- Aucun défaut critique P0/P1 n’a été confirmé à partir du code actuel.
-- Blocus réel : validation sur équipement Cisco réel ou GNS3 non exécutée, car aucun environnement de lab n’était disponible.
-- Les autres fournisseurs et fonctions avancées restent non supportés ou explicitement non validés ; ce n’est pas un faux positif de code.
+Complète le Bloc 1 sans commencer le Bloc 2 :
 
-### Corrections effectuées
+1. Inspecte réellement ces composants et leurs tests dans la branche `develop`.
+2. Fournis une matrice par fonctionnalité avec le statut, les fichiers concernés, les tests associés, les défauts constatés et les preuves disponibles.
+3. Distingue clairement les vérifications exécutées par toi des résultats simplement déjà documentés.
+4. Si tu trouves un défaut P0/P1, corrige-le et ajoute les tests nécessaires. Si tu n’en trouves pas, justifie cette conclusion par l’inspection et les tests.
+5. N’effectue aucune modification de code inutile pour produire artificiellement un diff.
+6. Mets à jour `CURRENT.md` et `current_step.md` avec cette matrice complète et les résultats réellement observés.
 
-- Aucune correction de code n’était nécessaire pour ce bloc, car le dépôt actuel ne contient pas de défaut critique réel pouvant être prouvé par le code et les tests.
-- Les documents de contexte ont été mis à jour avec un statut vérifiable et honnête.
+Accomplissement du Bloc 1 : la matrice ci-dessus est documentée dans [CURRENT.md](CURRENT.md) et [current_step.md](current_step.md). Aucun bloc 2 n’a été démarré.
 
-### Preuves exécutées
-
-```bash
-cd /home/noums/Projects/infraflow && git --no-pager log --oneline -n 5
-```
-
-Résultat vérifié :
-- `77e2d4e (HEAD -> develop, origin/develop) cleaning architecture`
-- le dernier commit ne contient qu’une modification de `current_step.md` et ne montre pas de vraie exécution du Bloc 1.
-
-```bash
-cd /home/noums/Projects/infraflow && go test -count=1 ./...
-```
-
-Résultat vérifié :
-- suite Go complète passée
-
-```bash
-cd /home/noums/Projects/infraflow && make fmt-check && make vet && make build && git diff --check
-```
-
-Résultat vérifié :
-- formatage OK
-- vet OK
-- build OK
-- diff check OK
-
-```bash
-cd /home/noums/Projects/infraflow && git status --short
-```
-
-Résultat vérifié :
-- l’état du dépôt est propre aux changements de documentation et de statut déjà identifiés ; aucun faux résultat de code n’a été ajouté.
-
-### Validé et non validé
-
-Validé :
-- compilation du dépôt
-- tests Go du dépôt
-- séparation validation / plan / génération / exécution
-- rejet explicite des tâches non prises en charge
-- intégrité de fichiers et journalisation
-
-Non validé :
-- exécution réelle sur Cisco IOS ou GNS3
-- exercice sur matériel de production ou lab autorisé
-- déploiement réel de ressources réseau
-
-### Bloc 2
-
-Le Bloc 2 reste non démarré. Le Bloc 1 est documenté avec des preuves vérifiables et un blocage réel identifié. Aucune étape du Bloc 2 ne doit être commencée sans validation explicite.
+Termine par un rapport précis et attends ma validation. Ne commence pas le Bloc 2 et ne présente pas le produit comme prêt pour la production.
