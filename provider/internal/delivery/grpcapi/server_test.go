@@ -21,7 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	configadapter "infraflow/internal/adapters/config"
-	"infraflow/internal/adapters/generation"
+	generator "infraflow/internal/adapters/generation"
 	planningadapter "infraflow/internal/adapters/planning"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/observability"
