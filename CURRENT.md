@@ -3,7 +3,8 @@
 Audit date: 2026-10-13
 Branch: `develop`
 Reference commit inspected before edits: `a4b7cb07605be5503c608e97343ab9f78348bbfe`
-Initial worktree: only `current_step.md` was modified; it contained the user's audit prompt and was replaced with the requested operational status. No other pre-existing edits were present.
+Audit correction commit: `0c3cd1c05347a602f18c786a4fc53a36e4137ed0` (`fix(audit): harden generation and artifact integrity`)
+Initial worktree: only `current_step.md` was modified; it contained the user's audit prompt and was replaced with the requested operational status. After that audit commit, a separate user edit appeared in `provider/internal/delivery/grpcapi/server_test.go` (import alias only); it remains uncommitted and was not modified or staged during this QA reproduction.
 
 ## Scope and decision
 
@@ -42,7 +43,7 @@ Decision: **BLOC 1 INCOMPLET — PREUVES MANQUANTES**. Confirmed code defects fo
 
 ## Commands executed in this session
 
-Repository baseline:
+Repository baseline before the audit correction commit:
 
 ```text
 git branch --show-current -> develop (exit 0)
@@ -70,6 +71,21 @@ git status --short -> audit source, tests and docs modified; no untracked entrie
 git diff --stat -> 27 files changed, 701 insertions(+), 259 deletions(-)
 git diff -- CURRENT.md current_step.md -> reviewed; status documents consistently say incomplete and Bloc 2 awaits approval
 ```
+
+QA reproduction requested after the audit commit:
+
+```text
+git status --short --branch -> ## develop...origin/develop [ahead 1]; M provider/internal/delivery/grpcapi/server_test.go (exit 0)
+git rev-parse HEAD -> 0c3cd1c05347a602f18c786a4fc53a36e4137ed0 (exit 0)
+git --no-pager log -5 --oneline -> 0c3cd1c, a4b7cb0, b584461, 77e2d4e, 0be997c (exit 0)
+go test -count=1 ./... -> PASS (exit 0)
+make fmt-check -> PASS (exit 0; target confirmed in Makefile)
+make vet -> PASS (exit 0; target confirmed in Makefile)
+make build -> PASS (exit 0; target confirmed in Makefile; both binaries built)
+git diff --check -> PASS (exit 0)
+```
+
+The audit correction commit contains 27 files (`701 insertions(+), 259 deletions(-)`). The post-commit user edit in `provider/internal/delivery/grpcapi/server_test.go` is intentionally excluded from it.
 
 Regression probes were run before fixes and failed for the asserted defects: FortiOS renderer task shape, mixed generic/vendor output, Cisco method mismatch, route intent reported generated, and tampered catalog visibility. After the fixes, the affected package suites passed; the full Go suite above also passed. An initial full suite run exposed stale expectations for Cisco default method and artifact integrity error mapping; both contracts/tests were corrected and the full suite was rerun successfully.
 
