@@ -116,3 +116,16 @@ This is a separate verification record; the Bloc 1 decision above remains unchan
 - Terraform is blocked: `terraform version` returned exit 127 (`zsh: command not found`). `fmt`, `init`, and `validate` were not run; no `apply` was run. Inspected generated Terraform is data-only and declares no resources.
 - Full `git diff --check` returns exit 2 because the pre-existing local `current_step.md` content has trailing spaces on lines 6–7. Those lines were preserved. The audit did not modify source code or tests and found no additional reproducible defect.
 - This verification does not constitute Ansible/Terraform CLI validation, device/lab evidence, or PO/QA approval of Bloc 1. Bloc 3 was not started.
+
+## Bloc 2 final validation addendum — 2026-10-14
+
+This later pass supersedes only the external-tool-blocked findings above; the Bloc 1 decision remains **INCOMPLET — PREUVES MANQUANTES**.
+
+- The original local whitespace finding was traced to the seven pre-existing A-G lines in the locally modified `current_step.md` mission text (now lines 148–154). They were preserved. Final `git diff --check` still exits 2 for those lines.
+- A real `generate-all` run from an explicit temporary Cisco IOS-XE input initially failed because its fixture omitted the required bootstrap CIDR; adding the required CIDR made generation succeed. All outputs were written under `/tmp`.
+- Ansible was installed in an isolated Python 3.14.7 venv as `ansible-core 2.21.5`. Generated requirements installed `cisco.ios 11.5.1`, `ansible.netcommon 8.7.1`, and `ansible.utils 6.1.1` into a temporary collection path. Both generated playbooks passed `ansible-playbook --syntax-check`; the vendor inventory passed `ansible-inventory --list`; `cisco.ios.ios_l3_interfaces` and `ansible.netcommon.network_cli` resolved. No playbook was executed and no device was contacted.
+- Terraform v1.16.6 was downloaded from HashiCorp’s official release URL and its Linux AMD64 archive passed the official SHA-256 checksum. Generated-module `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` passed after fixing HCL scalar-key alignment. The generated module declares no resources or providers; no `apply` was run.
+- The same Terraform checks also passed against an isolated module generated from the repository’s `examples/infra.yaml` input.
+- Confirmed defect: generated `locals.tf` was valid enough to generate but failed Terraform’s formatter because object attributes were not aligned according to Terraform’s scalar groups. The renderer now aligns contiguous scalar values while leaving non-empty nested maps/lists as group boundaries; empty `{}` and `[]` remain inline. Regression coverage is in `TestGenerateTerraformIsDeterministicAndDataOnly`. An intermediate correction test caught and fixed a negative `strings.Repeat` count.
+- Final `PAGER=cat go test -count=1 ./...`, `PAGER=cat make fmt-check`, `PAGER=cat make vet`, `PAGER=cat make build`, `PAGER=cat go test -race -count=1 ./...`, and the targeted artifact package tests each exited 0.
+- No Cisco/GNS3 compatibility or real-device behavior is established. No Bloc 3 work was performed.

@@ -319,6 +319,34 @@ func hclValue(value any, indent int) (string, error) {
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
+		encodedKeys := make(map[string][]byte, len(keys))
+		keyWidths := make(map[string]int, len(keys))
+		for _, key := range keys {
+			keyJSON, err := json.Marshal(key)
+			if err != nil {
+				return "", err
+			}
+			encodedKeys[key] = keyJSON
+		}
+		for start := 0; start < len(keys); {
+			if isHCLCollection(typed[keys[start]]) {
+				keyWidths[keys[start]] = len(encodedKeys[keys[start]])
+				start++
+				continue
+			}
+			end := start
+			maxKeyWidth := 0
+			for end < len(keys) && !isHCLCollection(typed[keys[end]]) {
+				if width := len(encodedKeys[keys[end]]); width > maxKeyWidth {
+					maxKeyWidth = width
+				}
+				end++
+			}
+			for index := start; index < end; index++ {
+				keyWidths[keys[index]] = maxKeyWidth
+			}
+			start = end
+		}
 		var builder strings.Builder
 		builder.WriteString("{\n")
 		for _, key := range keys {
@@ -326,12 +354,9 @@ func hclValue(value any, indent int) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			keyJSON, err := json.Marshal(key)
-			if err != nil {
-				return "", err
-			}
 			builder.WriteString(strings.Repeat(" ", indent+2))
-			builder.Write(keyJSON)
+			builder.Write(encodedKeys[key])
+			builder.WriteString(strings.Repeat(" ", keyWidths[key]-len(encodedKeys[key])))
 			builder.WriteString(" = ")
 			builder.WriteString(encoded)
 			builder.WriteString("\n")
@@ -341,6 +366,19 @@ func hclValue(value any, indent int) (string, error) {
 		return builder.String(), nil
 	default:
 		return "", fmt.Errorf("unsupported Terraform value %T", value)
+	}
+}
+
+func isHCLCollection(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	case []string:
+		return len(typed) > 0
+	default:
+		return false
 	}
 }
 

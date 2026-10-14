@@ -474,6 +474,9 @@ func TestGenerateTerraformIsDeterministicAndDataOnly(t *testing.T) {
 	if !strings.Contains(string(locals), `"environment" = var.environment`) {
 		t.Fatalf("Terraform variable expression is missing: %s", locals)
 	}
+	if !strings.Contains(string(locals), `"input_hash"  =`) {
+		t.Fatalf("Terraform object attributes are not aligned:\n%s", locals)
+	}
 	if _, err := os.Stat(filepath.Join(firstDirectory, "lab", "manifest.json")); !os.IsNotExist(err) {
 		t.Fatalf("Terraform-only generation must not silently publish a provider manifest: %v", err)
 	}
