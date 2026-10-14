@@ -90,6 +90,8 @@ La tâche n'est déclarée `succeeded` qu'après confirmation que l'état observ
 > **Statut de la validation lab en direct : NON EXÉCUTÉ**  
 > Lors de cette tâche, aucun processus/socket GNS3 local ni API sur `127.0.0.1:3080` n'était disponible. Aucune adresse Cisco n'a été contactée. Les vérifications CLI ci-dessous portent uniquement sur l'exemple documentaire; elles ne sont pas une exécution IOS.
 
+> **Mise à jour 2026-10-14 :** un processus `gns3server` local et son listener `127.0.0.1:3080` ont été observés. Le processus QEMU observé était nommé `fortigate-1`, hors périmètre; aucun nœud Cisco autorisé, son adresse de gestion ou son empreinte SSH indépendante n'a été confirmé. Un GET local vers `/v2/projects` a retourné HTTP 404. Aucune connexion à un routeur n'a été tentée. Utiliser le [runbook de lab Cisco IOS](lab/cisco-ios-gns3.md) pour la procédure actuelle; les cas de configuration restent NON EXÉCUTÉS.
+
 ### Prérequis et préparation
 1. Utiliser un routeur IOS/IOS XE dédié à un lab GNS3 isolé et une interface de test non reliée à la production. L'adresse de gestion doit être joignable depuis l'hôte Provider. Cette procédure n'assigne ni ne modifie l'adresse IPv4 de l'interface testée.
 2. Activer SSH v2 et générer une clé hôte si nécessaire :

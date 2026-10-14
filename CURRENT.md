@@ -129,3 +129,16 @@ This later pass supersedes only the external-tool-blocked findings above; the Bl
 - Confirmed defect: generated `locals.tf` was valid enough to generate but failed Terraform’s formatter because object attributes were not aligned according to Terraform’s scalar groups. The renderer now aligns contiguous scalar values while leaving non-empty nested maps/lists as group boundaries; empty `{}` and `[]` remain inline. Regression coverage is in `TestGenerateTerraformIsDeterministicAndDataOnly`. An intermediate correction test caught and fixed a negative `strings.Repeat` count.
 - Final `PAGER=cat go test -count=1 ./...`, `PAGER=cat make fmt-check`, `PAGER=cat make vet`, `PAGER=cat make build`, `PAGER=cat go test -race -count=1 ./...`, and the targeted artifact package tests each exited 0.
 - No Cisco/GNS3 compatibility or real-device behavior is established. No Bloc 3 work was performed.
+
+## Bloc 3 lab status — 2026-10-14
+
+Bloc 3 was limited to a runbook and read-only preflight; no device configuration was attempted. Bloc 1 remains **INCOMPLET — PREUVES MANQUANTES**. The latest recorded Bloc 2 decision remains incomplete at its prior validation HEAD (`3df0215`); `git diff --check` passed at the current Bloc 3 HEAD (`96904f0`), but the full Bloc 2 suite was not rerun on this HEAD.
+
+- Git was on `develop`, HEAD `96904f08a91967b3c7fd307bbc996bec8f0e2b16`; only `current_step.md` was modified before this pass.
+- A local `gns3server` process/listener on port 3080 was observed. The QEMU process identified was named `fortigate-1` (excluded). `GET http://127.0.0.1:3080/v2/projects` returned HTTP 404. No authorized Cisco IOS node, management IP, or independently verified SSH fingerprint was confirmed. No SSH or `/api/v1/executions` call was attempted.
+- README addresses `192.168.0.2`/`.3` refer to Agent/Provider; `examples/cisco-ios-lab.yaml` labels `192.0.2.10` TEST-NET documentation. Neither is used as a router target.
+- Cases A (hostname), B (Ethernet IPv4/admin-state), and C (invalid CIDR) are `NON EXÉCUTÉ`; before/after IOS state, execution read-back, and secret-log checks are unavailable.
+- Added `docs/lab/cisco-ios-gns3.md` and `scripts/cisco-ios-preflight.sh`. The preflight requires an independently verified fingerprint and SSH public-key auth, then runs only `show version`. Syntax and invalid-input paths were checked locally; no target was contacted.
+- `bash -n scripts/cisco-ios-preflight.sh` exited 0. No-argument, invalid-host, and invalid-fingerprint paths each exited 64 before network access.
+- `go test -count=1 ./provider/internal/adapters/executors ./provider/internal/delivery/httpapi`, `go test -count=1 ./...`, `make fmt-check`, `make vet`, and `make build` each exited 0. Automated tests are not live lab evidence.
+- No executor defect was confirmed by a real lab; no executor implementation/test was changed. No Bloc 4 work was performed.

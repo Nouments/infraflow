@@ -45,6 +45,10 @@ validated Cisco IOS hostname and Ethernet interface configuration over SSH with
 running-config read-back verification. Unsupported task types are rejected. Execution
 is never inferred from planning or artifact generation; execution records can be
 inspected and cancelled by administrators via the web console and the Linux TUI.
+Live Cisco/GNS3 validation remains **NON EXÉCUTÉ** until an authorized, reachable
+IOS node and independently verified SSH host key are available. See the
+[Cisco IOS GNS3 lab runbook](docs/lab/cisco-ios-gns3.md); its preflight checks
+connectivity, pinned host-key fingerprint, and IOS version without configuration.
 
 The provider HTTP API has two separate authentication domains. Agents continue
 to use the configured machine bearer token. Platform users use SQLite-backed
