@@ -132,10 +132,10 @@ This later pass supersedes only the external-tool-blocked findings above; the Bl
 
 ## Bloc 3 lab status — 2026-10-14
 
-Bloc 3 was limited to a runbook and read-only preflight; no device configuration was attempted. Bloc 1 remains **INCOMPLET — PREUVES MANQUANTES**. The latest recorded Bloc 2 decision remains incomplete at its prior validation HEAD (`3df0215`); `git diff --check` passed at the current Bloc 3 HEAD (`96904f0`), but the full Bloc 2 suite was not rerun on this HEAD.
+Bloc 3 was limited to a runbook and read-only preflight; no device configuration was attempted. Bloc 1 remains **INCOMPLET — PREUVES MANQUANTES**. The latest recorded Bloc 2 decision remains incomplete at its prior validation HEAD (`3df0215`); the Bloc 3 changes were committed on top of `96904f0` (commit `bb84b29`). QA review confirmed `git diff --check 96904f0 bb84b29` exits 0, but the full Bloc 2 Go suite was not rerun by QA on `bb84b29` (Go 1.25 was unavailable in the QA environment).
 
 - Git was on `develop`, HEAD `96904f08a91967b3c7fd307bbc996bec8f0e2b16`; only `current_step.md` was modified before this pass.
-- A local `gns3server` process/listener on port 3080 was observed. The QEMU process identified was named `fortigate-1` (excluded). `GET http://127.0.0.1:3080/v2/projects` returned HTTP 404. No authorized Cisco IOS node, management IP, or independently verified SSH fingerprint was confirmed. No SSH or `/api/v1/executions` call was attempted.
+- A local `gns3server` process/listener on port 3080 was observed. The QEMU process identified was named `fortigate-1` (excluded). `GET http://127.0.0.1:3080/v2/projects` returned HTTP 404; this is **not conclusive**, because GNS3 3.x serves its API under `/v3` (see the API probe in `docs/lab/cisco-ios-gns3.md`) and `/v3/projects` was not tried. No authorized Cisco IOS node, management IP, or independently verified SSH fingerprint was confirmed. No SSH or `/api/v1/executions` call was attempted.
 - README addresses `192.168.0.2`/`.3` refer to Agent/Provider; `examples/cisco-ios-lab.yaml` labels `192.0.2.10` TEST-NET documentation. Neither is used as a router target.
 - Cases A (hostname), B (Ethernet IPv4/admin-state), and C (invalid CIDR) are `NON EXÉCUTÉ`; before/after IOS state, execution read-back, and secret-log checks are unavailable.
 - Added `docs/lab/cisco-ios-gns3.md` and `scripts/cisco-ios-preflight.sh`. The preflight requires an independently verified fingerprint and SSH public-key auth, then runs only `show version`. Syntax and invalid-input paths were checked locally; no target was contacted.

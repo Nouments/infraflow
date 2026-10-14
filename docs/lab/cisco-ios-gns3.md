@@ -23,6 +23,17 @@ Topologie à confirmer dans GNS3 avant le test : Provider InfraFlow et un routeu
 
 Les identifiants ne sont jamais dans le YAML, la requête JSON, les commandes sauvegardées, les preuves ni le dépôt. Fournir les secrets au processus Provider depuis le gestionnaire prévu. Ne pas activer la persistance startup-config; l'exécuteur ne lance pas `write memory`.
 
+## Sonde de l'API GNS3 (lecture seule)
+
+Un `404` sur `/v2/projects` ne prouve pas qu'aucun projet n'existe : GNS3 3.x expose son API sous `/v3` (et peut exiger une authentification), alors que GNS3 2.x utilise `/v2`. Avant de conclure à l'absence de nœud Cisco, interroger les deux versions, sans rien modifier :
+
+```bash
+curl -s -o /dev/null -w '/v3/version -> %{http_code}\n' http://127.0.0.1:3080/v3/version
+curl -s -o /dev/null -w '/v2/version -> %{http_code}\n' http://127.0.0.1:3080/v2/version
+```
+
+Un `200` indique la version d'API active; `401`/`403` indique qu'une authentification est requise (ne pas coller le jeton dans le dépôt ni dans les preuves). Une fois la version identifiée, lister les projets puis les nœuds de cette version et noter le modèle de chaque nœud : seul un nœud Cisco IOS/IOSv/IOL/CSR1000v autorisé par l'opérateur peut servir de cible. Un nœud d'un autre fournisseur (par exemple `fortigate-1`) reste hors périmètre.
+
 ## Pré-vol en lecture seule
 
 Obtenir l'empreinte SHA-256 attendue depuis la console IOS ou un canal administratif indépendant. La clé retournée par `ssh-keyscan` n'est qu'une clé candidate; le script refuse de continuer si elle ne correspond pas à l'empreinte attendue. Le script n'accepte pas de mot de passe SSH : utiliser une clé déjà chargée dans `ssh-agent`.
@@ -36,7 +47,7 @@ IOS_HOSTKEY_FINGERPRINT='SHA256:<empreinte-confirmée-hors-bande>'
 bash scripts/cisco-ios-preflight.sh "$IOS_HOST" "$IOS_SSH_USER" "$IOS_HOSTKEY_FINGERPRINT"
 ```
 
-Le script récupère une clé candidate, vérifie l'empreinte, puis exécute uniquement `show version` avec authentification SSH par clé, `BatchMode=yes` et contrôle strict de clé d'hôte. Il ne modifie pas `known_hosts` et ne configure pas le routeur. Une sortie `PASS` vérifie uniquement la joignabilité SSH, l'empreinte et la détection d'une ligne de version; elle ne prouve ni une configuration ni la compatibilité de l'exécuteur.
+Le script récupère une clé candidate, vérifie l'empreinte, puis exécute uniquement `show version` avec authentification SSH par clé, `BatchMode=yes` et contrôle strict de clé d'hôte. Il ne modifie pas `known_hosts` et ne configure pas le routeur. Les chemins d'erreur d'entrée du script sont couverts hors ligne par `make test-scripts`. Une sortie `PASS` vérifie uniquement la joignabilité SSH, l'empreinte et la détection d'une ligne de version; elle ne prouve ni une configuration ni la compatibilité de l'exécuteur.
 
 Avant les requêtes, ouvrir la console IOS et enregistrer, sans données d'authentification :
 
