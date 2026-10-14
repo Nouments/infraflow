@@ -103,3 +103,16 @@ Residual risk: collection-specific runtime behavior, target model/firmware compa
 **72/100 for the repository behavior and tests actually inspected.** The score credits strict input validation, deterministic artifacts, state separation, integrity checks, access control, and a passing Go/build/static baseline. It is reduced for unexecuted Ansible/Terraform CLI validation and absent lab/E2E evidence. It is not a production-readiness score.
 
 **Decision: BLOC 1 INCOMPLET — PREUVES MANQUANTES.** The next step remains external syntax/runtime validation and QA review. Bloc 2 requires explicit Product Owner / QA approval.
+
+## Bloc 2 verification addendum — 2026-10-14
+
+This is a separate verification record; the Bloc 1 decision above remains unchanged.
+
+- HEAD inspected: `3df0215185fec2e5f174a238bd257ec4250a7da1` on `develop`.
+- Targeted artifact packages: `go test -count=1 ./pkg/protocol ./internal/adapters/generation ./provider/internal/adapters/filesystem ./provider/internal/adapters/executors ./provider/internal/delivery/grpcapi ./agent/internal/adapters/providergrpc ./agent/internal/delivery/artifacts` — exit 0.
+- Full Go suite: `go test -count=1 ./...` — exit 0.
+- `make fmt-check`, `make vet`, `make build`, and `go test -race -count=1 ./...` — each exit 0.
+- Ansible commands are blocked: both `ansible-playbook --version` and `ansible-galaxy collection list` returned exit 127 (`zsh: command not found`). No syntax-check or collection validation was run.
+- Terraform is blocked: `terraform version` returned exit 127 (`zsh: command not found`). `fmt`, `init`, and `validate` were not run; no `apply` was run. Inspected generated Terraform is data-only and declares no resources.
+- Full `git diff --check` returns exit 2 because the pre-existing local `current_step.md` content has trailing spaces on lines 6–7. Those lines were preserved. The audit did not modify source code or tests and found no additional reproducible defect.
+- This verification does not constitute Ansible/Terraform CLI validation, device/lab evidence, or PO/QA approval of Bloc 1. Bloc 3 was not started.

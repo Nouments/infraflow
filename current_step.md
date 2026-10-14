@@ -1,115 +1,69 @@
-# INFRAFLOW — MISSION DE FERMETURE DU BLOC 1
-## Corrections finales, validation QA et preuves reproductibles
+# INFRAFLOW — BLOC 2 : TESTS COMPLETS ET VALIDATION TECHNIQUE
 
-### CONTEXTE
+## 1. CONTEXTE ET OBJECTIF
 
 Dépôt : `Nouments/infraflow`  
-Branche obligatoire : `develop`  
-Dernier commit connu : `7c796c011fdbe2725c15153d3f0828dd97253043`  
-Fichier de suivi : `current_step.md`  
-Rapport d'état : `CURRENT.md`
+Branche : `develop`  
+Dernier commit connu : `3df0215185fec2e5f174a238bd257ec4250a7da1`  
+Fichier de suivi : `current_step.md`
 
-Tu es responsable de l'implémentation, des corrections et de la validation technique du Bloc 1 d'InfraFlow.
+Tu es responsable de l'exécution des tests, du diagnostic des échecs et des corrections strictement nécessaires au **Bloc 2 : tests complets et validation technique**.
 
-**Objectif : terminer réellement le Bloc 1, vérifier le dernier commit et fournir des preuves reproductibles permettant au PO/QA de prendre une décision.**
+L'objectif est de vérifier la cohérence du dépôt après les changements du Bloc 1, d'identifier les défauts reproductibles et de les corriger sans introduire de nouvelles fonctionnalités.
 
-Le dernier commit a notamment introduit une limite commune de 32 Mio pour les artefacts, des contrôles supplémentaires dans le catalogue, le Provider et le transfert gRPC, ainsi que des tests associés.
+**Important :** le Bloc 1 n'a pas encore reçu l'approbation finale PO/QA. Cela ne t'empêche pas d'exécuter le Bloc 2. Ne modifie pas artificiellement son statut pour le déclarer terminé.
 
-Le rapport `CURRENT.md` doit être vérifié : il peut encore décrire l'audit précédent sans prendre en compte le dernier commit.
-
-### RÈGLES ABSOLUES
+## 2. RÈGLES STRICTES
 
 1. Reste sur `develop`.
-2. Inspecte le HEAD, le statut Git et les modifications locales avant toute action.
-3. Lis `current_step.md`, `CURRENT.md`, `INFRAFLOW_SPEC.md` et les fichiers concernés.
-4. Préserve toutes les modifications préexistantes de l'utilisateur.
+2. Vérifie le HEAD et le statut Git avant de modifier quoi que ce soit.
+3. Inspecte `current_step.md`, `CURRENT.md`, les instructions du dépôt et les commandes de validation réellement disponibles.
+4. Préserve toutes les modifications préexistantes.
 5. N'utilise jamais `git reset --hard`, `git clean -fd` ou une commande destructive.
-6. Ne réécris pas l'architecture sans nécessité démontrée.
-7. Ne fabrique aucune donnée, preuve, sortie de commande ou réussite.
-8. Ne confonds jamais génération, validation syntaxique, exécution réelle et vérification après application.
-9. Ne lance aucune configuration sur un équipement réel sans autorisation explicite et cible de laboratoire confirmée.
-10. Ne commence pas le Bloc 2.
-11. N'effectue aucun push sans autorisation.
-12. Travaille en quatre blocs successifs. Termine et documente chaque bloc avant de passer au suivant.
+6. Ne change pas l'architecture pour des raisons esthétiques.
+7. Ne supprime pas, ne désactive pas et n'affaiblis pas un test pour obtenir un résultat positif.
+8. Ne remplace jamais un test réel par un test fictif ou un résultat supposé.
+9. Pour chaque échec, identifie la cause avant de corriger.
+10. Après chaque correction, relance le test concerné.
+11. N'effectue aucune opération de déploiement sur un équipement réseau.
+12. N'exécute aucun `terraform apply`.
+13. Ne commence pas le Bloc 3 du projet et n'effectue aucun push sans autorisation explicite.
+14. Si une dépendance manque, consigne `BLOCKED` avec la commande et l'erreur réelle.
+15. Ne prétends jamais qu'une validation a réussi si elle n'a pas été exécutée.
 
----
-
-# BLOC 1 — AUDIT DU DERNIER COMMIT ET CORRECTIONS
-
-## Objectif
-
-Vérifier le dernier commit, confirmer que les changements sont corrects et corriger uniquement les défauts démontrés.
-
-### 1.1. Vérification Git
+## 3. BLOC 2.1 — ÉTAT INITIAL DU DÉPÔT
 
 Exécute et conserve les résultats de :
 
-- `git branch --show-current`
-- `git rev-parse HEAD`
-- `git status --short --branch`
-- `git log -5 --oneline`
-- `git show --stat --oneline HEAD`
-- `git diff --check`
+```bash
+git branch --show-current
+git rev-parse HEAD
+git status --short --branch
+git log -5 --oneline
+git diff --check
+```
 
-Confirme que le commit `7c796c011fdbe2725c15153d3f0828dd97253043` est bien le commit courant ou explique précisément pourquoi il ne l'est pas.
+Confirme que tu es sur `develop` et identifie le HEAD exact.
 
-Inspecte le diff du dernier commit et les éventuelles modifications locales. Ne suppose pas que le dépôt est propre.
+Si le HEAD diffère du commit connu, inspecte les nouveaux commits avant de continuer. Ne réinitialise pas le dépôt pour revenir à un ancien commit.
 
-### 1.2. Vérification de la limite des artefacts
+Identifie les instructions du projet, les cibles Makefile et les commandes de test disponibles. N'invente aucune cible.
 
-Inspecte en priorité :
+## 4. BLOC 2.2 — TESTS GO COMPLETS
 
-- `pkg/protocol/artifact.go`
-- `internal/adapters/generation/catalog.go`
-- `internal/adapters/generation/catalog_test.go`
-- `provider/internal/adapters/filesystem/artifacts.go`
-- `provider/internal/adapters/executors/artifact_verify.go`
-- `provider/internal/delivery/grpcapi/server.go`
-- `agent/internal/adapters/providergrpc/client.go`
-- `agent/internal/delivery/artifacts/http.go`
+Commence par les tests ciblés des composants modifiés récemment, notamment :
 
-Vérifie que `protocol.MaxArtifactBytes` est réellement appliqué à toutes les opérations pertinentes.
+- `pkg/protocol`
+- `internal/adapters/generation`
+- `provider/internal/adapters/filesystem`
+- `provider/internal/adapters/executors`
+- `provider/internal/delivery/grpcapi`
+- `agent/internal/adapters/providergrpc`
+- `agent/internal/delivery/artifacts`
 
-Teste notamment :
+Adapte les chemins aux packages réellement présents dans le dépôt.
 
-- un artefact valide sous la limite ;
-- un artefact exactement à la limite, si ce test est réalisable sans allocation excessive ;
-- un artefact dépassant la limite ;
-- un fichier dont la taille change entre le contrôle initial et la lecture ;
-- une erreur de lecture ou de vérification ;
-- une transmission gRPC interrompue ou dépassant la limite ;
-- la cohérence entre la taille acceptée par le catalogue, le Provider et l'Agent.
-
-Vérifie également les risques de lecture excessive, d'allocation mémoire injustifiée, de troncature silencieuse et de divergence entre la taille annoncée et le contenu réellement transmis.
-
-Ne prétends pas éliminer les courses entre fichiers si les mécanismes de lecture et de vérification ne le démontrent pas.
-
-### 1.3. Corrections
-
-Pour chaque défaut confirmé :
-
-1. Reproduis le problème.
-2. Identifie sa cause.
-3. Ajoute un test de régression.
-4. Corrige le code minimalement.
-5. Relance les tests ciblés.
-6. Documente le résultat réel.
-
-Si aucun défaut n'est trouvé, ne modifie pas le code artificiellement.
-
-**Critère de sortie :** les changements du dernier commit sont examinés et les défauts identifiés sont corrigés ou explicitement documentés.
-
----
-
-# BLOC 2 — TESTS COMPLETS ET VALIDATION DES OUTILS
-
-## Objectif
-
-Vérifier que les corrections et le reste du dépôt restent cohérents.
-
-### 2.1. Suite Go
-
-Exécute :
+Exécute ensuite :
 
 ```bash
 go test -count=1 ./...
@@ -119,38 +73,68 @@ make build
 git diff --check
 ```
 
-Conserve les codes de sortie et les erreurs réelles.
+Pour chaque commande :
 
-Si une commande échoue, diagnostique la cause avant de continuer. Ne modifie pas les tests uniquement pour obtenir un résultat positif.
+- conserve la commande exacte ;
+- conserve le code de sortie ;
+- distingue `PASS`, `FAIL`, `BLOCKED` et `NOT RUN` ;
+- conserve les erreurs pertinentes ;
+- identifie le package ou le fichier à l'origine de l'échec.
 
-Exécute également les tests ciblés des packages modifiés et, si pertinent, les tests de concurrence ou de course sur les composants concernés.
+Si une cible Makefile n'existe pas, ne la crée pas uniquement pour faire passer la mission. Utilise les instructions du dépôt pour identifier l'équivalent approprié et explique la différence.
 
-### 2.2. Ansible
+Si les tests échouent, diagnostique et corrige les défauts du code qui relèvent réellement du périmètre. Ne modifie pas les assertions pour masquer une régression.
 
-Vérifie la disponibilité réelle de :
+Lorsque c'est pertinent et réalisable, exécute également :
+
+```bash
+go test -race -count=1 ./...
+```
+
+Si le test de concurrence est trop coûteux ou impossible dans l'environnement disponible, indique-le explicitement.
+
+## 5. BLOC 2.3 — CONTRÔLE DES ARTEFACTS ET DES RÉGRESSIONS
+
+Vérifie particulièrement les comportements suivants :
+
+- La limite commune de taille des artefacts est cohérente entre les composants concernés.
+- Un artefact trop volumineux est refusé.
+- Un artefact à la limite autorisée est traité correctement.
+- Une erreur de lecture ou d'intégrité n'est pas transformée en succès.
+- Le transfert gRPC ne valide pas un artefact tronqué ou altéré.
+- Le serveur HTTP ne transmet pas un contenu dépassant sa limite.
+- Les erreurs sont propagées de façon cohérente.
+- Les tests ne reposent pas sur des équipements fictifs présentés comme des équipements réels.
+- Les résultats d'exécution et les rapports ne déclarent pas une opération réussie sans preuve suffisante.
+
+Corrige uniquement les défauts confirmés. Ajoute un test de régression lorsqu'un défaut est découvert et qu'un test pertinent peut le reproduire.
+
+Ne réécris pas tous les composants et ne modifie pas les API publiques sans nécessité démontrée.
+
+## 6. BLOC 2.4 — VALIDATION ANSIBLE
+
+Vérifie d'abord la disponibilité réelle des outils :
 
 ```bash
 ansible-playbook --version
 ansible-galaxy collection list
 ```
 
-Inspecte les profils générés par InfraFlow.
+Inspecte les playbooks, inventaires, variables et collections réellement générés par InfraFlow.
 
-Lorsque les dépendances sont disponibles :
+Si les outils et dépendances sont disponibles :
 
-- installe uniquement les collections nécessaires dans l'environnement de validation autorisé ;
-- génère les artefacts à partir d'entrées explicites ;
-- exécute `ansible-playbook --syntax-check` sur chaque playbook applicable ;
-- vérifie les inventaires, variables, collections et méthodes de connexion ;
-- vérifie que les opérations de modification sont protégées par les autorisations prévues.
+1. Génère les artefacts à partir d'une entrée de test explicite.
+2. Exécute `ansible-playbook --syntax-check` sur les playbooks applicables.
+3. Vérifie les dépendances et les références aux collections.
+4. Vérifie la cohérence des inventaires et des variables.
+5. N'applique aucune configuration sur un équipement.
 
-Ne confonds pas un YAML valide avec un playbook opérationnel.
+Un YAML valide ne prouve pas qu'un playbook fonctionne sur un équipement. Le mode check, s'il est pertinent, ne prouve pas non plus qu'une configuration peut être appliquée réellement.
 
-Ne lance aucune modification réelle d'équipement pendant ce bloc.
+Si Ansible ou une collection nécessaire manque, indique `BLOCKED` avec le diagnostic exact. Ne simule pas le résultat.
 
-Si Ansible ou une collection manque, indique `BLOCKED` avec la commande et l'erreur exacte.
-
-### 2.3. Terraform
+## 7. BLOC 2.5 — VALIDATION TERRAFORM
 
 Vérifie :
 
@@ -158,7 +142,9 @@ Vérifie :
 terraform version
 ```
 
-Inspecte les fichiers réellement produits. Si Terraform est disponible et que les fichiers le permettent, exécute dans un répertoire temporaire isolé :
+Inspecte les fichiers Terraform réellement produits par InfraFlow.
+
+Si Terraform est disponible et que les fichiers sont adaptés, valide-les dans un répertoire temporaire isolé :
 
 ```bash
 terraform fmt -check
@@ -166,186 +152,133 @@ terraform init -backend=false
 terraform validate
 ```
 
-N'exécute jamais `terraform apply`.
+Adapte le répertoire de travail aux artefacts réellement générés et protège les fichiers de l'utilisateur.
 
-Précise si InfraFlow produit réellement des ressources de provisionnement ou uniquement des fichiers de données.
+**Interdiction absolue : exécuter `terraform apply`.**
 
-Si Terraform est absent, indique `BLOCKED`. Ne simule pas sa validation.
+Précise si InfraFlow génère de véritables ressources de provisionnement ou seulement des données, variables et fichiers de configuration.
 
-**Critère de sortie :** les contrôles locaux sont exécutés et les validations externes sont classées sans ambiguïté.
+Si Terraform est absent ou si les fichiers ne permettent pas la validation, indique la limitation exacte. Ne fabrique pas un provider ou des ressources pour obtenir artificiellement un succès.
 
----
+## 8. BLOC 2.6 — CORRECTIONS ET NON-RÉGRESSION
 
-# BLOC 3 — VALIDATION CISCO/GNS3 ET ÉTAT RÉEL DES FONCTIONNALITÉS
+Pour chaque défaut confirmé :
 
-## Objectif
+1. Décris le comportement incorrect.
+2. Fournis la preuve reproductible.
+3. Identifie la cause.
+4. Applique la correction minimale.
+5. Ajoute ou adapte un test de régression pertinent.
+6. Relance le test ciblé.
+7. Relance les validations générales affectées.
 
-Établir ce qui fonctionne réellement, sans confondre tests automatisés et déploiement opérationnel.
-
-### 3.1. Cisco IOS dans GNS3
-
-Vérifie d'abord que le laboratoire est accessible et que la cible est autorisée.
-
-Contrôle :
-
-- la plateforme et la version IOS exactes ;
-- la connectivité depuis l'environnement réel d'exécution ;
-- la disponibilité de SSH ;
-- la validation des clés d'hôte ;
-- les identifiants, sans les afficher dans les journaux ;
-- la compatibilité de l'exécuteur avec l'équipement.
-
-Si une cible de laboratoire est accessible et qu'une autorisation explicite existe, réalise une modification minimale, réversible et sans risque pour la gestion du routeur.
-
-Avant application, relève l'état initial et vérifie le changement prévu.
-
-Après application, reconnecte-toi et relis la configuration effective pour confirmer précisément le résultat.
-
-Ne considère pas une connexion SSH réussie comme une preuve de configuration correcte.
-
-Ne sauvegarde pas la configuration de manière permanente sans nécessité et autorisation.
-
-Si la cible ou les accès manquent, n'invente rien : indique `BLOCKED` ou `NOT RUN`, avec le prérequis nécessaire.
-
-### 3.2. Vérification fonctionnelle
-
-Inspecte les fonctionnalités existantes d'InfraFlow et distingue clairement :
-
-- parsing et validation YAML ;
-- planification des opérations ;
-- génération des artefacts ;
-- exécution réelle ;
-- vérification après exécution ;
-- TUI ;
-- dashboard Web ;
-- journalisation et rapports ;
-- gestion des erreurs et reprise.
-
-Pour chaque fonctionnalité, précise ce qui est implémenté, testé automatiquement et démontré sur un environnement réel.
-
-N'ajoute aucune donnée fictive à la TUI ou au dashboard.
-
-Ne présente pas un playbook de diagnostic comme une configuration réseau complète. Ne présente pas des données Terraform sans ressources comme un provisionnement effectif.
-
-### 3.3. Sécurité
-
-Vérifie au minimum :
-
-- authentification et autorisation ;
-- protection des secrets ;
-- validation des entrées ;
-- intégrité des artefacts ;
-- contrôle des chemins ;
-- propagation des erreurs ;
-- distinction entre échec, blocage et succès ;
-- cohérence des états entre Agent, Provider, API, TUI et Web.
-
-Ne prétends pas avoir réalisé un audit de sécurité exhaustif.
-
-**Critère de sortie :** les capacités démontrées et les limites restantes sont identifiées avec des preuves vérifiables.
-
----
-
-# BLOC 4 — DOCUMENTATION, PREUVES ET DÉCISION FINALE
-
-## Objectif
-
-Synchroniser la documentation avec le code réellement vérifié et préparer une décision PO/QA.
-
-### 4.1. Mise à jour documentaire
-
-Mets à jour `CURRENT.md` et `current_step.md` uniquement après les validations précédentes.
-
-Les fichiers doivent refléter :
-
-- le dernier commit réellement inspecté ;
-- les modifications effectuées pendant la mission ;
-- les tests exécutés ;
-- les validations réussies ;
-- les validations échouées ou bloquées ;
-- les limitations fonctionnelles restantes ;
-- les prérequis nécessaires à la suite.
-
-Ne remplace pas le contenu utile des consignes par un résumé incomplet. Conserve les critères d'acceptation et les règles de sécurité nécessaires à la reprise du travail.
-
-### 4.2. Tableau des preuves
-
-Pour chaque contrôle, consigne :
-
-| Champ | Contenu requis |
-|---|---|
-| Contrôle | Identifiant et objectif |
-| Environnement | Versions et prérequis |
-| Commande | Commande réellement exécutée |
-| Code de sortie | Valeur exacte |
-| Statut | `PASS`, `FAIL`, `BLOCKED` ou `NOT RUN` |
-| Preuve | Sortie pertinente ou test associé |
-| Limite | Ce qui n'est pas démontré |
-
-Sépare les preuves obtenues pendant cette mission des résultats historiques.
-
-### 4.3. Contrôle final Git
-
-Exécute :
+À la fin, inspecte :
 
 ```bash
-git status --short --branch
 git diff --check
+git status --short --branch
 git diff --stat
 git diff
 ```
 
-Inspecte les fichiers modifiés. Vérifie que les changements préexistants de l'utilisateur sont préservés et qu'aucun secret ou artefact temporaire n'a été ajouté par erreur.
+Vérifie que les modifications sont limitées au périmètre autorisé et que les modifications préexistantes ont été préservées.
 
-Ne committe que si les consignes du dépôt et les autorisations le permettent. Ne pousse aucun changement sans autorisation.
+Ne committe pas et ne pousse pas les changements sans autorisation.
 
-### 4.4. Critères d'acceptation
+## 9. DOCUMENTATION
 
-Le Bloc 1 peut être proposé à l'approbation uniquement si :
+Mets à jour `current_step.md` pour décrire le travail réellement effectué dans le Bloc 2.
 
-- [ ] Le dernier commit et le diff ont été inspectés.
-- [ ] Les tests de régression nécessaires sont présents.
-- [ ] La suite Go pertinente réussit.
-- [ ] Formatage, vet et build sont validés.
-- [ ] La limite des artefacts est cohérente dans tous les chemins concernés.
-- [ ] Les erreurs de lecture, d'intégrité et de transfert sont propagées correctement.
-- [ ] Les validations Ansible et Terraform sont exécutées ou leur blocage est prouvé.
-- [ ] Le test Cisco réel est réussi si cette preuve est requise ; sinon, son absence est explicitement signalée.
-- [ ] `CURRENT.md` et `current_step.md` correspondent aux preuves.
-- [ ] Aucun résultat non exécuté n'est présenté comme réussi.
-- [ ] Les modifications locales préexistantes sont préservées.
+Si `CURRENT.md` doit être ajusté pour éviter une contradiction avec les résultats nouvellement observés, fais-le de manière factuelle. Ne déclare pas le Bloc 1 approuvé et ne modifie pas le périmètre des blocs suivants.
 
-Un contrôle bloqué ne devient jamais un succès parce qu'il est documenté.
+La documentation doit distinguer :
 
-## FORMAT DE RÉPONSE FINAL OBLIGATOIRE
+- les tests exécutés et réussis ;
+- les tests exécutés et échoués ;
+- les contrôles bloqués par des dépendances ou l'environnement ;
+- les validations non exécutées ;
+- les défauts corrigés ;
+- les limitations restantes.
 
-Réponds uniquement avec les sections suivantes :
+N'inscris jamais `PASS` sur la base d'une supposition.
 
-### A. Résumé
-État réel du Bloc 1 et corrections effectuées.
+## 10. FORMAT DU RAPPORT FINAL
 
-### B. Preuves de tests
-Commandes, codes de sortie, statuts et résultats.
+Réponds uniquement avec ces sections :
 
-### C. Validations externes
-Ansible, Terraform et Cisco/GNS3.
+### A. Résumé du Bloc 2
+État réel, travail effectué et résultat général.
 
-### D. Fichiers modifiés
-Liste précise et raison de chaque modification.
+### B. Tableau des preuves
 
-### E. Limitations restantes
-Uniquement les problèmes réels et les preuves manquantes.
+Pour chaque contrôle, indique :
+
+| Contrôle | Commande | Code de sortie | Statut | Observation |
+|---|---|---:|---|---|
+
+Utilise uniquement des résultats réellement observés.
+
+### C. Défauts et corrections
+Liste les défauts confirmés, leurs causes, les corrections et les tests de régression.
+
+### D. Ansible et Terraform
+Pour chaque outil : versions, validations exécutées, résultats et blocages.
+
+### E. Fichiers modifiés
+Chemins exacts et justification de chaque modification.
 
 ### F. Git
-Branche, HEAD, statut, commit éventuel et préservation des modifications existantes.
+Branche, HEAD, état final et confirmation concernant les modifications préexistantes. Indique si un commit a été créé ; normalement, aucun.
 
-### G. Décision PO/QA
+### G. Décision technique du Bloc 2
 Choisis exactement un statut :
 
-- `BLOC 1 — PRÊT POUR APPROBATION PO/QA`
-- `BLOC 1 — INCOMPLET : PREUVES MANQUANTES`
-- `BLOC 1 — ÉCHEC : CORRECTIONS NÉCESSAIRES`
+- `BLOC 2 — VALIDÉ TECHNIQUEMENT`
+- `BLOC 2 — INCOMPLET : PREUVES MANQUANTES`
+- `BLOC 2 — ÉCHEC : CORRECTIONS NÉCESSAIRES`
 
-**Ne commence pas le Bloc 2 du projet InfraFlow. Attends l'approbation explicite du PO/QA après remise de ce bilan.**
+Ne commence pas le Bloc 3 du projet. Attends le retour du PO/QA.
 
-Priorité absolue : fiabilité démontrée, sécurité et preuves reproductibles. Aucun objectif de score ne justifie de fabriquer un résultat.
+**Règle finale : priorité à la fiabilité et aux preuves reproductibles, jamais à l'apparence d'un résultat parfait.**
+
+## COMPTE RENDU D'EXÉCUTION — BLOC 2 (2026-10-14)
+
+### État initial
+
+- Branche: `develop`.
+- HEAD: `3df0215185fec2e5f174a238bd257ec4250a7da1`, conforme au commit attendu.
+- Modifications initiales: uniquement ce fichier (`current_step.md`); elles ont été préservées.
+- `git diff --check`: code 2; espaces finaux dans les lignes 6 et 7 déjà présentes dans le contenu local de ce fichier.
+- Aucun fichier `AGENTS.md`, `copilot-instructions.md` ou `*.instructions.md` n'a été trouvé par `rg --files`.
+- Cibles Makefile disponibles: `fmt-check`, `vet`, `build`, `test`, `test-race` (ainsi que les cibles spécialisées listées dans Makefile).
+
+### Preuves Go observées
+
+| Contrôle | Commande | Code | Statut | Observation |
+|---|---|---:|---|---|
+| Packages d'artefacts | `go test -count=1 ./pkg/protocol ./internal/adapters/generation ./provider/internal/adapters/filesystem ./provider/internal/adapters/executors ./provider/internal/delivery/grpcapi ./agent/internal/adapters/providergrpc ./agent/internal/delivery/artifacts` | 0 | PASS | Tous les packages testés réussissent; `agent/internal/adapters/providergrpc` n'a pas de fichiers de test dédiés. |
+| Suite complète | `go test -count=1 ./...` | 0 | PASS | Tous les packages du module réussissent. |
+| Format Go | `make fmt-check` | 0 | PASS | Cible Makefile existante. |
+| Analyse statique | `make vet` | 0 | PASS | Cible Makefile existante. |
+| Build | `make build` | 0 | PASS | Binaire Provider et Agent construits. |
+| Course Go | `go test -race -count=1 ./...` | 0 | PASS | Suite complète exécutée avec le race detector. |
+| Espaces dans le diff complet | `git diff --check` | 2 | FAIL | Les espaces finaux préexistants de ce fichier sont la seule erreur observée; non modifiés afin de préserver le contenu utilisateur. |
+
+Aucun défaut supplémentaire n'a été confirmé pendant le Bloc 2; aucun code ou test n'a été modifié pour cette passe.
+
+### Ansible
+
+- `ansible-playbook --version`: code 127, `zsh: command not found: ansible-playbook` — `BLOCKED`.
+- `ansible-galaxy collection list`: code 127, `zsh: command not found: ansible-galaxy` — `BLOCKED`.
+- Les artefacts versionnés `agent-data/lab/ansible/site.yml` et `inventory.yml` ont été inspectés. Le playbook générique ne fait qu'afficher des métadonnées via `ansible.builtin.debug`; ce n'est pas une configuration réseau.
+- Les profils vendor/collections sont décrits par `internal/adapters/generation/vendor_ansible.go` et exercés par les tests Go. Aucune génération ou syntax-check Ansible n'a été exécuté dans cet environnement.
+
+### Terraform
+
+- `terraform version`: code 127, `zsh: command not found: terraform` — `BLOCKED`.
+- Les artefacts versionnés sous `agent-data/lab/terraform` et `provider-data/lab/terraform` ont été inspectés. `main.tf` ne déclare aucune ressource; la génération est data-only.
+- `terraform fmt -check`, `terraform init -backend=false` et `terraform validate`: `NOT RUN`, car l'exécutable Terraform manque. Aucun `terraform apply` exécuté.
+
+### Périmètre restant
+
+Bloc 2 Go local validé. Les validations Ansible/Terraform demeurent bloquées par l'absence des outils. Le contrôle global `git diff --check` reste en échec à cause du contenu utilisateur préexistant ci-dessus. Le Bloc 1 conserve son statut historique `INCOMPLET — PREUVES MANQUANTES`; le Bloc 3 n'a pas commencé. Aucun commit ni push effectué.
