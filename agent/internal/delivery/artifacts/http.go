@@ -95,6 +95,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.Header().Set("Content-Type", contentType(artifact.Path))
+	copyLimit := maxServedArtifactBytes
+	var buffered []byte
+	bufferedArtifact := false
 	if seeker, ok := file.(io.Seeker); ok {
 		size, err := seeker.Seek(0, io.SeekEnd)
 		if err != nil || size > maxServedArtifactBytes {
@@ -106,12 +109,29 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		writer.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+		copyLimit = size
+	} else {
+		buffered, err = io.ReadAll(io.LimitReader(file, maxServedArtifactBytes+1))
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if int64(len(buffered)) > maxServedArtifactBytes {
+			writer.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		bufferedArtifact = true
+		writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(buffered)))
 	}
 	if request.Method == http.MethodHead {
 		writer.WriteHeader(http.StatusOK)
 		return
 	}
-	if _, err := io.Copy(writer, io.LimitReader(file, maxServedArtifactBytes)); err != nil {
+	if bufferedArtifact {
+		_, _ = writer.Write(buffered)
+		return
+	}
+	if _, err := io.Copy(writer, io.LimitReader(file, copyLimit)); err != nil {
 		return
 	}
 }

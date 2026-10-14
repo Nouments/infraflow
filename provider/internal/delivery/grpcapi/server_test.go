@@ -268,3 +268,47 @@ func TestGRPCDoesNotCommitTamperedArtifactStream(t *testing.T) {
 		t.Fatalf("expected corrupted artifact to be rejected before streaming, got %v", err)
 	}
 }
+
+func TestGRPCRejectsOversizedArtifactTransfer(t *testing.T) {
+	root := t.TempDir()
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte("sites:\n  - name: lab\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generator.Generate(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(filepath.Join(root, "lab", "inventory.json"), int64(protocol.MaxArtifactBytes)+1); err != nil {
+		t.Fatal(err)
+	}
+	reports, err := filesystem.NewReportStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewService(filesystem.NewArtifactRepository(root), reports, generation.Generator{}, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	token := strings.Repeat("g", security.MinAgentTokenBytes)
+	server, err := NewServer(service, token, DefaultChunkSize, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := bufconn.Listen(1 << 20)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+token))
+	stream, err := infrav1.NewAgentProviderClient(connection).DownloadArtifact(ctx, &infrav1.DownloadRequest{Path: "lab/inventory.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("expected oversized artifact to be rejected, got %v", err)
+	}
+}
