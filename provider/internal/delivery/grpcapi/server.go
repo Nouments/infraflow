@@ -166,6 +166,9 @@ func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRe
 		return status.Error(codes.NotFound, "artifact not found")
 	}
 	if err != nil {
+		if errors.Is(err, coregeneration.ErrArtifactTooLarge) {
+			return status.Error(codes.ResourceExhausted, "artifact exceeds maximum supported size")
+		}
 		if errors.Is(err, coregeneration.ErrArtifactHashMismatch) {
 			return status.Error(codes.DataLoss, "artifact hash does not match manifest")
 		}
@@ -178,6 +181,9 @@ func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRe
 	for {
 		count, readErr := reader.Read(buffer)
 		if count > 0 {
+			if offset+uint64(count) > uint64(protocol.MaxArtifactBytes) {
+				return status.Error(codes.ResourceExhausted, "artifact exceeds maximum supported size")
+			}
 			_, _ = digest.Write(buffer[:count])
 			chunk := &infrav1.ArtifactChunk{
 				Path: artifact.Path, OutputHash: artifact.OutputHash,

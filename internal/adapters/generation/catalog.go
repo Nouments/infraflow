@@ -18,7 +18,10 @@ import (
 
 const maxManifestBytes = 1 << 20
 
-var ErrArtifactHashMismatch = errors.New("artifact output hash mismatch")
+var (
+	ErrArtifactHashMismatch = errors.New("artifact output hash mismatch")
+	ErrArtifactTooLarge     = errors.New("artifact exceeds maximum artifact size")
+)
 
 func Catalog(root string) ([]Artifact, error) {
 	root, err := filepath.Abs(root)
@@ -98,18 +101,24 @@ func Catalog(root string) ([]Artifact, error) {
 			if !artifactInfo.Mode().IsRegular() {
 				return nil, fmt.Errorf("artifact %q must be a regular file", artifact.Path)
 			}
+			if artifactInfo.Size() > protocol.MaxArtifactBytes {
+				return nil, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
+			}
 			artifactFile, err := safefs.OpenReadOnly(root, artifact.Path)
 			if err != nil {
 				return nil, fmt.Errorf("open artifact %q: %w", artifact.Path, err)
 			}
 			digest := sha256.New()
-			_, readErr := io.Copy(digest, artifactFile)
+			readBytes, readErr := io.Copy(digest, io.LimitReader(artifactFile, protocol.MaxArtifactBytes+1))
 			closeErr := artifactFile.Close()
 			if readErr != nil {
 				return nil, fmt.Errorf("read artifact %q: %w", artifact.Path, readErr)
 			}
 			if closeErr != nil {
 				return nil, fmt.Errorf("close artifact %q: %w", artifact.Path, closeErr)
+			}
+			if readBytes > protocol.MaxArtifactBytes {
+				return nil, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
 			}
 			if hex.EncodeToString(digest.Sum(nil)) != artifact.OutputHash {
 				return nil, fmt.Errorf("%w: %q", ErrArtifactHashMismatch, artifact.Path)
@@ -139,13 +148,16 @@ func ReadArtifact(root, artifactPath string) ([]byte, Artifact, error) {
 		if err != nil {
 			return nil, Artifact{}, fmt.Errorf("open artifact %q: %w", artifact.Path, err)
 		}
-		data, readErr := io.ReadAll(file)
+		data, readErr := io.ReadAll(io.LimitReader(file, protocol.MaxArtifactBytes+1))
 		closeErr := file.Close()
 		if readErr != nil {
 			return nil, Artifact{}, fmt.Errorf("read artifact %q: %w", artifact.Path, readErr)
 		}
 		if closeErr != nil {
 			return nil, Artifact{}, fmt.Errorf("close artifact %q: %w", artifact.Path, closeErr)
+		}
+		if len(data) > protocol.MaxArtifactBytes {
+			return nil, Artifact{}, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
 		}
 		if protocol.SHA256(data) != artifact.OutputHash {
 			return nil, Artifact{}, fmt.Errorf("%w: %q changed after catalog validation", ErrArtifactHashMismatch, artifact.Path)

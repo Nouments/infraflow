@@ -15,7 +15,7 @@ import (
 const artifactPrefix = "/artifacts/"
 const bootstrapPrefix = "/infraflow/"
 
-const maxServedArtifactBytes = int64(8 << 30)
+const maxServedArtifactBytes = int64(protocol.MaxArtifactBytes)
 
 // Store is intentionally narrower than the agent state store. The HTTP
 // service can only open already validated artifacts and cannot write state.

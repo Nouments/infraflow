@@ -25,7 +25,7 @@ import (
 const (
 	maxCatalogArtifacts = 10000
 	maxChunkBytes       = 1 << 20
-	maxArtifactBytes    = int64(8 << 30)
+	maxArtifactBytes    = int64(protocol.MaxArtifactBytes)
 )
 
 type Client struct {

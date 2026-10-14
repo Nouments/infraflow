@@ -192,6 +192,26 @@ func TestArtifactVerifyExecuteNotFound(t *testing.T) {
 	}
 }
 
+func TestArtifactVerifyExecuteRejectsOversizedArtifact(t *testing.T) {
+	repository := &mockArtifactRepo{
+		catalog: []protocol.Artifact{{
+			Type: "inventory", Path: "lab/inventory.json",
+			InputHash: protocol.SHA256([]byte("input")), OutputHash: protocol.SHA256([]byte("output")),
+		}},
+		openErrors: []error{coregeneration.ErrArtifactTooLarge},
+	}
+	executor, err := NewArtifactVerifyExecutor(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Execute(context.Background(), domain.ExecutionTask{
+		Parameters: json.RawMessage(`{"path":"lab/inventory.json"}`),
+	})
+	if err == nil || result.Status != domain.ExecutionTaskFailed || !strings.Contains(result.Error, "exceeds maximum verification size") {
+		t.Fatalf("oversized artifact was not reported as a verification failure: result=%#v err=%v", result, err)
+	}
+}
+
 func TestArtifactVerifyExecuteTamperedHashMismatch(t *testing.T) {
 	originalContent := []byte(`{"site":"lab"}`)
 	hasher := sha256.Sum256(originalContent)

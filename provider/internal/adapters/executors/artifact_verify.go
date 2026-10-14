@@ -25,7 +25,7 @@ const (
 	ArtifactVerifyType = "artifact.verify"
 
 	// maxArtifactReadBytes enforces a strict upper bound on artifact size when streaming from disk.
-	maxArtifactReadBytes = 32 << 20 // 32 MiB
+	maxArtifactReadBytes = protocol.MaxArtifactBytes
 
 	// maxArtifactPathLength limits the length of an artifact path.
 	maxArtifactPathLength = 256
@@ -117,6 +117,10 @@ func (executor *ArtifactVerifyExecutor) Execute(ctx context.Context, task domain
 
 	reader, published, err := executor.repository.Open(cleanedPath)
 	if err != nil {
+		if errors.Is(err, coregeneration.ErrArtifactTooLarge) {
+			msg := fmt.Sprintf("artifact %q exceeds maximum verification size of %d bytes", cleanedPath, maxArtifactReadBytes)
+			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, errors.New(msg)
+		}
 		if errors.Is(err, coregeneration.ErrArtifactHashMismatch) {
 			msg := fmt.Sprintf("artifact %q integrity check failed: %v", cleanedPath, err)
 			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg}, errors.New(msg)

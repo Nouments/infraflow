@@ -36,6 +36,8 @@ const (
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
 	StatusBlocked   = "blocked"
+	// MaxArtifactBytes bounds catalog hashing, artifact verification, and streaming.
+	MaxArtifactBytes = 32 << 20
 )
 
 var siteNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)

@@ -46,5 +46,14 @@ func (repository *ArtifactRepository) Open(path string) (io.ReadCloser, protocol
 	if err != nil {
 		return nil, protocol.Artifact{}, err
 	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, protocol.Artifact{}, err
+	}
+	if info.Size() > protocol.MaxArtifactBytes {
+		_ = file.Close()
+		return nil, protocol.Artifact{}, coregeneration.ErrArtifactTooLarge
+	}
 	return file, published, nil
 }
