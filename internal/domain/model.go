@@ -308,6 +308,7 @@ type NetworkInterface struct {
 	NATSide     string `yaml:"nat_side,omitempty" json:"nat_side,omitempty"`
 	IPv4Mode    string `yaml:"ipv4_mode" json:"ipv4_mode"`
 	IPv4Address string `yaml:"ipv4_address,omitempty" json:"ipv4_address,omitempty"`
+	Enabled     *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 }
 
 type StaticRoute struct {

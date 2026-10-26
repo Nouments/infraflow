@@ -259,6 +259,7 @@ func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
 
 	switch profile.group {
 	case "cisco_iosxe":
+		baseTasks = append(baseTasks, renderCiscoAdminState(device.Network.Interfaces)...)
 		baseTasks = append(baseTasks, renderCiscoTasks(device)...)
 	case "mikrotik_routeros":
 		baseTasks = append(baseTasks, renderMikroTikTasks(device)...)
@@ -268,6 +269,30 @@ func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
 		baseTasks = append(baseTasks, map[string]any{"name": "Render vendor placeholder task", "ansible.builtin.debug": map[string]any{"msg": "Template is intentionally inert until a verified profile implementation is available"}})
 	}
 	return baseTasks
+}
+
+func renderCiscoAdminState(interfaces []domain.NetworkInterface) []any {
+	config := make([]any, 0, len(interfaces))
+	for _, iface := range interfaces {
+		if iface.Enabled == nil {
+			continue
+		}
+		state := "disabled"
+		if *iface.Enabled {
+			state = "enabled"
+		}
+		config = append(config, map[string]any{"name": iface.Name, "enabled": state})
+	}
+	if len(config) == 0 {
+		return nil
+	}
+	return []any{map[string]any{
+		"name": "Render Cisco interface administrative state",
+		"cisco.ios.ios_interfaces": map[string]any{
+			"config": config,
+			"state":  "merged",
+		},
+	}}
 }
 
 func renderCiscoTasks(device domain.Device) []any {

@@ -363,6 +363,14 @@ func (service *Service) GenerateBootstrap(input []byte, outputDirectory string) 
 	return generator.GenerateBootstrap(infrastructure, outputDirectory)
 }
 
+func (service *Service) GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	generator, ok := service.generator.(ports.DeclarativeConfigGenerator)
+	if !ok {
+		return nil, fmt.Errorf("declarative device configuration generator is not configured")
+	}
+	return generator.GenerateDeclarativeConfig(input, outputDirectory)
+}
+
 func (service *Service) CreateJob(input []byte) (domain.Job, error) {
 	if service.jobs == nil {
 		return domain.Job{}, fmt.Errorf("job repository is not configured")

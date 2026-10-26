@@ -1,0 +1,78 @@
+{
+  "api_version": "infraflow/v1",
+  "deployment": "demo-isr1100",
+  "site": "demo",
+  "validation": "passed",
+  "compatibility_scope": "declaration-to-template rendering only; hardware model and OS compatibility are not verified",
+  "status": "rendered_unverified",
+  "devices": [
+    {
+      "device": "R1",
+      "manufacturer": "cisco",
+      "model": "isr-1100",
+      "os": "ios-xe",
+      "catalog_id": "cisco.isr-1100",
+      "catalog_status": "partial",
+      "template_id": "infraflow.cisco.iosxe.isr-1100.interfaces.v1",
+      "template_version": "1",
+      "template_hash": "2133b7f534e3652276682d61d915ee1bc0707c595038fb73b3747e86a648f449",
+      "selection_reason": "highest deterministic score among admissible templates matching the declared manufacturer, model, OS family, and requested features; physical-device compatibility is unverified",
+      "candidates": [
+        {
+          "template_id": "infraflow.cisco.iosxe.isr-1100.interfaces.v1",
+          "score": 93,
+          "admissible": true,
+          "selected": true,
+          "criteria": [
+            {
+              "name": "manufacturer_model",
+              "score": 30,
+              "maximum": 30,
+              "justification": "catalog record and template metadata exactly match the declared manufacturer/model"
+            },
+            {
+              "name": "os_family_version",
+              "score": 20,
+              "maximum": 25,
+              "justification": "exact OS family match; catalog OS compatibility is unknown and no OS version was supplied; supported OS-version metadata is absent"
+            },
+            {
+              "name": "requested_features",
+              "score": 25,
+              "maximum": 25,
+              "justification": "all requested features are implemented by the selected template"
+            },
+            {
+              "name": "variables",
+              "score": 10,
+              "maximum": 10,
+              "justification": "all required template variables are present in validated YAML"
+            },
+            {
+              "name": "template_validity",
+              "score": 8,
+              "maximum": 10,
+              "justification": "embedded template parses and its metadata is complete; status is render-only, not hardware-verified"
+            }
+          ]
+        }
+      ],
+      "variables": {
+        "interfaces": [
+          {
+            "enabled": true,
+            "ipv4": "192.0.2.1/24",
+            "name": "GigabitEthernet0/0/0"
+          }
+        ]
+      },
+      "config_path": "demo/R1/config.cfg",
+      "config_hash": "d069d6cb02cff725b73eed69f29fd481ff62801b41de850e8ba36e3a8e5931d0",
+      "status": "rendered_unverified",
+      "limits": [
+        "catalog record is partial; manufacturer-specific hardware interfaces and OS versions are not verified",
+        "rendering does not prove command acceptance or device state"
+      ]
+    }
+  ]
+}

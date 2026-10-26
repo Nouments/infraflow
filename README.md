@@ -28,9 +28,58 @@ go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-out
 go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
 go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
 go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
+go run ./provider/cmd validate -f examples/network-deployment.yaml
+go run ./provider/cmd generate-device-config -f examples/network-deployment.yaml -out ./demo-output
 ```
 
 `validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the complete agent catalog (inventory, topology, Ansible, Terraform, DHCP/DNS/TFTP/PXE/iPXE) with one combined manifest; it does not contact infrastructure or apply a plan.
+
+### Reproducible declarative device-configuration demo
+
+The versioned `NetworkDeployment` schema is supported by the existing
+`validate` command and the `generate-device-config` command. Run these commands
+from the repository root:
+
+```sh
+go run ./provider/cmd validate -f examples/network-deployment.yaml
+go run ./provider/cmd generate-device-config \
+  -f examples/network-deployment.yaml -out ./demo-output
+cat ./demo-output/demo/R1/config.cfg
+cat ./demo-output/demo/generation-report.json
+```
+
+The example uses the documentation-only `192.0.2.0/24` range; it is not a
+device address or a claim of lab validation. The embedded catalogue contains a
+partial Cisco ISR 1100 record with an official product-family reference, but
+does not claim verified SKU, interface, or IOS XE version support. The
+`infraflow.cisco.iosxe.isr-1100.interfaces.v1` template only renders static
+IPv4 interface addressing and administrative state. The report includes the
+candidate score (93/100), its criterion-by-criterion rationale, resolved
+variables, template hash, and explicit hardware-validation limits. Generated
+configuration is render-only; it is not applied to equipment.
+
+The deterministic score is: exact manufacturer/model 30 points; OS family
+20 points plus 5 only for an explicitly supported OS version; requested
+feature coverage 25; required variables 10; valid template metadata and
+render-only status 8 of 10. A score is calculated only after mandatory
+catalog, identity, OS-family, feature, variable, and template checks pass;
+points cannot compensate for an incompatibility. Because this example omits
+an OS version, its score is 93/100. The score describes declaration-to-template
+matching only, not physical-device compatibility.
+
+To verify fail-closed behavior for an unsupported feature:
+
+```sh
+go run ./provider/cmd generate-device-config \
+  -f examples/network-deployment-unsupported-ospf.yaml -out ./rejected-output
+```
+
+This command must fail with the field path `spec.devices[0].routing.ospf`;
+OSPF, VLANs, static routes, other hardware models, and OS versions are not
+implemented by this template and no partial configuration is written. No
+datasheet or image is bundled: catalog entries distinguish official URL
+references from files actually available locally. See
+[`internal/adapters/catalog/README.md`](internal/adapters/catalog/README.md).
 
 Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. They require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.
 

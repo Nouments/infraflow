@@ -31,3 +31,7 @@ func (Generator) GenerateTerraform(infrastructure domain.Infrastructure, outputD
 func (Generator) GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
 	return coregeneration.GenerateBootstrap(infrastructure, outputDirectory)
 }
+
+func (Generator) GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	return coregeneration.GenerateDeclarativeConfig(input, outputDirectory)
+}

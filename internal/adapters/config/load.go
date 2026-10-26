@@ -33,6 +33,16 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 	if len(data) > MaxInputBytes {
 		return domain.Infrastructure{}, fmt.Errorf("configuration exceeds the %d-byte limit", MaxInputBytes)
 	}
+	var deploymentHeader struct {
+		APIVersion string `yaml:"apiVersion"`
+	}
+	if err := yaml.Unmarshal(data, &deploymentHeader); err != nil {
+		return domain.Infrastructure{}, fmt.Errorf("decode configuration: %w", err)
+	}
+	if deploymentHeader.APIVersion != "" {
+		infrastructure, _, err := ParseNetworkDeployment(data)
+		return infrastructure, err
+	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -277,8 +287,8 @@ func validateDeviceNetwork(prefix string, device domain.Device) ValidationErrors
 		problems = append(problems, prefix+": Fortinet network intent requires network.vdom")
 	}
 	for _, iface := range device.Network.Interfaces {
-		if !protocol.ValidSiteName(iface.Name) {
-			problems = append(problems, prefix+": network interface name is required and must use letters, digits, '.', '_' or '-'")
+		if !deploymentInterfaceName.MatchString(iface.Name) {
+			problems = append(problems, prefix+": network interface name is required and must be a safe device interface identifier")
 			continue
 		}
 		if _, exists := interfaces[iface.Name]; exists {
@@ -286,6 +296,7 @@ func validateDeviceNetwork(prefix string, device domain.Device) ValidationErrors
 		}
 		interfaces[iface.Name] = iface
 		switch iface.Role {
+		case "":
 		case "wan", "lan", "management", "transit":
 		default:
 			problems = append(problems, prefix+": interface "+iface.Name+" role must be wan, lan, management, or transit")

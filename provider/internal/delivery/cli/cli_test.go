@@ -142,6 +142,77 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	}
 }
 
+func TestGenerateDeviceConfigRunsVersionedCatalogTemplateFlow(t *testing.T) {
+	input := writeInput(t, `apiVersion: infraflow/v1
+kind: NetworkDeployment
+metadata:
+  name: demo-isr1100
+spec:
+  site: demo
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.0.2.1/24
+          enabled: true
+`)
+	output := filepath.Join(t.TempDir(), "generated")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"validate", "-f", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("validate rejected supported NetworkDeployment: %s", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 0 {
+		t.Fatalf("device configuration generation failed: %s", stderr.String())
+	}
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	if contents, err := os.ReadFile(configPath); err != nil || !strings.Contains(string(contents), "ip address 192.0.2.1 255.255.255.0") {
+		t.Fatalf("generated configuration missing expected interface: %q, %v", contents, err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "generation-report.json")); err != nil {
+		t.Fatalf("generation report missing: %v", err)
+	}
+}
+
+func TestGenerateDeviceConfigRejectsUnsupportedOSPFWithoutOutput(t *testing.T) {
+	input := writeInput(t, `apiVersion: infraflow/v1
+kind: NetworkDeployment
+metadata:
+  name: demo-isr1100-ospf
+spec:
+  site: demo
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.0.2.1/24
+          enabled: true
+      routing:
+        ospf:
+          process_id: 10
+          router_id: 10.255.0.1
+          networks:
+            - prefix: 192.168.10.0/24
+              area: 0
+`)
+	output := filepath.Join(t.TempDir(), "generated")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "spec.devices[0].routing.ospf") {
+		t.Fatalf("unsupported OSPF request was not clearly rejected: code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "R1", "config.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("incompatible request left configuration behind: %v", err)
+	}
+}
+
 func TestCapabilitySummaryCommandReportsReadyState(t *testing.T) {
 	input := `capability_registry:
   entries:

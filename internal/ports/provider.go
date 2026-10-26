@@ -53,6 +53,10 @@ type BootstrapArtifactGenerator interface {
 	GenerateBootstrap(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+type DeclarativeConfigGenerator interface {
+	GenerateDeclarativeConfig([]byte, string) ([]protocol.Artifact, error)
+}
+
 type JobRepository interface {
 	Create(domain.Job) error
 	Get(string) (domain.Job, error)

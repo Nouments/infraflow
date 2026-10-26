@@ -1,170 +1,240 @@
-From 55a458d23bb7535b7e33b27c5ed3088a7f7c7941 Mon Sep 17 00:00:00 2001
-From: QA patch <qa@example.invalid>
-Date: Wed, 14 Oct 2026 14:48:16 +0000
-Subject: [PATCH] qa(bloc3): make preflight executable, add offline script
- test, qualify GNS3 404 finding, fix HEAD reference
+À partir de l'audit du dépôt InfraFlow, implémente le chemin fonctionnel YAML déclaratif → validation → résolution du template → génération de configuration.
 
----
- CURRENT.md                          |  4 +--
- Makefile                            |  5 +++-
- docs/lab/cisco-ios-gns3.md          | 13 ++++++++-
- scripts/cisco-ios-preflight.sh      |  0
- scripts/cisco-ios-preflight_test.sh | 45 +++++++++++++++++++++++++++++
- 5 files changed, 63 insertions(+), 4 deletions(-)
- mode change 100644 => 100755 scripts/cisco-ios-preflight.sh
- create mode 100755 scripts/cisco-ios-preflight_test.sh
+OBJECTIF :
+L'utilisateur décrit l'état réseau souhaité dans un fichier YAML. InfraFlow transforme cette description en configuration réseau spécifique à un équipement, sans que l'utilisateur ait à écrire lui-même toutes les commandes constructeur.
 
-diff --git a/CURRENT.md b/CURRENT.md
-index 104456e..391b87e 100644
---- a/CURRENT.md
-+++ b/CURRENT.md
-@@ -132,10 +132,10 @@ This later pass supersedes only the external-tool-blocked findings above; the Bl
- 
- ## Bloc 3 lab status — 2026-10-14
- 
--Bloc 3 was limited to a runbook and read-only preflight; no device configuration was attempted. Bloc 1 remains **INCOMPLET — PREUVES MANQUANTES**. The latest recorded Bloc 2 decision remains incomplete at its prior validation HEAD (`3df0215`); `git diff --check` passed at the current Bloc 3 HEAD (`96904f0`), but the full Bloc 2 suite was not rerun on this HEAD.
-+Bloc 3 was limited to a runbook and read-only preflight; no device configuration was attempted. Bloc 1 remains **INCOMPLET — PREUVES MANQUANTES**. The latest recorded Bloc 2 decision remains incomplete at its prior validation HEAD (`3df0215`); the Bloc 3 changes were committed on top of `96904f0` (commit `bb84b29`). QA review confirmed `git diff --check 96904f0 bb84b29` exits 0, but the full Bloc 2 Go suite was not rerun by QA on `bb84b29` (Go 1.25 was unavailable in the QA environment).
- 
- - Git was on `develop`, HEAD `96904f08a91967b3c7fd307bbc996bec8f0e2b16`; only `current_step.md` was modified before this pass.
--- A local `gns3server` process/listener on port 3080 was observed. The QEMU process identified was named `fortigate-1` (excluded). `GET http://127.0.0.1:3080/v2/projects` returned HTTP 404. No authorized Cisco IOS node, management IP, or independently verified SSH fingerprint was confirmed. No SSH or `/api/v1/executions` call was attempted.
-+- A local `gns3server` process/listener on port 3080 was observed. The QEMU process identified was named `fortigate-1` (excluded). `GET http://127.0.0.1:3080/v2/projects` returned HTTP 404; this is **not conclusive**, because GNS3 3.x serves its API under `/v3` (see the API probe in `docs/lab/cisco-ios-gns3.md`) and `/v3/projects` was not tried. No authorized Cisco IOS node, management IP, or independently verified SSH fingerprint was confirmed. No SSH or `/api/v1/executions` call was attempted.
- - README addresses `192.168.0.2`/`.3` refer to Agent/Provider; `examples/cisco-ios-lab.yaml` labels `192.0.2.10` TEST-NET documentation. Neither is used as a router target.
- - Cases A (hostname), B (Ethernet IPv4/admin-state), and C (invalid CIDR) are `NON EXÉCUTÉ`; before/after IOS state, execution read-back, and secret-log checks are unavailable.
- - Added `docs/lab/cisco-ios-gns3.md` and `scripts/cisco-ios-preflight.sh`. The preflight requires an independently verified fingerprint and SSH public-key auth, then runs only `show version`. Syntax and invalid-input paths were checked locally; no target was contacted.
-diff --git a/Makefile b/Makefile
-index be02f58..5093a65 100644
---- a/Makefile
-+++ b/Makefile
-@@ -1,4 +1,4 @@
--.PHONY: fmt fmt-check test test-race test-provider test-agent vet build build-provider build-agent
-+.PHONY: fmt fmt-check test test-race test-scripts test-provider test-agent vet build build-provider build-agent
- 
- fmt:
- 	gofmt -w $(shell find agent internal pkg provider -name '*.go')
-@@ -12,6 +12,9 @@ test:
- test-race:
- 	go test -race ./...
- 
-+test-scripts:
-+	bash scripts/cisco-ios-preflight_test.sh
-+
- test-provider:
- 	go test ./provider/...
- 
-diff --git a/docs/lab/cisco-ios-gns3.md b/docs/lab/cisco-ios-gns3.md
-index e606ee7..c7f4e1d 100644
---- a/docs/lab/cisco-ios-gns3.md
-+++ b/docs/lab/cisco-ios-gns3.md
-@@ -23,6 +23,17 @@ Topologie à confirmer dans GNS3 avant le test : Provider InfraFlow et un routeu
- 
- Les identifiants ne sont jamais dans le YAML, la requête JSON, les commandes sauvegardées, les preuves ni le dépôt. Fournir les secrets au processus Provider depuis le gestionnaire prévu. Ne pas activer la persistance startup-config; l'exécuteur ne lance pas `write memory`.
- 
-+## Sonde de l'API GNS3 (lecture seule)
-+
-+Un `404` sur `/v2/projects` ne prouve pas qu'aucun projet n'existe : GNS3 3.x expose son API sous `/v3` (et peut exiger une authentification), alors que GNS3 2.x utilise `/v2`. Avant de conclure à l'absence de nœud Cisco, interroger les deux versions, sans rien modifier :
-+
-+```bash
-+curl -s -o /dev/null -w '/v3/version -> %{http_code}\n' http://127.0.0.1:3080/v3/version
-+curl -s -o /dev/null -w '/v2/version -> %{http_code}\n' http://127.0.0.1:3080/v2/version
-+```
-+
-+Un `200` indique la version d'API active; `401`/`403` indique qu'une authentification est requise (ne pas coller le jeton dans le dépôt ni dans les preuves). Une fois la version identifiée, lister les projets puis les nœuds de cette version et noter le modèle de chaque nœud : seul un nœud Cisco IOS/IOSv/IOL/CSR1000v autorisé par l'opérateur peut servir de cible. Un nœud d'un autre fournisseur (par exemple `fortigate-1`) reste hors périmètre.
-+
- ## Pré-vol en lecture seule
- 
- Obtenir l'empreinte SHA-256 attendue depuis la console IOS ou un canal administratif indépendant. La clé retournée par `ssh-keyscan` n'est qu'une clé candidate; le script refuse de continuer si elle ne correspond pas à l'empreinte attendue. Le script n'accepte pas de mot de passe SSH : utiliser une clé déjà chargée dans `ssh-agent`.
-@@ -36,7 +47,7 @@ IOS_HOSTKEY_FINGERPRINT='SHA256:<empreinte-confirmée-hors-bande>'
- bash scripts/cisco-ios-preflight.sh "$IOS_HOST" "$IOS_SSH_USER" "$IOS_HOSTKEY_FINGERPRINT"
- ```
- 
--Le script récupère une clé candidate, vérifie l'empreinte, puis exécute uniquement `show version` avec authentification SSH par clé, `BatchMode=yes` et contrôle strict de clé d'hôte. Il ne modifie pas `known_hosts` et ne configure pas le routeur. Une sortie `PASS` vérifie uniquement la joignabilité SSH, l'empreinte et la détection d'une ligne de version; elle ne prouve ni une configuration ni la compatibilité de l'exécuteur.
-+Le script récupère une clé candidate, vérifie l'empreinte, puis exécute uniquement `show version` avec authentification SSH par clé, `BatchMode=yes` et contrôle strict de clé d'hôte. Il ne modifie pas `known_hosts` et ne configure pas le routeur. Les chemins d'erreur d'entrée du script sont couverts hors ligne par `make test-scripts`. Une sortie `PASS` vérifie uniquement la joignabilité SSH, l'empreinte et la détection d'une ligne de version; elle ne prouve ni une configuration ni la compatibilité de l'exécuteur.
- 
- Avant les requêtes, ouvrir la console IOS et enregistrer, sans données d'authentification :
- 
-diff --git a/scripts/cisco-ios-preflight.sh b/scripts/cisco-ios-preflight.sh
-old mode 100644
-new mode 100755
-diff --git a/scripts/cisco-ios-preflight_test.sh b/scripts/cisco-ios-preflight_test.sh
-new file mode 100755
-index 0000000..18b75a9
---- /dev/null
-+++ b/scripts/cisco-ios-preflight_test.sh
-@@ -0,0 +1,45 @@
-+#!/usr/bin/env bash
-+# Offline regression test for cisco-ios-preflight.sh input validation.
-+# Every case must exit 64 BEFORE any network access.
-+set -uo pipefail
-+
-+script="$(dirname "$0")/cisco-ios-preflight.sh"
-+fp='SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
-+failures=0
-+
-+expect_64() {
-+	local name=$1
-+	shift
-+	bash "$script" "$@" >/dev/null 2>&1
-+	local code=$?
-+	if [[ $code -eq 64 ]]; then
-+		printf 'PASS %s\n' "$name"
-+	else
-+		printf 'FAIL %s (exit %s, expected 64)\n' "$name" "$code"
-+		failures=$((failures + 1))
-+	fi
-+}
-+
-+expect_64 "no arguments"
-+expect_64 "too many arguments" h u "$fp" 22 extra
-+expect_64 "invalid host" 'bad host' u "$fp"
-+expect_64 "host with shell metachar" 'h;id' u "$fp"
-+expect_64 "invalid user" h 'u;x' "$fp"
-+expect_64 "fingerprint without SHA256 prefix" h u abc
-+expect_64 "fingerprint with MD5 format" h u 'MD5:aa:bb'
-+expect_64 "port zero" h u "$fp" 0
-+expect_64 "port too large" h u "$fp" 70000
-+expect_64 "port not numeric" h u "$fp" abc
-+
-+if bash -n "$script"; then
-+	printf 'PASS bash syntax\n'
-+else
-+	printf 'FAIL bash syntax\n'
-+	failures=$((failures + 1))
-+fi
-+
-+if [[ $failures -ne 0 ]]; then
-+	printf '%s failure(s)\n' "$failures"
-+	exit 1
-+fi
-+printf 'All preflight script checks passed.\n'
--- 
-2.43.0Tu interviens sur le dépôt existant InfraFlow, projet Go de génération et d'orchestration de configurations réseau.
+1. FORMAT DÉCLARATIF
 
-CONTEXTE :
-InfraFlow doit transformer une description réseau déclarative en YAML en configurations réseau spécifiques aux constructeurs, en utilisant des templates prédéfinis et un catalogue de matériels réseau.
+Réutilise le schéma YAML existant s'il est exploitable. Sinon, crée un schéma minimal et documenté comprenant :
+- version du document ;
+- site ;
+- équipements ;
+- constructeur, modèle et système d'exploitation ;
+- interfaces et adresses IP ;
+- VLAN et paramètres associés ;
+- routage statique ou OSPF lorsque le template correspondant existe ;
+- options et variables nécessaires à la génération.
 
-CONTRAINTE ABSOLUE :
-La soutenance du projet est demain. Il faut finaliser rapidement une tranche fonctionnelle de bout en bout. Ne reconstruis pas l'application et ne modifie pas inutilement l'architecture existante.
+N'implémente pas des fonctionnalités que les templates existants ne savent pas traiter.
 
-MISSION :
-1. Examiner le dépôt, la branche active, le README, les packages Go, les fichiers YAML, les templates, les tests et la TUI.
-2. Identifier les composants déjà fonctionnels et ceux qui sont incomplets.
-3. Retrouver le chemin réel d'exécution entre l'entrée YAML et la génération de configuration.
-4. Identifier les fonctionnalités existantes à réutiliser pour le catalogue matériel, les fiches techniques, la comparaison de templates et la génération.
-5. Définir le plus petit ensemble de modifications permettant une démonstration réelle et reproductible.
+2. VALIDATION
+
+- Rejeter les YAML mal formés.
+- Valider les champs obligatoires et les types.
+- Vérifier les références aux équipements et aux templates.
+- Détecter les paramètres réseau incohérents lorsque c'est possible.
+- Retourner des erreurs explicites avec le chemin du champ concerné.
+- Ne jamais produire silencieusement une configuration partielle en cas d'erreur.
+
+3. MOTEUR DE GÉNÉRATION
+
+- Charger les templates prédéfinis depuis les fichiers du dépôt.
+- Utiliser le moteur de templates déjà présent ; sinon, privilégier text/template de la bibliothèque standard Go.
+- Résoudre le template à partir du constructeur, du modèle, de l'OS et des fonctionnalités requises.
+- Injecter les valeurs validées du YAML.
+- Générer des fichiers réels dans un répertoire de sortie déterministe.
+- Séparer les données déclaratives, la logique de compatibilité et les templates.
+- Ne jamais construire les commandes en concaténant aveuglément des entrées utilisateur.
+- Échapper ou valider les valeurs selon le contexte du template.
+
+4. RÉSULTAT
+
+La génération doit fournir :
+- la configuration propre à l'équipement ;
+- l'identité du template utilisé ;
+- les variables résolues ;
+- les éventuelles incompatibilités ;
+- un rapport de génération.
+
+5. TESTS OBLIGATOIRES
+
+- YAML valide donnant une configuration non vide.
+- YAML invalide rejeté.
+- Template inexistant signalé clairement.
+- Fonctionnalité non supportée rejetée.
+- Même entrée et même version de template donnant le même résultat.
+- Vérification du contenu des configurations générées.
+
+6. INTÉGRATION
+
+Intègre cette fonctionnalité dans les points d'entrée et la TUI existants lorsqu'ils sont déjà adaptés. Ajoute une commande CLI uniquement si elle est nécessaire et cohérente avec l'architecture.
+
+Ne refonds pas l'application. Lance les tests Go pertinents, corrige les régressions et fournis les commandes exactes permettant de reproduire la génération.
+
+À la fin, indique les fichiers modifiés, les tests exécutés, leurs résultats et les limites restantes. Ne prétends pas avoir testé sur un véritable équipement si cela n'a pas été fait.
+
+apiVersion: infraflow/v1
+kind: NetworkDeployment
+
+metadata:
+  name: lab-demo
+
+spec:
+  site: lab
+
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.168.10.1/24
+          enabled: true
+
+      routing:
+        ospf:
+          process_id: 10
+          router_id: 10.255.0.1
+          networks:
+            - prefix: 192.168.10.0/24
+              area: 0
+
+
+
+
+Implémente ou finalise le catalogue local des équipements réseau d'InfraFlow en réutilisant la structure du dépôt et les outils existants.
+
+OBJECTIF :
+Disposer d'une base de données structurée de matériels réseau permettant de décrire les équipements, leurs capacités, leurs systèmes d'exploitation et leurs fiches techniques, puis d'utiliser ces informations pendant la validation et la génération de configurations.
+
+PÉRIMÈTRE INITIAL :
+Priorité aux modèles déjà présents dans le catalogue et aux équipements utilisés dans le laboratoire :
+- Cisco ISR 1100 ;
+- Cisco ISR 4000 ;
+- Cisco Catalyst 2960 ;
+- Cisco Catalyst 9200 ;
+- Cisco Catalyst 9300 ;
+- équipements MikroTik RouterOS 7.x ;
+- FortiGate/FortiOS 7.x uniquement lorsque les données et templates correspondants sont disponibles.
+
+N'ajoute pas artificiellement tous ces modèles si leurs informations ne peuvent pas être vérifiées.
+
+DONNÉES À GÉRER :
+Chaque fiche matériel doit inclure, selon les informations disponibles :
+- identifiant stable ;
+- constructeur ;
+- nom commercial et modèle ;
+- catégorie : routeur, commutateur, pare-feu ou autre ;
+- systèmes d'exploitation et versions compatibles ;
+- interfaces et capacités connues ;
+- fonctionnalités réseau prises en charge ;
+- identifiants des templates compatibles ;
+- URL officielle de la documentation ;
+- références aux fiches techniques locales ;
+- références aux images locales ;
+- source, date de vérification et état de validation des données.
+
+ARCHITECTURE :
+- Réutiliser le répertoire catalogue existant, s'il est présent.
+- Privilégier YAML ou JSON pour les fiches et un schéma de validation explicite.
+- Fournir une interface Go permettant de rechercher un équipement par identifiant, constructeur ou modèle.
+- Vérifier les références aux templates et aux documents.
+- Distinguer les données vérifiées des données inconnues. Ne pas inventer les ports, les capacités ou les compatibilités.
+- Utiliser les données du catalogue dans le moteur de génération pour vérifier la compatibilité entre équipement, OS, fonctionnalités demandées et template.
+
+FICHES TECHNIQUES ET IMAGES :
+- Utiliser des documents et images réels provenant de sources officielles lorsque disponibles et autorisés.
+- Enregistrer les ressources localement dans l'arborescence du catalogue.
+- Ne pas présenter une URL comme un fichier téléchargé.
+- Ne pas créer de fausses fiches techniques ou d'images fictives.
+- En cas d'échec de récupération, conserver la référence officielle et marquer clairement la ressource comme indisponible localement.
+- Documenter la provenance et les conditions de redistribution des fichiers.
+
+INTÉGRATION :
+Le moteur doit pouvoir charger le catalogue, retrouver un équipement, déterminer ses capacités connues et refuser une génération incompatible.
+
+TESTS :
+- Chargement du catalogue.
+- Validation des fiches.
+- Recherche par identifiant et modèle.
+- Référence à un template absent.
+- Fiche technique locale absente.
+- Fonctionnalité déclarée mais non prise en charge.
+
+LIVRABLE :
+Un catalogue exploitable par l'application, quelques fiches réellement renseignées, une intégration effective au générateur et une documentation courte.
+
+Ne migre pas vers une base de données externe pour la seule démonstration de demain. Ne remplace pas les fichiers existants sans justification. Exécute les tests et rapporte les résultats réels.
+
+
+
+
+Implémente la résolution et la comparaison fonctionnelle des templates prédéfinis dans InfraFlow.
+
+OBJECTIF :
+À partir d'une description réseau YAML et d'un équipement du catalogue, identifier les templates compatibles et sélectionner le meilleur candidat sans inventer de compatibilité.
+
+FONCTIONNEMENT :
+1. Charger les templates existants.
+2. Lire leurs métadonnées : identifiant, constructeur, modèles ou familles supportés, OS et versions, fonctionnalités requises et variables attendues.
+3. Comparer ces informations aux équipements du catalogue et aux besoins du YAML.
+4. Éliminer les candidats incompatibles.
+5. Calculer un score explicable pour les candidats restants.
+6. Générer la configuration uniquement avec un template compatible.
+
+SCORE :
+Définis un score déterministe documenté sur 100, basé uniquement sur les critères réellement disponibles :
+- compatibilité constructeur et modèle ;
+- compatibilité OS/version ;
+- couverture des fonctionnalités demandées ;
+- disponibilité des variables nécessaires ;
+- validité et état du template.
+
+La compatibilité obligatoire ne doit pas pouvoir être compensée par un bon score sur les autres critères. Un template incompatible doit être rejeté, quel que soit son score.
+
+RÉSULTAT :
+Présenter :
+- les candidats évalués ;
+- le score de chaque candidat admissible ;
+- les critères et justifications du score ;
+- les incompatibilités des candidats rejetés ;
+- le template retenu et la raison de son choix.
+
+Ne confonds pas une absence de métadonnées avec une compatibilité confirmée. Si aucune sélection sûre n'est possible, explique pourquoi et bloque la génération.
+
+TESTS :
+- Sélection du template compatible attendu.
+- Rejet d'un constructeur incompatible.
+- Rejet d'une version d'OS non supportée.
+- Rejet d'une fonctionnalité absente.
+- Score déterministe.
+- Absence de template compatible.
+- Résultat explicable et reproductible.
+
+Réutilise les structures, le moteur de templates et les interfaces Go déjà présents. N'ajoute pas de système de plugins ou d'architecture complexe pour cette tâche. Fournis un exemple complet de YAML, le template sélectionné, le score et la configuration générée.
+
+
+Prépare une démonstration reproductible de bout en bout pour InfraFlow, à partir des fonctionnalités réellement implémentées dans le dépôt.
+
+SCÉNARIO :
+Un utilisateur définit un équipement réseau et ses besoins dans un fichier YAML. InfraFlow charge le catalogue, valide les données, vérifie les capacités de l'équipement, sélectionne un template compatible, génère la configuration et affiche un rapport.
+
+À FAIRE :
+1. Créer ou corriger un exemple YAML réaliste.
+2. Vérifier que le modèle déclaré existe dans le catalogue.
+3. Vérifier que le template sélectionné correspond réellement au constructeur et à l'OS.
+4. Générer les fichiers de configuration dans un répertoire de sortie clair.
+5. Ajouter un rapport indiquant les validations, le template retenu, les fonctionnalités traitées et les éventuelles limites.
+6. Ajouter un scénario négatif où une demande incompatible est correctement rejetée.
+7. Intégrer le scénario à la CLI ou à la TUI existante sans refonte.
+8. Mettre à jour le README avec les commandes exactes de lancement et de démonstration.
+
+VALIDATION :
+- Exécuter go test ./... depuis le bon module ou workspace.
+- Exécuter go vet ./... si applicable.
+- Corriger les régressions introduites par les changements.
+- Vérifier les fichiers effectivement générés.
+- Ne pas simuler des tests sur du matériel physique.
+- Ne pas utiliser de métriques fictives ni annoncer une réussite sans preuve.
 
 LIVRABLES :
-- Un état précis de l'existant.
-- Une liste des problèmes bloquants classés par priorité.
-- Les fichiers existants à modifier et les nouveaux fichiers réellement nécessaires.
-- Un plan d'implémentation ordonné et court.
-- Les tests qui prouveront le fonctionnement.
+- Commandes exactes pour reproduire la démonstration.
+- Fichiers d'entrée et de sortie.
+- Résultats des tests réellement exécutés.
+- Liste des fonctionnalités terminées.
+- Liste explicite des fonctionnalités partielles ou non implémentées.
 
-RÈGLES :
-- Ne modifie aucun fichier pendant cette première étape.
-- N'invente aucune fonctionnalité existante.
-- Ne remplace pas une implémentation fonctionnelle par une nouvelle.
-- Ne propose pas de fausses données de démonstration présentées comme réelles.
-- Signale les commandes, dépendances ou composants manquants.
-- Reste centré sur YAML déclaratif, catalogue matériel, templates et génération de configuration.
-
-Termine par une recommandation claire : quel est le chemin le plus court pour obtenir une démonstration complète ?
+PRIORITÉ :
+La démonstration YAML → catalogue → template → configuration générée doit fonctionner avant toute amélioration visuelle, nouvelle fonctionnalité ou refonte documentaire.

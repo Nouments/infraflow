@@ -1,0 +1,27 @@
+apiVersion: infraflow/v1
+kind: NetworkDeployment
+
+metadata:
+  name: demo-isr1100-ospf
+
+spec:
+  site: demo
+
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.0.2.1/24
+          enabled: true
+
+      routing:
+        ospf:
+          process_id: 10
+          router_id: 10.255.0.1
+          networks:
+            - prefix: 192.168.10.0/24
+              area: 0

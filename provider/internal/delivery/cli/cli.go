@@ -58,7 +58,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "apply" {
 		return runApply(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "generate-device-config" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -71,7 +71,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-all" || command == "generate-ansible" || command == "generate-terraform" || command == "generate-bootstrap") && *outputPath == "" {
+	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-all" || command == "generate-ansible" || command == "generate-terraform" || command == "generate-bootstrap" || command == "generate-device-config") && *outputPath == "" {
 		fmt.Fprintln(stderr, "infraflow-provider: command requires -f; generate commands also require -out")
 		return 2
 	}
@@ -150,6 +150,15 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		}
 		for _, artifact := range artifacts {
 			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	case "generate-device-config":
+		artifacts, err := service.GenerateDeclarativeConfig(input, *outputPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 1
+		}
+		for _, artifact := range artifacts {
+			fmt.Fprintf(stdout, "generated %s (type %s, sha256 %s)\n", artifact.Path, artifact.Type, artifact.OutputHash)
 		}
 	}
 	return 0
@@ -621,6 +630,7 @@ Usage:
 	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
 	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
+	infraflow-provider generate-device-config -f <deployment.yaml> -out <directory>
 	infraflow-provider template-info -f <infra.yaml>
 	infraflow-provider capability-summary -f <infra.yaml>
 	infraflow-provider capability-matrix -f <infra.yaml>

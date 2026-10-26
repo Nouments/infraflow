@@ -15,6 +15,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestRenderCiscoAdminStateOnlyWhenExplicitlyDeclared(t *testing.T) {
+	enabled := true
+	disabled := false
+	tasks := renderCiscoAdminState([]domain.NetworkInterface{
+		{Name: "GigabitEthernet0/0/0", Enabled: &enabled},
+		{Name: "GigabitEthernet0/0/1", Enabled: &disabled},
+		{Name: "GigabitEthernet0/0/2"},
+	})
+	if len(tasks) != 1 {
+		t.Fatalf("expected one explicit admin-state task, got %#v", tasks)
+	}
+	task := tasks[0].(map[string]any)
+	module := task["cisco.ios.ios_interfaces"].(map[string]any)
+	config := module["config"].([]any)
+	if len(config) != 2 {
+		t.Fatalf("expected only explicitly declared interface states, got %#v", config)
+	}
+	if config[0].(map[string]any)["enabled"] != "enabled" || config[1].(map[string]any)["enabled"] != "disabled" {
+		t.Fatalf("unexpected Cisco administrative states: %#v", config)
+	}
+	if got := renderCiscoAdminState([]domain.NetworkInterface{{Name: "GigabitEthernet1"}}); got != nil {
+		t.Fatalf("renderer inferred undeclared administrative state: %#v", got)
+	}
+}
+
 func TestRenderCiscoInterfacesMultipleInterfacesFromDeviceNetwork(t *testing.T) {
 	interfaces := []domain.NetworkInterface{
 		{Name: "GigabitEthernet1", Role: "management", IPv4Mode: "static", IPv4Address: "192.168.100.10/24"},
