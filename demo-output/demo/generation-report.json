@@ -4,6 +4,8 @@
   "site": "demo",
   "validation": "passed",
   "compatibility_scope": "declaration-to-template rendering only; hardware model and OS compatibility are not verified",
+  "command_syntax_validation": "not_performed",
+  "physical_device_validation": "not_performed",
   "status": "rendered_unverified",
   "devices": [
     {

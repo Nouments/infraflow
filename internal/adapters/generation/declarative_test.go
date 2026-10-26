@@ -60,7 +60,8 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 	if err := json.Unmarshal(reportBytes, &report); err != nil {
 		t.Fatal(err)
 	}
-	if report.Status != "rendered_unverified" || report.Devices[0].TemplateID == "" ||
+	if report.Status != "rendered_unverified" || report.CommandSyntaxValidation != "not_performed" ||
+		report.PhysicalDeviceValidation != "not_performed" || report.Devices[0].TemplateID == "" ||
 		report.Devices[0].Candidates[0].Score != 93 || !report.Devices[0].Candidates[0].Selected {
 		t.Fatalf("report did not expose selected candidate and score: %#v", report)
 	}

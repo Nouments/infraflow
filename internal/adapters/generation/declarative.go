@@ -83,14 +83,16 @@ type DeviceGenerationReport struct {
 }
 
 type DeclarativeGenerationReport struct {
-	APIVersion         string                   `json:"api_version"`
-	Deployment         string                   `json:"deployment"`
-	Site               string                   `json:"site"`
-	Validation         string                   `json:"validation"`
-	CompatibilityScope string                   `json:"compatibility_scope"`
-	Status             string                   `json:"status"`
-	Devices            []DeviceGenerationReport `json:"devices"`
-	Incompatibilities  []string                 `json:"incompatibilities,omitempty"`
+	APIVersion               string                   `json:"api_version"`
+	Deployment               string                   `json:"deployment"`
+	Site                     string                   `json:"site"`
+	Validation               string                   `json:"validation"`
+	CompatibilityScope       string                   `json:"compatibility_scope"`
+	CommandSyntaxValidation  string                   `json:"command_syntax_validation"`
+	PhysicalDeviceValidation string                   `json:"physical_device_validation"`
+	Status                   string                   `json:"status"`
+	Devices                  []DeviceGenerationReport `json:"devices"`
+	Incompatibilities        []string                 `json:"incompatibilities,omitempty"`
 }
 
 type renderedInterface struct {
@@ -136,12 +138,14 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 	}
 
 	report := DeclarativeGenerationReport{
-		APIVersion:         config.NetworkDeploymentAPIVersion,
-		Deployment:         deployment.Metadata.Name,
-		Site:               deployment.Spec.Site,
-		Validation:         "passed",
-		CompatibilityScope: "declaration-to-template rendering only; hardware model and OS compatibility are not verified",
-		Status:             "rendered_unverified",
+		APIVersion:               config.NetworkDeploymentAPIVersion,
+		Deployment:               deployment.Metadata.Name,
+		Site:                     deployment.Spec.Site,
+		Validation:               "passed",
+		CompatibilityScope:       "declaration-to-template rendering only; hardware model and OS compatibility are not verified",
+		CommandSyntaxValidation:  "not_performed",
+		PhysicalDeviceValidation: "not_performed",
+		Status:                   "rendered_unverified",
 	}
 	var pending []declarativeArtifact
 	for index, declared := range deployment.Spec.Devices {

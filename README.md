@@ -57,6 +57,10 @@ IPv4 interface addressing and administrative state. The report includes the
 candidate score (93/100), its criterion-by-criterion rationale, resolved
 variables, template hash, and explicit hardware-validation limits. Generated
 configuration is render-only; it is not applied to equipment.
+The report labels document validation as `passed`, declaration-to-template
+compatibility as render-only, command syntax validation as `not_performed`,
+and physical-device validation as `not_performed`. No IOS parser or device
+connection is used by this demo.
 
 The deterministic score is: exact manufacturer/model 30 points; OS family
 20 points plus 5 only for an explicitly supported OS version; requested

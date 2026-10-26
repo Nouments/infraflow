@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed data/*.yaml resources
+//go:embed data/*.yaml resources/README.md
 var catalogFiles embed.FS
 
 type Record struct {
