@@ -137,4 +137,34 @@ index 0000000..18b75a9
 +fi
 +printf 'All preflight script checks passed.\n'
 -- 
-2.43.0
+2.43.0Tu interviens sur le dépôt existant InfraFlow, projet Go de génération et d'orchestration de configurations réseau.
+
+CONTEXTE :
+InfraFlow doit transformer une description réseau déclarative en YAML en configurations réseau spécifiques aux constructeurs, en utilisant des templates prédéfinis et un catalogue de matériels réseau.
+
+CONTRAINTE ABSOLUE :
+La soutenance du projet est demain. Il faut finaliser rapidement une tranche fonctionnelle de bout en bout. Ne reconstruis pas l'application et ne modifie pas inutilement l'architecture existante.
+
+MISSION :
+1. Examiner le dépôt, la branche active, le README, les packages Go, les fichiers YAML, les templates, les tests et la TUI.
+2. Identifier les composants déjà fonctionnels et ceux qui sont incomplets.
+3. Retrouver le chemin réel d'exécution entre l'entrée YAML et la génération de configuration.
+4. Identifier les fonctionnalités existantes à réutiliser pour le catalogue matériel, les fiches techniques, la comparaison de templates et la génération.
+5. Définir le plus petit ensemble de modifications permettant une démonstration réelle et reproductible.
+
+LIVRABLES :
+- Un état précis de l'existant.
+- Une liste des problèmes bloquants classés par priorité.
+- Les fichiers existants à modifier et les nouveaux fichiers réellement nécessaires.
+- Un plan d'implémentation ordonné et court.
+- Les tests qui prouveront le fonctionnement.
+
+RÈGLES :
+- Ne modifie aucun fichier pendant cette première étape.
+- N'invente aucune fonctionnalité existante.
+- Ne remplace pas une implémentation fonctionnelle par une nouvelle.
+- Ne propose pas de fausses données de démonstration présentées comme réelles.
+- Signale les commandes, dépendances ou composants manquants.
+- Reste centré sur YAML déclaratif, catalogue matériel, templates et génération de configuration.
+
+Termine par une recommandation claire : quel est le chemin le plus court pour obtenir une démonstration complète ?
