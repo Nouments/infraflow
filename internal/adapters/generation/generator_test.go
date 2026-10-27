@@ -1,16 +1,19 @@
 package generator
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"infraflow/internal/adapters/config"
+	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
 
@@ -213,8 +216,44 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != len(artifacts) || len(catalog) != 17 {
+	if len(catalog) != len(artifacts) || len(catalog) != 19 {
 		t.Fatalf("combined manifest published %d of %d generated artifacts", len(catalog), len(artifacts))
+	}
+	for _, path := range []string{
+		"manifest.json", "generation-report.json",
+		"lab/manifest.json", "lab/site-manifest.json", "lab/generation-report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
+			t.Errorf("missing generation metadata %s: %v", path, err)
+		}
+	}
+	var globalReport protocol.GenerationReport
+	globalReportBytes, err := os.ReadFile(filepath.Join(root, "generation-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(globalReportBytes, &globalReport); err != nil {
+		t.Fatal(err)
+	}
+	if len(globalReport.Sites) != 1 || globalReport.Sites[0].ArtifactCount != len(catalog) {
+		t.Fatalf("generation report artifact count does not match the published catalog: %#v", globalReport.Sites)
+	}
+	var siteManifest protocol.SiteManifest
+	siteManifestBytes, err := os.ReadFile(filepath.Join(root, "lab", "site-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(siteManifestBytes, &siteManifest); err != nil {
+		t.Fatal(err)
+	}
+	if siteManifest.SiteID != "lab" || siteManifest.SiteName != "lab" || siteManifest.Status != "succeeded" {
+		t.Fatalf("unexpected site manifest identity/status: %#v", siteManifest)
+	}
+	for _, detail := range siteManifest.Artifacts {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(detail.Path)))
+		if err != nil || int64(len(data)) != detail.SizeBytes || protocol.SHA256(data) != detail.SHA256 {
+			t.Errorf("site manifest entry %s does not match the generated file: size=%d err=%v", detail.Path, detail.SizeBytes, err)
+		}
 	}
 	seenTypes := make(map[string]bool)
 	for _, artifact := range catalog {
@@ -228,6 +267,97 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 		if !seenTypes[artifactType] {
 			t.Errorf("combined manifest omitted %s", artifactType)
 		}
+	}
+}
+
+func TestRunSitesInParallelStartsIndependentWorkersConcurrently(t *testing.T) {
+	sites := []domain.Site{{Name: "site-a"}, {Name: "site-b"}, {Name: "site-c"}}
+	started := make(chan string, len(sites))
+	release := make(chan struct{})
+	resultsDone := make(chan []siteGenerationResult, 1)
+	go func() {
+		resultsDone <- runSitesInParallel(context.Background(), sites, 2, func(site domain.Site) siteGenerationResult {
+			started <- site.Name
+			<-release
+			return siteGenerationResult{site: site}
+		})
+	}()
+	startedSites := make(map[string]bool)
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for len(startedSites) < 2 {
+		select {
+		case name := <-started:
+			startedSites[name] = true
+		case <-timer.C:
+			close(release)
+			t.Fatal("two site workers did not start concurrently")
+		}
+	}
+	close(release)
+	results := <-resultsDone
+	if len(results) != len(sites) {
+		t.Fatalf("worker pool returned %d results for %d sites", len(results), len(sites))
+	}
+}
+
+func TestGenerateAllKeepsSuccessfulSitesWhenAnotherSiteFails(t *testing.T) {
+	infrastructure := domain.Infrastructure{Sites: []domain.Site{
+		{Name: "site-good", Bootstrap: domain.Bootstrap{Network: "192.0.2.0/24"}},
+		{Name: "site-invalid", Bootstrap: domain.Bootstrap{Network: "192.0.2.0/31"}, Services: map[string]bool{"dhcp": true}},
+	}}
+	root := t.TempDir()
+	artifacts, err := GenerateAll(infrastructure, root)
+	if err == nil {
+		t.Fatal("expected invalid bootstrap configuration to fail the global operation")
+	}
+	if len(artifacts) == 0 {
+		t.Fatal("successful site artifacts were discarded after an independent site failure")
+	}
+	if _, err := os.Stat(filepath.Join(root, "site-good", "manifest.json")); err != nil {
+		t.Fatalf("successful site was not published: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "site-invalid", "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed site has a published catalog manifest: %v", err)
+	}
+	var global GlobalManifest
+	data, err := os.ReadFile(filepath.Join(root, "manifest.json"))
+	if err != nil || json.Unmarshal(data, &global) != nil {
+		t.Fatalf("global manifest was not published: %v", err)
+	}
+	if global.Status != "partial_failure" || len(global.Sites) != 2 ||
+		global.Sites[0].Status != "succeeded" || global.Sites[1].Status != "failed" {
+		t.Fatalf("global manifest does not describe the independent site result: %#v", global)
+	}
+}
+
+func TestGenerateAllPreflightsSitePublicationBeforeWritingArtifacts(t *testing.T) {
+	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	conflictingPath := filepath.Join(root, "lab", "terraform", "main.tf")
+	if err := os.MkdirAll(conflictingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := GenerateAll(infrastructure, root)
+	if err == nil {
+		t.Fatal("expected destination conflict to fail site publication")
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("failed site unexpectedly returned published artifacts: %#v", artifacts)
+	}
+	for _, path := range []string{"lab/inventory.json", "lab/ansible/inventory.yml"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Errorf("site publication left a partial artifact %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "site-manifest.json")); err != nil {
+		t.Fatalf("failure status manifest was not retained: %v", err)
+	}
+	if catalog, err := Catalog(root); err != nil || len(catalog) != 0 {
+		t.Fatalf("failed site's partial artifacts became Agent-visible: catalog=%#v err=%v", catalog, err)
 	}
 }
 

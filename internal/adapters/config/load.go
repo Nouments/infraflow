@@ -164,12 +164,17 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 			problems = append(problems, prefix+": duplicate site name")
 		}
 		seenSites[site.Name] = struct{}{}
-		if site.ID != "" {
-			if _, exists := seenSiteIDs[site.ID]; exists {
-				problems = append(problems, prefix+": duplicate site id "+site.ID)
-			}
-			seenSiteIDs[site.ID] = struct{}{}
+		siteID := site.ID
+		if strings.TrimSpace(siteID) == "" {
+			siteID = site.Name
 		}
+		if !protocol.ValidSiteName(siteID) || len(siteID) > 128 {
+			problems = append(problems, prefix+": id must be a valid identifier no longer than 128 characters")
+		}
+		if _, exists := seenSiteIDs[siteID]; exists {
+			problems = append(problems, prefix+": duplicate site id "+siteID)
+		}
+		seenSiteIDs[siteID] = struct{}{}
 
 		var networks []namedNetwork
 		if site.Bootstrap.Network != "" {
@@ -193,6 +198,9 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 		seenDeviceIDs := make(map[string]struct{})
 		for _, device := range site.Devices {
 			devicePrefix := prefix + ", device " + display(device.Name)
+			if len(device.OSVersion) > 64 || strings.ContainsAny(device.OSVersion, "\r\n") {
+				problems = append(problems, devicePrefix+": os_version must be no longer than 64 characters and contain no line breaks")
+			}
 			if strings.TrimSpace(device.Name) == "" {
 				problems = append(problems, devicePrefix+": name is required")
 			}

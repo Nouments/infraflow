@@ -79,6 +79,15 @@ func Catalog(root string) ([]Artifact, error) {
 		if err := decoder.Decode(&published); err != nil {
 			return nil, fmt.Errorf("decode manifest for %q: %w", entry.Name(), err)
 		}
+		if published.Status != "" && published.Status != "succeeded" {
+			return nil, fmt.Errorf("manifest for %q is not marked succeeded", entry.Name())
+		}
+		if !protocol.IsSHA256(published.InputHash) {
+			return nil, fmt.Errorf("manifest for %q has an invalid input hash", entry.Name())
+		}
+		if published.SiteID != "" && (!protocol.ValidSiteName(published.SiteID) || len(published.SiteID) > 128) {
+			return nil, fmt.Errorf("manifest for %q has an invalid site id", entry.Name())
+		}
 		var trailing any
 		if err := decoder.Decode(&trailing); err != io.EOF {
 			return nil, fmt.Errorf("manifest for %q contains trailing JSON", entry.Name())
@@ -87,7 +96,7 @@ func Catalog(root string) ([]Artifact, error) {
 			if !protocol.ValidArtifactPath(entry.Name(), artifact) {
 				return nil, fmt.Errorf("manifest for %q contains unsafe artifact path %q", entry.Name(), artifact.Path)
 			}
-			if !protocol.IsSHA256(artifact.OutputHash) || !protocol.IsSHA256(artifact.InputHash) {
+			if !protocol.IsSHA256(artifact.OutputHash) || !protocol.IsSHA256(artifact.InputHash) || artifact.InputHash != published.InputHash {
 				return nil, fmt.Errorf("artifact %q has invalid hash metadata", artifact.Path)
 			}
 			if _, exists := seenPaths[artifact.Path]; exists {

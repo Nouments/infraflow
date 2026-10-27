@@ -275,6 +275,7 @@ type Device struct {
 	Vendor       string         `yaml:"vendor,omitempty" json:"vendor,omitempty"`
 	Family       string         `yaml:"family,omitempty" json:"family,omitempty"`
 	Model        string         `yaml:"model,omitempty" json:"model,omitempty"`
+	OSVersion    string         `yaml:"os_version,omitempty" json:"os_version,omitempty"`
 	Identity     Identity       `yaml:"identity,omitempty" json:"identity,omitempty"`
 	Management   Management     `yaml:"management,omitempty" json:"management,omitempty"`
 	Provisioning Provisioning   `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`

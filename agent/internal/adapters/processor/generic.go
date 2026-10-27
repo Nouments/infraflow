@@ -2,6 +2,7 @@ package processor
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 
@@ -82,6 +83,41 @@ func (Generic) Process(artifact protocol.Artifact, data io.Reader) protocol.Arti
 		}
 		result.Status = protocol.StatusCompleted
 		result.Message = "topology imported into local agent state"
+	case "site_manifest":
+		var manifest protocol.SiteManifest
+		if err := decodeStrictJSON(data, &manifest); err != nil ||
+			manifest.SchemaVersion != 1 || manifest.Status != "succeeded" ||
+			manifest.SiteName != site || !protocol.ValidSiteName(manifest.SiteID) || len(manifest.SiteID) > 128 ||
+			strings.TrimSpace(manifest.GeneratorVersion) == "" ||
+			strings.TrimSpace(manifest.TemplateVersion) == "" || !protocol.IsSHA256(manifest.InputHash) {
+			result.Message = "site manifest is invalid"
+			return result
+		}
+		seenArtifacts := make(map[string]struct{}, len(manifest.Artifacts))
+		for _, declared := range manifest.Artifacts {
+			if !protocol.ValidArtifactPath(site, protocol.Artifact{Type: declared.Type, Path: declared.Path}) ||
+				!protocol.IsSHA256(declared.SHA256) || declared.SizeBytes < 0 {
+				result.Message = "site manifest contains invalid artifact metadata"
+				return result
+			}
+			if _, exists := seenArtifacts[declared.Path]; exists {
+				result.Message = "site manifest contains duplicate artifact paths"
+				return result
+			}
+			seenArtifacts[declared.Path] = struct{}{}
+		}
+		result.Status = protocol.StatusCompleted
+		result.Message = "site manifest validated"
+	case "generation_report":
+		var report protocol.GenerationReport
+		if err := decodeStrictJSON(data, &report); err != nil || report.SchemaVersion != 1 ||
+			report.Status != "succeeded" || !protocol.IsSHA256(report.InputHash) || len(report.Sites) != 1 ||
+			report.Sites[0].SiteName != site || report.Sites[0].Status != "succeeded" {
+			result.Message = "site generation report is invalid"
+			return result
+		}
+		result.Status = protocol.StatusCompleted
+		result.Message = "site generation report validated"
 	case "ansible_inventory", "ansible_inspection_playbook", "ansible_playbook", "ansible_vendor_inventory", "ansible_requirements", "ansible_vendor_manifest",
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
@@ -94,4 +130,20 @@ func (Generic) Process(artifact protocol.Artifact, data io.Reader) protocol.Arti
 		result.Message = "agent has no executor for this artifact type"
 	}
 	return result
+}
+
+func decodeStrictJSON(source io.Reader, destination any) error {
+	decoder := json.NewDecoder(source)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("trailing JSON value")
+		}
+		return err
+	}
+	return nil
 }

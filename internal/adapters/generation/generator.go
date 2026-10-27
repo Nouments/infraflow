@@ -1,13 +1,16 @@
 package generator
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
@@ -17,6 +20,7 @@ import (
 
 const Version = "0.1.0"
 const TemplateVersion = "1"
+const maxParallelSiteGenerations = 4
 
 type Artifact = protocol.Artifact
 
@@ -24,7 +28,19 @@ type Manifest struct {
 	GeneratorVersion string     `json:"generator_version"`
 	TemplateVersion  string     `json:"template_version"`
 	InputHash        string     `json:"input_hash"`
+	SiteID           string     `json:"site_id,omitempty"`
+	Status           string     `json:"status,omitempty"`
 	Artifacts        []Artifact `json:"artifacts"`
+}
+
+type GlobalManifest struct {
+	SchemaVersion    int                              `json:"schema_version"`
+	GeneratorVersion string                           `json:"generator_version"`
+	TemplateVersion  string                           `json:"template_version"`
+	InputHash        string                           `json:"input_hash"`
+	Status           string                           `json:"status"`
+	GenerationReport string                           `json:"generation_report"`
+	Sites            []protocol.SiteGenerationSummary `json:"sites"`
 }
 
 type inventory struct {
@@ -64,6 +80,13 @@ type pendingFile struct {
 	data []byte
 }
 
+type siteGenerationResult struct {
+	site        domain.Site
+	stagingRoot string
+	artifacts   []Artifact
+	err         error
+}
+
 type ansibleInventory struct {
 	All ansibleInventoryAll `json:"all"`
 }
@@ -81,11 +104,12 @@ type ansibleGroup struct {
 }
 
 type ansibleHost struct {
-	AnsibleHost     string `json:"ansible_host,omitempty"`
-	InfraflowVendor string `json:"infraflow_vendor,omitempty"`
-	InfraflowFamily string `json:"infraflow_family,omitempty"`
-	InfraflowModel  string `json:"infraflow_model,omitempty"`
-	InfraflowRole   string `json:"infraflow_role,omitempty"`
+	AnsibleHost        string `json:"ansible_host,omitempty"`
+	InfraflowVendor    string `json:"infraflow_vendor,omitempty"`
+	InfraflowFamily    string `json:"infraflow_family,omitempty"`
+	InfraflowModel     string `json:"infraflow_model,omitempty"`
+	InfraflowOSVersion string `json:"infraflow_os_version,omitempty"`
+	InfraflowRole      string `json:"infraflow_role,omitempty"`
 }
 
 type ansiblePlay struct {
@@ -404,7 +428,8 @@ func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory strin
 		for _, device := range site.Devices {
 			host := ansibleHost{
 				AnsibleHost: device.Management.IPv4, InfraflowVendor: device.Vendor,
-				InfraflowFamily: device.Family, InfraflowModel: device.Model, InfraflowRole: device.Role,
+				InfraflowFamily: device.Family, InfraflowModel: device.Model,
+				InfraflowOSVersion: device.OSVersion, InfraflowRole: device.Role,
 			}
 			hosts[device.Name] = host
 		}
@@ -416,7 +441,7 @@ func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory strin
 			Name: "Inspect declared InfraFlow devices", Hosts: "network", GatherFacts: false,
 			Tasks: []ansiblePlayTask{{
 				Name:  "Display declared device metadata",
-				Debug: ansibleDebugTask{Msg: "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"},
+				Debug: ansibleDebugTask{Msg: "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }} os_version={{ hostvars[inventory_hostname].infraflow_os_version | default('unknown') }}"},
 			}},
 		}})
 		if err != nil {
@@ -522,11 +547,21 @@ func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]A
 }
 
 func GenerateAll(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
+	return GenerateAllContext(context.Background(), infrastructure, outputDirectory)
+}
+
+func GenerateAllContext(ctx context.Context, infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("generation context is required")
+	}
+	if len(infrastructure.Sites) == 0 {
+		return nil, fmt.Errorf("at least one site is required")
 	}
 	if strings.TrimSpace(outputDirectory) == "" {
 		return nil, fmt.Errorf("output directory is required")
+	}
+	if err := validateSiteIdentities(infrastructure.Sites); err != nil {
+		return nil, err
 	}
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
@@ -539,57 +574,508 @@ func GenerateAll(infrastructure domain.Infrastructure, outputDirectory string) (
 	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return nil, fmt.Errorf("output directory must be a real directory")
 	}
+	if err := removeGlobalManifest(root); err != nil {
+		return nil, err
+	}
+	if err := removeGeneratedReport(root, "generation-report.json"); err != nil {
+		return nil, err
+	}
+	for _, site := range infrastructure.Sites {
+		if err := removeCatalogManifest(root, site.Name); err != nil {
+			return nil, err
+		}
+	}
 	staging, err := os.MkdirTemp("", "infraflow-generate-all-")
 	if err != nil {
 		return nil, fmt.Errorf("create generation staging directory: %w", err)
 	}
 	defer os.RemoveAll(staging)
-	var artifacts []Artifact
-	for _, generate := range []func(domain.Infrastructure, string) ([]Artifact, error){
-		Generate,
-		GenerateAnsible,
-		GenerateVendorAnsible,
-		GenerateTerraform,
-		GenerateBootstrap,
-	} {
-		generated, err := generate(infrastructure, staging)
-		if err != nil {
-			return nil, err
-		}
-		artifacts = append(artifacts, generated...)
+	canonicalInput, err := json.Marshal(canonicalize(infrastructure))
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized input: %w", err)
 	}
-	pending := make([]pendingFile, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		file, err := safefs.OpenReadOnly(staging, artifact.Path)
+	globalInputHash := protocol.SHA256(canonicalInput)
+	results := runSitesInParallel(ctx, infrastructure.Sites, maxParallelSiteGenerations, func(site domain.Site) siteGenerationResult {
+		siteRoot, err := os.MkdirTemp(staging, site.Name+"-")
 		if err != nil {
-			return nil, fmt.Errorf("open staged artifact %q: %w", artifact.Path, err)
+			return siteGenerationResult{site: site, err: fmt.Errorf("create staging directory: %w", err)}
 		}
-		data, readErr := io.ReadAll(file)
+		siteInfrastructure := domain.Infrastructure{
+			CapabilityRegistry: infrastructure.CapabilityRegistry,
+			TemplateRegistry:   infrastructure.TemplateRegistry,
+			Sites:              []domain.Site{site},
+		}
+		if problems := config.Validate(siteInfrastructure); len(problems) > 0 {
+			return siteGenerationResult{site: site, stagingRoot: siteRoot, err: problems}
+		}
+		var artifacts []Artifact
+		for _, generate := range []struct {
+			name string
+			run  func(domain.Infrastructure, string) ([]Artifact, error)
+		}{
+			{"inventory and topology", Generate},
+			{"generic Ansible", GenerateAnsible},
+			{"vendor Ansible", GenerateVendorAnsible},
+			{"Terraform data", GenerateTerraform},
+			{"bootstrap data", GenerateBootstrap},
+		} {
+			if err := ctx.Err(); err != nil {
+				return siteGenerationResult{site: site, stagingRoot: siteRoot, err: err}
+			}
+			generated, err := generate.run(siteInfrastructure, siteRoot)
+			if err != nil {
+				return siteGenerationResult{site: site, stagingRoot: siteRoot, err: fmt.Errorf("%s: %w", generate.name, err)}
+			}
+			artifacts = append(artifacts, generated...)
+		}
+		return siteGenerationResult{site: site, stagingRoot: siteRoot, artifacts: artifacts}
+	})
+	return publishSiteGenerationResults(ctx, root, results, globalInputHash)
+}
+
+func runSitesInParallel(ctx context.Context, sites []domain.Site, workerLimit int, work func(domain.Site) siteGenerationResult) []siteGenerationResult {
+	if workerLimit < 1 {
+		workerLimit = 1
+	}
+	if workerLimit > len(sites) {
+		workerLimit = len(sites)
+	}
+	results := make([]siteGenerationResult, len(sites))
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(workerLimit)
+	for worker := 0; worker < workerLimit; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				if err := ctx.Err(); err != nil {
+					results[index] = siteGenerationResult{site: sites[index], err: err}
+					continue
+				}
+				results[index] = work(sites[index])
+			}
+		}()
+	}
+	for index := range sites {
+		if err := ctx.Err(); err != nil {
+			results[index] = siteGenerationResult{site: sites[index], err: err}
+			continue
+		}
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	return results
+}
+
+func validateSiteIdentities(sites []domain.Site) error {
+	seenNames := make(map[string]struct{}, len(sites))
+	seenIDs := make(map[string]struct{}, len(sites))
+	for _, site := range sites {
+		if !protocol.ValidSiteName(site.Name) {
+			return fmt.Errorf("invalid site name %q", site.Name)
+		}
+		if _, exists := seenNames[site.Name]; exists {
+			return fmt.Errorf("duplicate site name %q", site.Name)
+		}
+		seenNames[site.Name] = struct{}{}
+		siteID := stableSiteID(site)
+		if !protocol.ValidSiteName(siteID) || len(siteID) > 128 {
+			return fmt.Errorf("invalid site id %q for site %q", siteID, site.Name)
+		}
+		if _, exists := seenIDs[siteID]; exists {
+			return fmt.Errorf("duplicate site id %q", siteID)
+		}
+		seenIDs[siteID] = struct{}{}
+	}
+	return nil
+}
+
+func stableSiteID(site domain.Site) string {
+	if strings.TrimSpace(site.ID) != "" {
+		return strings.TrimSpace(site.ID)
+	}
+	return site.Name
+}
+
+func publishSiteGenerationResults(ctx context.Context, root string, results []siteGenerationResult, globalInputHash string) ([]Artifact, error) {
+	summaries := make([]protocol.SiteGenerationSummary, 0, len(results))
+	allArtifacts := make([]Artifact, 0)
+	var operationErrors []error
+	for _, result := range results {
+		summary := protocol.SiteGenerationSummary{
+			SiteID: stableSiteID(result.site), SiteName: result.site.Name,
+			Status:               "succeeded",
+			SiteManifestPath:     filepath.ToSlash(filepath.Join(result.site.Name, "site-manifest.json")),
+			GenerationReportPath: filepath.ToSlash(filepath.Join(result.site.Name, "generation-report.json")),
+		}
+		var baseArtifacts []Artifact
+		var artifactFiles []pendingFile
+		if result.err == nil {
+			baseArtifacts, artifactFiles, result.err = readAndValidateStagedArtifacts(result.stagingRoot, result.artifacts)
+		}
+		if result.err != nil {
+			summary.Status = "failed"
+			summary.Errors = []string{result.err.Error()}
+			operationErrors = append(operationErrors, fmt.Errorf("site %q: %w", result.site.Name, result.err))
+		} else {
+			summary.ArtifactCount = len(baseArtifacts) + 2
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil && summary.Status == "succeeded" {
+			summary.Status = "failed"
+			summary.Errors = []string{ctxErr.Error()}
+			operationErrors = append(operationErrors, fmt.Errorf("site %q: %w", result.site.Name, ctxErr))
+		}
+
+		inputBytes, err := json.Marshal(canonicalize(domain.Infrastructure{Sites: []domain.Site{result.site}}))
+		if err != nil {
+			return allArtifacts, fmt.Errorf("encode input for site %q: %w", result.site.Name, err)
+		}
+		siteInputHash := protocol.SHA256(inputBytes)
+		siteReportBytes, reportArtifact, err := marshalSiteGenerationReport(summary, siteInputHash)
+		if err != nil {
+			return allArtifacts, fmt.Errorf("encode generation report for site %q: %w", result.site.Name, err)
+		}
+		details := []protocol.SiteArtifact(nil)
+		if summary.Status == "succeeded" {
+			details = artifactDetails(baseArtifacts, artifactFiles)
+			details = append(details, protocol.SiteArtifact{
+				Type: reportArtifact.Type, Path: reportArtifact.Path,
+				SizeBytes: int64(len(siteReportBytes)), SHA256: reportArtifact.OutputHash,
+			})
+		}
+		siteManifest := protocol.SiteManifest{
+			SchemaVersion: 1, SiteID: summary.SiteID, SiteName: result.site.Name,
+			Status: summary.Status, GeneratorVersion: Version, TemplateVersion: TemplateVersion,
+			InputHash: siteInputHash, Artifacts: details,
+			Capabilities: generationCapabilities(result.site, baseArtifacts),
+			Errors:       append([]string(nil), summary.Errors...),
+		}
+		siteManifestBytes, err := marshal(siteManifest)
+		if err != nil {
+			return allArtifacts, fmt.Errorf("encode site manifest for %q: %w", result.site.Name, err)
+		}
+		summary.SiteManifestSHA256 = protocol.SHA256(siteManifestBytes)
+
+		if summary.Status == "succeeded" {
+			publishFiles := append([]pendingFile(nil), artifactFiles...)
+			publishFiles = append(publishFiles,
+				pendingFile{path: reportArtifact.Path, data: siteReportBytes},
+				pendingFile{path: summary.SiteManifestPath, data: siteManifestBytes},
+			)
+			if err := publishSiteFiles(root, publishFiles); err != nil {
+				summary.Status = "failed"
+				summary.Errors = []string{err.Error()}
+				operationErrors = append(operationErrors, fmt.Errorf("site %q: %w", result.site.Name, err))
+			} else {
+				catalogArtifacts := append([]Artifact(nil), baseArtifacts...)
+				catalogArtifacts = append(catalogArtifacts, reportArtifact, Artifact{
+					Type: "site_manifest", Path: summary.SiteManifestPath,
+					InputHash: siteInputHash, OutputHash: summary.SiteManifestSHA256,
+				})
+				sort.Slice(catalogArtifacts, func(i, j int) bool { return catalogArtifacts[i].Path < catalogArtifacts[j].Path })
+				catalogBytes, err := marshal(Manifest{
+					GeneratorVersion: Version, TemplateVersion: TemplateVersion,
+					InputHash: siteInputHash, SiteID: summary.SiteID,
+					Status: "succeeded", Artifacts: catalogArtifacts,
+				})
+				if err == nil {
+					err = safefs.AtomicWrite(
+						root, filepath.ToSlash(filepath.Join(result.site.Name, "manifest.json")), catalogBytes, 0o644,
+					)
+				}
+				if err != nil {
+					summary.Status = "failed"
+					summary.Errors = []string{fmt.Errorf("publish site catalog manifest: %w", err).Error()}
+					operationErrors = append(operationErrors, fmt.Errorf("site %q: %w", result.site.Name, err))
+					_ = removeCatalogManifest(root, result.site.Name)
+				} else {
+					allArtifacts = append(allArtifacts, catalogArtifacts...)
+				}
+			}
+		}
+		if summary.Status == "failed" {
+			summary.ArtifactCount = 0
+			if len(summary.Errors) == 0 {
+				summary.Errors = []string{"site generation failed"}
+			}
+			failureReportBytes, failureReportArtifact, err := marshalSiteGenerationReport(summary, siteInputHash)
+			if err != nil {
+				return allArtifacts, fmt.Errorf("encode failure report for site %q: %w", result.site.Name, err)
+			}
+			failureManifestBytes, err := marshal(protocol.SiteManifest{
+				SchemaVersion: 1, SiteID: summary.SiteID, SiteName: result.site.Name,
+				Status: "failed", GeneratorVersion: Version, TemplateVersion: TemplateVersion,
+				InputHash: siteInputHash, Capabilities: generationCapabilities(result.site, nil),
+				Errors: append([]string(nil), summary.Errors...),
+			})
+			if err != nil {
+				return allArtifacts, fmt.Errorf("encode failure manifest for site %q: %w", result.site.Name, err)
+			}
+			summary.SiteManifestSHA256 = protocol.SHA256(failureManifestBytes)
+			if err := publishSiteFiles(root, []pendingFile{
+				{path: failureReportArtifact.Path, data: failureReportBytes},
+				{path: summary.SiteManifestPath, data: failureManifestBytes},
+			}); err != nil {
+				summary.SiteManifestSHA256 = ""
+				summary.Errors = append(summary.Errors, err.Error())
+				operationErrors = append(operationErrors, fmt.Errorf("publish failure report for site %q: %w", result.site.Name, err))
+			}
+		}
+		summaries = append(summaries, summary)
+	}
+
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].SiteName < summaries[j].SiteName })
+	sort.Slice(allArtifacts, func(i, j int) bool { return allArtifacts[i].Path < allArtifacts[j].Path })
+	globalStatus := "succeeded"
+	if len(operationErrors) > 0 {
+		globalStatus = "partial_failure"
+	}
+	globalReport := protocol.GenerationReport{
+		SchemaVersion: 1, Status: globalStatus, InputHash: globalInputHash, Sites: summaries,
+	}
+	reportBytes, err := marshal(globalReport)
+	if err != nil {
+		return allArtifacts, fmt.Errorf("encode global generation report: %w", err)
+	}
+	if err := safefs.AtomicWrite(root, "generation-report.json", reportBytes, 0o644); err != nil {
+		operationErrors = append(operationErrors, fmt.Errorf("publish global generation report: %w", err))
+		globalStatus = "partial_failure"
+	}
+	globalBytes, err := marshal(GlobalManifest{
+		SchemaVersion: 1, GeneratorVersion: Version, TemplateVersion: TemplateVersion,
+		InputHash: globalInputHash, Status: globalStatus,
+		GenerationReport: "generation-report.json", Sites: summaries,
+	})
+	if err != nil {
+		return allArtifacts, errors.Join(append(operationErrors, fmt.Errorf("encode global manifest: %w", err))...)
+	}
+	if err := safefs.AtomicWrite(root, "manifest.json", globalBytes, 0o644); err != nil {
+		operationErrors = append(operationErrors, fmt.Errorf("publish global manifest: %w", err))
+	}
+	if len(operationErrors) > 0 {
+		return allArtifacts, errors.Join(operationErrors...)
+	}
+	return allArtifacts, nil
+}
+
+func marshalSiteGenerationReport(summary protocol.SiteGenerationSummary, inputHash string) ([]byte, Artifact, error) {
+	report := protocol.GenerationReport{
+		SchemaVersion: 1, Status: summary.Status, InputHash: inputHash,
+		Sites: []protocol.SiteGenerationSummary{summary},
+	}
+	data, err := marshal(report)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	return data, Artifact{
+		Type: "generation_report", Path: summary.GenerationReportPath,
+		InputHash: inputHash, OutputHash: protocol.SHA256(data),
+	}, nil
+}
+
+func readAndValidateStagedArtifacts(root string, artifacts []Artifact) ([]Artifact, []pendingFile, error) {
+	artifacts = append([]Artifact(nil), artifacts...)
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	files := make([]pendingFile, 0, len(artifacts))
+	seen := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		site, _, found := strings.Cut(artifact.Path, "/")
+		if !found || !protocol.ValidArtifactPath(site, artifact) ||
+			!protocol.IsSHA256(artifact.InputHash) || !protocol.IsSHA256(artifact.OutputHash) {
+			return nil, nil, fmt.Errorf("invalid generated artifact metadata for %q", artifact.Path)
+		}
+		if _, exists := seen[artifact.Path]; exists {
+			return nil, nil, fmt.Errorf("duplicate generated artifact %q", artifact.Path)
+		}
+		seen[artifact.Path] = struct{}{}
+		file, err := safefs.OpenReadOnly(root, artifact.Path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("open staged artifact %q: %w", artifact.Path, err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, protocol.MaxArtifactBytes+1))
 		closeErr := file.Close()
 		if readErr != nil {
-			return nil, fmt.Errorf("read staged artifact %q: %w", artifact.Path, readErr)
+			return nil, nil, fmt.Errorf("read staged artifact %q: %w", artifact.Path, readErr)
 		}
 		if closeErr != nil {
-			return nil, fmt.Errorf("close staged artifact %q: %w", artifact.Path, closeErr)
+			return nil, nil, fmt.Errorf("close staged artifact %q: %w", artifact.Path, closeErr)
 		}
-		if protocol.SHA256(data) != artifact.OutputHash {
-			return nil, fmt.Errorf("staged artifact %q failed its output hash", artifact.Path)
+		if len(data) > protocol.MaxArtifactBytes || protocol.SHA256(data) != artifact.OutputHash {
+			return nil, nil, fmt.Errorf("staged artifact %q failed its size or SHA-256 check", artifact.Path)
 		}
-		pending = append(pending, pendingFile{path: artifact.Path, data: data})
+		files = append(files, pendingFile{path: artifact.Path, data: data})
 	}
-	if err := removeSiteManifests(root, infrastructure); err != nil {
-		return nil, err
+	return artifacts, files, nil
+}
+
+func artifactDetails(artifacts []Artifact, files []pendingFile) []protocol.SiteArtifact {
+	dataByPath := make(map[string][]byte, len(files))
+	for _, file := range files {
+		dataByPath[file.path] = file.data
 	}
-	for _, file := range pending {
+	details := make([]protocol.SiteArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		data := dataByPath[artifact.Path]
+		details = append(details, protocol.SiteArtifact{
+			Type: artifact.Type, Path: artifact.Path,
+			SizeBytes: int64(len(data)), SHA256: artifact.OutputHash,
+		})
+	}
+	return details
+}
+
+func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.GenerationCapability {
+	types := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		types[artifact.Type] = struct{}{}
+	}
+	capabilities := []protocol.GenerationCapability{
+		{Feature: "site_artifact_generation", Status: "generated"},
+		{Feature: "bootstrap_service_execution", Status: "not_configured", Evidence: "generation emits static files only; no service is started"},
+		{Feature: "ztp", Status: "unknown", Evidence: "no device-specific ZTP mechanism was verified"},
+		{Feature: "autoinstall", Status: "unknown", Evidence: "no device-specific autoinstall mechanism was verified"},
+	}
+	if _, exists := types["ansible_inspection_playbook"]; exists {
+		capabilities = append(capabilities, protocol.GenerationCapability{
+			Feature: "ansible_inspection", Status: "generated",
+			Evidence: "inspection playbook only; no Ansible process was executed",
+		})
+	}
+	if _, exists := types["ansible_playbook"]; exists {
+		capabilities = append(capabilities, protocol.GenerationCapability{
+			Feature: "vendor_ansible_rendering", Status: "unverified",
+			Evidence: "rendered from an unverified profile; no equipment execution was performed",
+		})
+	} else {
+		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "vendor_ansible_rendering", Status: "not_configured"})
+	}
+	for _, device := range site.Devices {
+		profile, exists := domain.VendorProfileFor(device)
+		capability := protocol.GenerationCapability{
+			Feature: "device_compatibility:" + device.Name,
+			Status:  string(domain.CapabilityUnknown), Evidence: "no matching device profile is recorded",
+		}
+		if exists {
+			capability.Status = string(profile.Status)
+			capability.Evidence = profile.Evidence
+		}
+		capabilities = append(capabilities, capability)
+	}
+	sort.Slice(capabilities, func(i, j int) bool { return capabilities[i].Feature < capabilities[j].Feature })
+	return capabilities
+}
+
+func publishSiteFiles(root string, files []pendingFile) error {
+	seen := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		if filepath.IsAbs(file.path) || filepath.ToSlash(filepath.Clean(filepath.FromSlash(file.path))) != file.path {
+			return fmt.Errorf("refusing to publish unsafe artifact path %q", file.path)
+		}
+		if _, exists := seen[file.path]; exists {
+			return fmt.Errorf("refusing to publish duplicate artifact path %q", file.path)
+		}
+		seen[file.path] = struct{}{}
+		target := filepath.Join(root, filepath.FromSlash(file.path))
+		relative, err := filepath.Rel(root, target)
+		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || relative == ".." {
+			return fmt.Errorf("refusing to publish artifact outside output root")
+		}
+		parent := filepath.Dir(target)
+		for current := parent; current != root && current != filepath.Dir(current); current = filepath.Dir(current) {
+			info, err := os.Lstat(current)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("inspect artifact directory %q: %w", current, err)
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return fmt.Errorf("artifact directory %q must be a real directory", current)
+			}
+		}
+		info, err := os.Lstat(target)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect artifact destination %q: %w", file.path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("artifact destination %q must be a regular file", file.path)
+		}
+	}
+	for _, file := range files {
 		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
-			return nil, fmt.Errorf("publish artifact %q: %w", file.path, err)
+			return fmt.Errorf("publish artifact %q: %w", file.path, err)
 		}
 	}
-	if err := writeCombinedManifests(outputDirectory, artifacts); err != nil {
-		return nil, err
+	return nil
+}
+
+func removeCatalogManifest(root, site string) error {
+	sitePath := filepath.Join(root, site)
+	siteInfo, err := os.Lstat(sitePath)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
-	return artifacts, nil
+	if err != nil {
+		return fmt.Errorf("inspect site output %q: %w", site, err)
+	}
+	if siteInfo.Mode()&os.ModeSymlink != 0 || !siteInfo.IsDir() {
+		return fmt.Errorf("site output %q must be a real directory", site)
+	}
+	manifestPath := filepath.Join(sitePath, "manifest.json")
+	info, err := os.Lstat(manifestPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect catalog manifest for %q: %w", site, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("catalog manifest for %q must be a regular file", site)
+	}
+	if err := os.Remove(manifestPath); err != nil {
+		return fmt.Errorf("remove stale catalog manifest for %q: %w", site, err)
+	}
+	return nil
+}
+
+func removeGeneratedReport(root, name string) error {
+	path := filepath.Join(root, name)
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect generated report %q: %w", name, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("generated report %q must be a regular file", name)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove stale generated report %q: %w", name, err)
+	}
+	return nil
+}
+
+func removeGlobalManifest(root string) error {
+	path := filepath.Join(root, "manifest.json")
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect global manifest: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("global manifest must be a regular file")
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove stale global manifest: %w", err)
+	}
+	return nil
 }
 
 func removeSiteManifests(root string, infrastructure domain.Infrastructure) error {

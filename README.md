@@ -117,11 +117,24 @@ Generic Ansible generation produces an inventory and `site.yml` that only prints
 
 `examples/multisite-preparation.yaml` is a documentation-only preparation
 scenario for Cisco IOS-XE, MikroTik RouterOS, and FortiOS family labels across
-four sites. It deliberately omits exact device models, OS versions, interfaces,
-and network configuration. Its shared `192.0.2.0/24` bootstrap range is
+four sites. It declares RouterOS `7.x` as scenario metadata but does not claim
+that a particular device was observed running that version. It omits exact
+device models and interfaces. Its shared `192.0.2.0/24` bootstrap range is
 TEST-NET documentation space; bootstrap service artifacts are generated with
-their services disabled. The vendor labels are declarations, not evidence that
+their services disabled. Vendor labels and OS metadata are not evidence that
 the devices or generated vendor-specific configuration are compatible.
+
+`generate-all` runs independent site generation in parallel, capped at four
+workers. Each site is generated and hash-checked in a private staging
+directory. Successful sites publish only after their files validate; a site
+failure is recorded without discarding other completed sites, and the command
+still returns an error/global `partial_failure` status. Output includes a root
+`manifest.json` and `generation-report.json`; each successful site contains
+the existing Agent catalog `manifest.json`, a `site-manifest.json` with
+artifact sizes and SHA-256 values, and `generation-report.json`. The catalog
+manifest is published last for that site, so incomplete files are not offered
+to Agents. Sites with errors have a failed site manifest/report but no
+Agent-visible catalog manifest.
 
 Validate, plan, and generate the versioned catalog into a fresh temporary
 directory:
@@ -134,6 +147,8 @@ go run ./provider/cmd generate-all \
   -f examples/multisite-preparation.yaml -out "$demo_dir/catalog"
 cat "$demo_dir/catalog/site-a/inventory.json"
 cat "$demo_dir/catalog/site-a/manifest.json"
+cat "$demo_dir/catalog/manifest.json"
+cat "$demo_dir/catalog/site-a/site-manifest.json"
 sha256sum "$demo_dir/catalog/site-a/inventory.json"
 ```
 
@@ -150,6 +165,13 @@ file hashes, per-site state directories, disabled DHCP artifacts, and the four
 reports persisted by the Provider. It also checks that the unsupported OSPF
 example is rejected without publishing a config or generation report. All
 runtime state and generated files live under Go's temporary test directory.
+`TestRunSitesInParallelStartsIndependentWorkersConcurrently` verifies that the
+production site worker pool starts two independent site jobs at the same time;
+`TestGenerateAllKeepsSuccessfulSitesWhenAnotherSiteFails` verifies that a
+failed site does not remove a successful site's catalog. The Agent downloads
+the site manifest first and compares its declared paths, types, and hashes
+against the Provider catalog before accepting the rest; it also checks each
+downloaded file's declared byte size and SHA-256 before publication.
 `agent_credentials` binds each gRPC token
 to one `agent_id` and `site_id`; in this mode the legacy global machine token
 cannot access the gRPC artifact catalog. Keep the global token in a secret

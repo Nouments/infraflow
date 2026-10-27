@@ -31,6 +31,7 @@ const (
 	maxOutputBytes     = 64 << 10
 	maxOutputLineBytes = 8 << 10
 	debugMessage       = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
+	debugMessageWithOS = debugMessage + " os_version={{ hostvars[inventory_hostname].infraflow_os_version | default('unknown') }}"
 )
 
 var sensitiveOutputPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
@@ -85,11 +86,12 @@ type ansibleInventory struct {
 }
 
 type ansibleHost struct {
-	AnsibleHost     string `yaml:"ansible_host,omitempty"`
-	InfraflowVendor string `yaml:"infraflow_vendor,omitempty"`
-	InfraflowFamily string `yaml:"infraflow_family,omitempty"`
-	InfraflowModel  string `yaml:"infraflow_model,omitempty"`
-	InfraflowRole   string `yaml:"infraflow_role,omitempty"`
+	AnsibleHost        string `yaml:"ansible_host,omitempty"`
+	InfraflowVendor    string `yaml:"infraflow_vendor,omitempty"`
+	InfraflowFamily    string `yaml:"infraflow_family,omitempty"`
+	InfraflowModel     string `yaml:"infraflow_model,omitempty"`
+	InfraflowOSVersion string `yaml:"infraflow_os_version,omitempty"`
+	InfraflowRole      string `yaml:"infraflow_role,omitempty"`
 }
 
 type ansiblePlay struct {
@@ -401,7 +403,7 @@ func validateAnsiblePlaybook(data []byte) error {
 		return fmt.Errorf("Ansible runner only accepts the generated network inspection playbook")
 	}
 	for _, task := range plays[0].Tasks {
-		if task.Debug.Msg != debugMessage {
+		if task.Debug.Msg != debugMessage && task.Debug.Msg != debugMessageWithOS {
 			return fmt.Errorf("Ansible runner only accepts the generated debug task; mutating or dynamic tasks are blocked")
 		}
 	}

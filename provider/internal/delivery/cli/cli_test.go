@@ -134,8 +134,8 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 17 {
-		t.Fatalf("expected 17 complete artifacts in agent catalog, got %d", len(catalog))
+	if len(catalog) != 19 {
+		t.Fatalf("expected 19 complete artifacts in agent catalog, got %d", len(catalog))
 	}
 	if !strings.Contains(stdout.String(), "generated and published lab/ansible/site.yml") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
 		t.Fatalf("generate-all did not report tool artifacts as published: %s", stdout.String())

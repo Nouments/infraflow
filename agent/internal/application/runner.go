@@ -1,7 +1,9 @@
 package application
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -65,6 +67,12 @@ func (runner *Runner) Run(ctx context.Context) (protocol.AgentReport, error) {
 		_ = runner.emit(ctx, runID, "agent.run.failed", "agent run failed", "download", "FAILED", "", err, &started)
 		return protocol.AgentReport{}, errors.Join(err, logErr, runner.syncLogs(ctx), syncErr)
 	}
+	expectedSizes, err := runner.verifySiteManifest(ctx, artifacts)
+	if err != nil {
+		logErr := runner.emit(ctx, runID, "agent.site_manifest.invalid", "site manifest validation failed", "download", "FAILED", "", err, nil)
+		_ = runner.emit(ctx, runID, "agent.run.failed", "agent run failed", "download", "FAILED", "", err, &started)
+		return protocol.AgentReport{}, errors.Join(err, logErr, runner.syncLogs(ctx), syncErr)
+	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
 	report := protocol.AgentReport{AgentID: runner.agentID, ReportedAt: time.Now().UTC()}
 	failed := false
@@ -72,7 +80,8 @@ func (runner *Runner) Run(ctx context.Context) (protocol.AgentReport, error) {
 		if err := runner.emit(ctx, runID, "agent.artifact.started", "artifact processing started", "download", "RUNNING", artifact.Path, nil, nil); err != nil {
 			return report, errors.Join(err, runner.syncLogs(ctx))
 		}
-		result := runner.execute(ctx, artifact)
+		expectedSize, sizeKnown := expectedSizes[artifact.Path]
+		result := runner.execute(ctx, artifact, expectedSize, sizeKnown)
 		report.Artifacts = append(report.Artifacts, result)
 		status := strings.ToUpper(result.Status)
 		var resultErr error
@@ -164,7 +173,7 @@ func (runner *Runner) syncLogs(ctx context.Context) error {
 	}
 }
 
-func (runner *Runner) execute(ctx context.Context, artifact protocol.Artifact) protocol.ArtifactResult {
+func (runner *Runner) execute(ctx context.Context, artifact protocol.Artifact, expectedSize int64, sizeKnown bool) protocol.ArtifactResult {
 	result := protocol.ArtifactResult{Path: artifact.Path, OutputHash: artifact.OutputHash, Status: protocol.StatusFailed}
 	pipeReader, pipeWriter := io.Pipe()
 	downloadDone := make(chan error, 1)
@@ -177,7 +186,11 @@ func (runner *Runner) execute(ctx context.Context, artifact protocol.Artifact) p
 		}
 		downloadDone <- err
 	}()
-	storeErr := runner.state.SaveArtifact(artifact.Path, artifact.OutputHash, pipeReader)
+	var source io.Reader = pipeReader
+	if sizeKnown {
+		source = &expectedSizeReader{source: pipeReader, expected: expectedSize}
+	}
+	storeErr := runner.state.SaveArtifact(artifact.Path, artifact.OutputHash, source)
 	_ = pipeReader.Close()
 	downloadErr := <-downloadDone
 	if storeErr != nil || downloadErr != nil {
@@ -207,6 +220,105 @@ func (runner *Runner) execute(ctx context.Context, artifact protocol.Artifact) p
 		result.Message = strings.TrimSpace(result.Message[:1024])
 	}
 	return result
+}
+
+func (runner *Runner) verifySiteManifest(ctx context.Context, artifacts []protocol.Artifact) (map[string]int64, error) {
+	var manifestArtifact *protocol.Artifact
+	for index := range artifacts {
+		if artifacts[index].Type != "site_manifest" {
+			continue
+		}
+		if manifestArtifact != nil {
+			return nil, fmt.Errorf("provider catalog contains multiple site manifests")
+		}
+		manifestArtifact = &artifacts[index]
+	}
+	if manifestArtifact == nil {
+		return nil, nil
+	}
+	siteName, _, _ := strings.Cut(manifestArtifact.Path, "/")
+	var contents bytes.Buffer
+	if err := runner.provider.Download(ctx, *manifestArtifact, &contents); err != nil {
+		return nil, fmt.Errorf("download site manifest: %w", err)
+	}
+	if contents.Len() > protocol.MaxArtifactBytes || protocol.SHA256(contents.Bytes()) != manifestArtifact.OutputHash {
+		return nil, fmt.Errorf("site manifest failed its size or SHA-256 check")
+	}
+	decoder := json.NewDecoder(&contents)
+	decoder.DisallowUnknownFields()
+	var manifest protocol.SiteManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("decode site manifest: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("site manifest contains trailing JSON")
+	}
+	if manifest.SchemaVersion != 1 || manifest.Status != "succeeded" ||
+		manifest.SiteName != siteName || !protocol.ValidSiteName(manifest.SiteID) || len(manifest.SiteID) > 128 ||
+		(runner.siteID != "" && runner.siteID != manifest.SiteID) ||
+		!protocol.IsSHA256(manifest.InputHash) ||
+		strings.TrimSpace(manifest.GeneratorVersion) == "" ||
+		strings.TrimSpace(manifest.TemplateVersion) == "" ||
+		manifestArtifact.InputHash != manifest.InputHash {
+		return nil, fmt.Errorf("site manifest identity or status does not match this Agent")
+	}
+	expected := make(map[string]protocol.Artifact, len(artifacts)-1)
+	for _, artifact := range artifacts {
+		if artifact.Path == manifestArtifact.Path {
+			continue
+		}
+		expected[artifact.Path] = artifact
+	}
+	if len(expected) != len(manifest.Artifacts) {
+		return nil, fmt.Errorf("site manifest artifact list does not match provider catalog")
+	}
+	sizes := make(map[string]int64, len(manifest.Artifacts))
+	for _, declared := range manifest.Artifacts {
+		catalogArtifact, exists := expected[declared.Path]
+		if !exists || catalogArtifact.Type != declared.Type || catalogArtifact.OutputHash != declared.SHA256 ||
+			catalogArtifact.InputHash != manifest.InputHash ||
+			declared.SizeBytes < 0 || declared.SizeBytes > protocol.MaxArtifactBytes ||
+			!protocol.ValidArtifactPath(siteName, protocol.Artifact{Type: declared.Type, Path: declared.Path}) {
+			return nil, fmt.Errorf("site manifest contains an unexpected or inconsistent artifact")
+		}
+		sizes[declared.Path] = declared.SizeBytes
+		delete(expected, declared.Path)
+	}
+	if len(expected) != 0 {
+		return nil, fmt.Errorf("site manifest omits provider catalog artifacts")
+	}
+	return sizes, nil
+}
+
+type expectedSizeReader struct {
+	source   io.Reader
+	expected int64
+	read     int64
+}
+
+func (reader *expectedSizeReader) Read(buffer []byte) (int, error) {
+	if reader.read > reader.expected {
+		return 0, fmt.Errorf("artifact exceeds manifest size")
+	}
+	if reader.read == reader.expected {
+		var extra [1]byte
+		count, err := reader.source.Read(extra[:])
+		if count > 0 {
+			return 0, fmt.Errorf("artifact exceeds manifest size")
+		}
+		return 0, err
+	}
+	remaining := reader.expected - reader.read
+	if int64(len(buffer)) > remaining {
+		buffer = buffer[:remaining]
+	}
+	count, err := reader.source.Read(buffer)
+	reader.read += int64(count)
+	if err == io.EOF && reader.read != reader.expected {
+		return count, io.ErrUnexpectedEOF
+	}
+	return count, err
 }
 
 func validateCatalog(artifacts []protocol.Artifact) error {

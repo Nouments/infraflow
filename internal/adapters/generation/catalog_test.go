@@ -109,6 +109,60 @@ func TestCatalogRejectsUnsafeManifestPath(t *testing.T) {
 	}
 }
 
+func TestCatalogRejectsUnsuccessfulOrInvalidSiteManifestMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    string
+		siteID    string
+		inputHash string
+	}{
+		{name: "failed status", status: "failed", siteID: "lab"},
+		{name: "invalid site id", status: "succeeded", siteID: "../outside"},
+		{name: "invalid input hash", status: "succeeded", siteID: "lab", inputHash: "invalid"},
+		{name: "artifact input hash mismatch", status: "succeeded", siteID: "lab", inputHash: protocol.SHA256([]byte("other"))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			if _, err := Generate(infrastructure, root); err != nil {
+				t.Fatal(err)
+			}
+			manifestPath := filepath.Join(root, "lab", "manifest.json")
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var published Manifest
+			if err := json.Unmarshal(data, &published); err != nil {
+				t.Fatal(err)
+			}
+			published.Status = test.status
+			published.SiteID = test.siteID
+			if test.inputHash != "" {
+				if test.name == "artifact input hash mismatch" {
+					published.Artifacts[0].InputHash = test.inputHash
+				} else {
+					published.InputHash = test.inputHash
+				}
+			}
+			data, err = json.Marshal(published)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Catalog(root); err == nil {
+				t.Fatal("expected invalid site manifest metadata to be rejected")
+			}
+		})
+	}
+}
+
 func TestCatalogRejectsUnknownTrailingAndDuplicateManifestData(t *testing.T) {
 	tests := []struct {
 		name   string

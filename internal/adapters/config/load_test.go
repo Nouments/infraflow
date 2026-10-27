@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,6 +36,44 @@ func TestParseValidInfrastructure(t *testing.T) {
 	}
 	if len(infrastructure.Sites) != 1 || len(infrastructure.Sites[0].Devices) != 2 {
 		t.Fatalf("unexpected parsed infrastructure: %#v", infrastructure)
+	}
+}
+
+func TestMultiSiteReferenceExamplePassesBusinessValidation(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "examples", "multisite-preparation.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := Parse(data)
+	if err != nil {
+		t.Fatalf("multisite example failed parser and business validation: %v", err)
+	}
+	if len(infrastructure.Sites) != 4 {
+		t.Fatalf("parsed %d sites, want 4", len(infrastructure.Sites))
+	}
+	if got := infrastructure.Sites[1].Devices[0].OSVersion; got != "7.x" {
+		t.Fatalf("RouterOS version declaration was not preserved: %q", got)
+	}
+}
+
+func TestParseRejectsDuplicateStableSiteIDsIncludingNameFallback(t *testing.T) {
+	input := `sites:
+  - name: site-a
+    id: shared
+  - name: site-b
+    id: shared
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "duplicate site id shared") {
+		t.Fatalf("expected duplicate stable site id to be rejected, got %v", err)
+	}
+	fallbackCollision := `sites:
+  - name: site-a
+    id: site-b
+  - name: site-b
+`
+	if _, err := Parse([]byte(fallbackCollision)); err == nil || !strings.Contains(err.Error(), "duplicate site id site-b") {
+		t.Fatalf("expected explicit/fallback site id collision to be rejected, got %v", err)
 	}
 }
 

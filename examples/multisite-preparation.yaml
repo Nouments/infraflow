@@ -1,33 +1,59 @@
-# TEST-NET address space is documentation-only; bootstrap services stay disabled.
+# TEST-NET is documentation-only; bootstrap services stay disabled.
 sites:
   - name: site-a
+    id: site-a
     bootstrap:
       network: 192.0.2.0/24
+    services:
+      dhcp: false
+      tftp: false
+      pxe: false
     devices:
       - name: edge-a
+        role: edge-router
         vendor: cisco
         family: iosxe
   - name: site-b
+    id: site-b
     bootstrap:
       network: 192.0.2.0/24
+    services:
+      dhcp: false
+      tftp: false
+      pxe: false
     devices:
       - name: edge-b
+        role: edge-router
         vendor: mikrotik
         family: routeros
+        os_version: "7.x"
   - name: site-c
+    id: site-c
     bootstrap:
       network: 192.0.2.0/24
+    services:
+      dhcp: false
+      tftp: false
+      pxe: false
     devices:
       - name: edge-c
+        role: edge-firewall
         vendor: fortinet
         family: fortios
   - name: site-d
+    id: site-d
     bootstrap:
       network: 192.0.2.0/24
+    services:
+      dhcp: false
+      tftp: false
+      pxe: false
     devices:
       - name: edge-d-router
+        role: router
         vendor: cisco
         family: iosxe
       - name: edge-d-firewall
+        role: firewall
         vendor: fortinet
         family: fortios
