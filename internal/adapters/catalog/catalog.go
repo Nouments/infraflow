@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed data/*.yaml resources/README.md
+//go:embed data/*.yaml resources
 var catalogFiles embed.FS
 
 type Record struct {
@@ -178,6 +178,13 @@ func validateResourceFiles(files fs.FS, record Record) error {
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("local resource %q is not a regular file", resource.Local)
+		}
+		data, err := fs.ReadFile(resources, clean)
+		if err != nil {
+			return fmt.Errorf("read local resource %q: %w", resource.Local, err)
+		}
+		if len(data) == 0 {
+			return fmt.Errorf("local resource %q is empty", resource.Local)
 		}
 	}
 	return nil

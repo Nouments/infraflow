@@ -142,7 +142,7 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 		Deployment:               deployment.Metadata.Name,
 		Site:                     deployment.Spec.Site,
 		Validation:               "passed",
-		CompatibilityScope:       "declaration-to-template rendering only; hardware model and OS compatibility are not verified",
+		CompatibilityScope:       "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified",
 		CommandSyntaxValidation:  "not_performed",
 		PhysicalDeviceValidation: "not_performed",
 		Status:                   "rendered_unverified",

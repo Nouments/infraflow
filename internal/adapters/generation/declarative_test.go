@@ -62,6 +62,7 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 	}
 	if report.Status != "rendered_unverified" || report.CommandSyntaxValidation != "not_performed" ||
 		report.PhysicalDeviceValidation != "not_performed" || report.Devices[0].TemplateID == "" ||
+		report.CompatibilityScope != "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified" ||
 		report.Devices[0].Candidates[0].Score != 93 || !report.Devices[0].Candidates[0].Selected {
 		t.Fatalf("report did not expose selected candidate and score: %#v", report)
 	}
@@ -116,6 +117,24 @@ func TestGenerateDeclarativeConfigRejectsUnsupportedTemplateCases(t *testing.T) 
 				t.Fatalf("incompatible input left a generated configuration behind: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestGenerateDeclarativeConfigRejectsLaterDeviceWithoutPublishingPartialOutput(t *testing.T) {
+	input := strings.Replace(
+		declarativeInput,
+		"          enabled: true\n",
+		"          enabled: true\n    - name: R2\n      vendor: cisco\n      model: unsupported-model\n      os: ios-xe\n      interfaces:\n        - name: GigabitEthernet0/0/1\n          ipv4: 192.0.2.2/24\n          enabled: true\n",
+		1,
+	)
+	output := t.TempDir()
+	if _, err := GenerateDeclarativeConfig([]byte(input), output); err == nil || !strings.Contains(err.Error(), "no hardware catalog record") {
+		t.Fatalf("expected unsupported second device to block generation, got %v", err)
+	}
+	for _, relative := range []string{"demo/R1/config.cfg", "demo/R2/config.cfg", "demo/generation-report.json"} {
+		if _, err := os.Stat(filepath.Join(output, relative)); !os.IsNotExist(err) {
+			t.Fatalf("failed multi-device generation published %s: %v", relative, err)
+		}
 	}
 }
 
