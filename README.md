@@ -29,7 +29,6 @@ go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform
 go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
 go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
-go run ./provider/cmd generate-device-config -f examples/network-deployment.yaml -out ./demo-output
 ```
 
 `validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the complete agent catalog (inventory, topology, Ansible, Terraform, DHCP/DNS/TFTP/PXE/iPXE) with one combined manifest; it does not contact infrastructure or apply a plan.
@@ -38,15 +37,28 @@ go run ./provider/cmd generate-device-config -f examples/network-deployment.yaml
 
 The versioned `NetworkDeployment` schema is supported by the existing
 `validate` command and the `generate-device-config` command. Run these commands
-from the repository root:
+from the repository root. Outputs go to a fresh temporary directory rather
+than into the checkout:
 
 ```sh
+demo_dir="$(mktemp -d "${TMPDIR:-/tmp}/infraflow-device-demo.XXXXXX")"
 go run ./provider/cmd validate -f examples/network-deployment.yaml
+go run ./provider/cmd plan -f examples/network-deployment.yaml
 go run ./provider/cmd generate-device-config \
-  -f examples/network-deployment.yaml -out ./demo-output
-cat ./demo-output/demo/R1/config.cfg
-cat ./demo-output/demo/generation-report.json
+  -f examples/network-deployment.yaml -out "$demo_dir/generated"
+cat "$demo_dir/generated/demo/R1/config.cfg"
+cat "$demo_dir/generated/demo/generation-report.json"
+sha256sum "$demo_dir/generated/demo/R1/config.cfg" \
+  "$demo_dir/generated/demo/generation-report.json"
 ```
+
+Expected validation output is `Valid: 1 site(s), 1 device(s); no
+infrastructure changes made.` The plan is `PLANNED`; its `generated`,
+`executed`, and `verified` lifecycle fields remain false. Generation reports
+`rendered_unverified`, prints each output SHA-256, and writes the config plus a
+JSON report. The generated `config_hash` must match the first `sha256sum`
+result; the reported SHA-256 for `generation-report.json` must match the
+second. These checks establish file integrity only.
 
 The example uses the documentation-only `192.0.2.0/24` range; it is not a
 device address or a claim of lab validation. The embedded catalogue contains a
@@ -71,18 +83,32 @@ points cannot compensate for an incompatibility. Because this example omits
 an OS version, its score is 93/100. The score describes declaration-to-template
 matching only, not physical-device compatibility.
 
-To verify fail-closed behavior for an unsupported feature:
+Planning, generation, execution, and verification are separate lifecycle
+stages. `plan` describes intended work without applying it. The
+`generate-device-config` command renders a local artifact and report only. This
+demo does not execute the planned task, contact a device, or verify resulting
+device state. The separate Provider execution API is an explicit action and
+requires an authorized target; no execution command is included here.
+
+To verify fail-closed behavior for an unsupported feature and the absence of
+partial output, use a separate temporary destination:
 
 ```sh
-go run ./provider/cmd generate-device-config \
-  -f examples/network-deployment-unsupported-ospf.yaml -out ./rejected-output
+if go run ./provider/cmd generate-device-config \
+  -f examples/network-deployment-unsupported-ospf.yaml -out "$demo_dir/rejected"; then
+  echo "ERROR: unsupported declaration unexpectedly succeeded" >&2
+  exit 1
+fi
+test ! -e "$demo_dir/rejected/demo/R1/config.cfg"
+test ! -e "$demo_dir/rejected/demo/generation-report.json"
 ```
 
-This command must fail with the field path `spec.devices[0].routing.ospf`;
+The command must fail with the field path `spec.devices[0].routing.ospf`; the
+two `test` commands must succeed because neither artifact is published.
 OSPF, VLANs, static routes, other hardware models, and OS versions are not
-implemented by this template and no partial configuration is written. No
-datasheet or image is bundled: catalog entries distinguish official URL
-references from files actually available locally. See
+implemented by this template. No datasheet or image is bundled: catalog
+entries distinguish official URL references from files actually available
+locally. See
 [`internal/adapters/catalog/README.md`](internal/adapters/catalog/README.md).
 
 Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. They require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.

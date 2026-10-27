@@ -9,6 +9,7 @@ import (
 
 	"infraflow/internal/adapters/catalog"
 	"infraflow/internal/adapters/config"
+	"infraflow/pkg/protocol"
 )
 
 const declarativeInput = `apiVersion: infraflow/v1
@@ -26,6 +27,15 @@ spec:
         - name: GigabitEthernet0/0/0
           ipv4: 192.0.2.1/24
           enabled: true
+`
+
+const validTemplateMetadata = `id: example.template.v1
+version: "1"
+manufacturer: example
+model: model-1
+os_family: example-os
+status: render-only
+source: local rendering template
 `
 
 func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) {
@@ -60,6 +70,25 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 	if err := json.Unmarshal(reportBytes, &report); err != nil {
 		t.Fatal(err)
 	}
+	artifactHashes := make(map[string]string, len(artifacts))
+	for _, artifact := range artifacts {
+		data, err := os.ReadFile(filepath.Join(output, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatalf("read returned artifact %q: %v", artifact.Path, err)
+		}
+		if got := protocol.SHA256(data); got != artifact.OutputHash {
+			t.Errorf("artifact %q hash is %s, report returned %s", artifact.Path, got, artifact.OutputHash)
+		}
+		if artifact.InputHash != protocol.SHA256([]byte(declarativeInput)) {
+			t.Errorf("artifact %q has an incorrect input hash: %s", artifact.Path, artifact.InputHash)
+		}
+		artifactHashes[artifact.Path] = artifact.OutputHash
+	}
+	if report.Devices[0].ConfigPath != "demo/R1/config.cfg" ||
+		report.Devices[0].ConfigHash != artifactHashes[report.Devices[0].ConfigPath] ||
+		artifactHashes["demo/generation-report.json"] != protocol.SHA256(reportBytes) {
+		t.Fatalf("report paths or hashes do not match published files: %#v", report.Devices[0])
+	}
 	if report.Status != "rendered_unverified" || report.CommandSyntaxValidation != "not_performed" ||
 		report.PhysicalDeviceValidation != "not_performed" || report.Devices[0].TemplateID == "" ||
 		report.CompatibilityScope != "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified" ||
@@ -68,6 +97,35 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 	}
 	if report.Devices[0].Variables["interfaces"] == nil || report.Devices[0].CatalogStatus != "partial" {
 		t.Fatalf("report omitted resolved variables or catalog status: %#v", report.Devices[0])
+	}
+}
+
+func TestDecodeDeviceTemplateMetadataRejectsInvalidMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "malformed YAML", data: "id: ["},
+		{name: "missing required fields", data: "id: example.template.v1\n"},
+		{name: "unknown status", data: strings.Replace(validTemplateMetadata, "status: render-only", "status: supported", 1)},
+		{name: "unknown field", data: validTemplateMetadata + "unexpected: true\n"},
+		{name: "multiple documents", data: validTemplateMetadata + "---\nid: second.document\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := decodeDeviceTemplateMetadata("metadata.yaml", []byte(test.data)); err == nil {
+				t.Fatal("expected invalid template metadata to be rejected")
+			}
+		})
+	}
+
+	for _, status := range []string{"verified", "unknown", "unverified", "render-only"} {
+		t.Run("status_"+status, func(t *testing.T) {
+			data := strings.Replace(validTemplateMetadata, "status: render-only", "status: "+status, 1)
+			if _, err := decodeDeviceTemplateMetadata("metadata.yaml", []byte(data)); err != nil {
+				t.Fatalf("valid status %q was rejected: %v", status, err)
+			}
+		})
 	}
 }
 
@@ -135,6 +193,38 @@ func TestGenerateDeclarativeConfigRejectsLaterDeviceWithoutPublishingPartialOutp
 		if _, err := os.Stat(filepath.Join(output, relative)); !os.IsNotExist(err) {
 			t.Fatalf("failed multi-device generation published %s: %v", relative, err)
 		}
+	}
+}
+
+func TestGenerateDeclarativeConfigDoesNotPublishFilesWhenOutputTargetIsBlocked(t *testing.T) {
+	output := t.TempDir()
+	input := strings.Replace(
+		declarativeInput,
+		"          enabled: true\n",
+		"          enabled: true\n    - name: R2\n      vendor: cisco\n      model: isr-1100\n      os: ios-xe\n      interfaces:\n        - name: GigabitEthernet0/0/1\n          ipv4: 192.0.2.2/24\n          enabled: true\n",
+		1,
+	)
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("pre-existing user data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blockedReport := filepath.Join(output, "demo", "generation-report.json")
+	if err := os.MkdirAll(blockedReport, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := GenerateDeclarativeConfig([]byte(input), output); err == nil {
+		t.Fatal("expected blocked report target to fail generation")
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || string(data) != "pre-existing user data" {
+		t.Fatalf("failed generation changed a pre-existing artifact: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "R2", "config.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("failed generation published a partial configuration: %v", err)
 	}
 }
 

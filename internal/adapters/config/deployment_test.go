@@ -42,9 +42,12 @@ func TestParseNetworkDeploymentRejectsInvalidAndUnsupportedInput(t *testing.T) {
 		want  string
 	}{
 		{"malformed YAML", "apiVersion: [", "decode NetworkDeployment"},
+		{"missing deployment name", strings.Replace(validNetworkDeployment, "  name: demo\n", "", 1), "metadata.name"},
+		{"missing model", strings.Replace(validNetworkDeployment, "      model: isr-1100\n", "", 1), "spec.devices[0].model"},
 		{"unknown interface field", strings.Replace(validNetworkDeployment, "enabled: true", "enabled: true\n          vlan: 10", 1), "field vlan not found"},
 		{"missing interface state", strings.Replace(validNetworkDeployment, "          enabled: true\n", "", 1), "spec.devices[0].interfaces[0].enabled"},
 		{"invalid IPv4", strings.Replace(validNetworkDeployment, "192.0.2.1/24", "not-an-ip", 1), "spec.devices[0].interfaces[0].ipv4"},
+		{"invalid IPv4 prefix", strings.Replace(validNetworkDeployment, "192.0.2.1/24", "192.0.2.1/33", 1), "spec.devices[0].interfaces[0].ipv4"},
 		{"OSPF without template", validNetworkDeployment + "      routing:\n        ospf:\n          process_id: 1\n", "spec.devices[0].routing.ospf"},
 		{"unsupported version", strings.Replace(validNetworkDeployment, "infraflow/v1", "infraflow/v2", 1), "apiVersion"},
 	}

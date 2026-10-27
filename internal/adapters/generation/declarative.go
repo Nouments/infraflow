@@ -5,9 +5,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -208,18 +211,143 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 		Data: reportBytes,
 	})
 
+	return publishDeclarativeArtifacts(outputDirectory, input, pending)
+}
+
+func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending []declarativeArtifact) ([]Artifact, error) {
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return nil, fmt.Errorf("inspect output directory: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, fmt.Errorf("output directory must be a real directory")
+	}
+
+	targets := make(map[string]string, len(pending))
+	for _, item := range pending {
+		if !filepath.IsLocal(filepath.FromSlash(item.Path)) || strings.Contains(item.Path, "\\") {
+			return nil, fmt.Errorf("unsafe generated artifact path %q", item.Path)
+		}
+		target := filepath.Join(root, filepath.FromSlash(item.Path))
+		if _, exists := targets[target]; exists {
+			return nil, fmt.Errorf("duplicate generated artifact path %q", item.Path)
+		}
+		targets[target] = item.Path
+		if err := validateDeclarativeTarget(root, item.Path); err != nil {
+			return nil, fmt.Errorf("validate generated artifact target %q: %w", item.Path, err)
+		}
+	}
+
+	backups := make(map[string]string)
+	published := make(map[string]struct{}, len(pending))
+	restoreBackups := func() error {
+		var restoreErrors []error
+		for target, backup := range backups {
+			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+				restoreErrors = append(restoreErrors, fmt.Errorf("remove incomplete artifact %q: %w", targets[target], err))
+				continue
+			}
+			if err := os.Rename(backup, target); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("restore previous artifact %q: %w", targets[target], err))
+			}
+		}
+		for target := range published {
+			if _, hadBackup := backups[target]; hadBackup {
+				continue
+			}
+			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+				restoreErrors = append(restoreErrors, fmt.Errorf("remove incomplete artifact %q: %w", targets[target], err))
+			}
+		}
+		return errors.Join(restoreErrors...)
+	}
+	for target, relative := range targets {
+		if _, err := os.Lstat(target); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return nil, errors.Join(fmt.Errorf("inspect generated artifact %q: %w", relative, err), restoreBackups())
+		}
+		backup, err := os.CreateTemp(filepath.Dir(target), ".infraflow-backup-*")
+		if err != nil {
+			restoreErr := restoreBackups()
+			return nil, errors.Join(fmt.Errorf("reserve backup for artifact %q: %w", relative, err), restoreErr)
+		}
+		backupPath := backup.Name()
+		if err := backup.Close(); err != nil {
+			removeErr := os.Remove(backupPath)
+			restoreErr := restoreBackups()
+			return nil, errors.Join(fmt.Errorf("close backup for artifact %q: %w", relative, err), removeErr, restoreErr)
+		}
+		if err := os.Remove(backupPath); err != nil {
+			restoreErr := restoreBackups()
+			return nil, errors.Join(fmt.Errorf("prepare backup for artifact %q: %w", relative, err), restoreErr)
+		}
+		if err := os.Rename(target, backupPath); err != nil {
+			restoreErr := restoreBackups()
+			return nil, errors.Join(fmt.Errorf("back up existing artifact %q: %w", relative, err), restoreErr)
+		}
+		backups[target] = backupPath
+	}
+
 	artifacts := make([]Artifact, 0, len(pending))
 	for _, item := range pending {
-		if err := safefs.AtomicWrite(outputDirectory, item.Path, item.Data, 0o644); err != nil {
-			return nil, fmt.Errorf("write generated artifact %q: %w", item.Path, err)
+		if err := safefs.AtomicWrite(root, item.Path, item.Data, 0o644); err != nil {
+			writeErr := fmt.Errorf("write generated artifact %q: %w", item.Path, err)
+			return nil, errors.Join(writeErr, restoreBackups())
 		}
 		artifacts = append(artifacts, Artifact{
 			Type: item.Type, Path: item.Path, InputHash: protocol.SHA256(input),
 			OutputHash: protocol.SHA256(item.Data),
 		})
+		published[filepath.Join(root, filepath.FromSlash(item.Path))] = struct{}{}
+	}
+	for target, backup := range backups {
+		if err := os.Remove(backup); err != nil {
+			return nil, fmt.Errorf("remove backup for artifact %q: %w", targets[target], err)
+		}
 	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
 	return artifacts, nil
+}
+
+func validateDeclarativeTarget(root, relativePath string) error {
+	parts := strings.Split(filepath.FromSlash(relativePath), string(filepath.Separator))
+	if len(parts) < 2 {
+		return fmt.Errorf("artifact path must include a directory")
+	}
+	current := root
+	for _, part := range parts[:len(parts)-1] {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("artifact path contains an unsafe directory")
+		}
+	}
+	target := filepath.Join(current, parts[len(parts)-1])
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("output target must be a regular file")
+	}
+	return nil
 }
 
 func loadDeviceTemplates() ([]templateCandidate, error) {
@@ -244,20 +372,15 @@ func loadDeviceTemplates() ([]templateCandidate, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read template metadata %q: %w", metadataPath, err)
 		}
-		var metadata deviceTemplateMetadata
-		decoder := yaml.NewDecoder(strings.NewReader(string(metadataBytes)))
-		decoder.KnownFields(true)
-		if err := decoder.Decode(&metadata); err != nil {
-			return nil, fmt.Errorf("decode template metadata %q: %w", metadataPath, err)
+		metadata, err := decodeDeviceTemplateMetadata(metadataPath, metadataBytes)
+		if err != nil {
+			return nil, err
 		}
-		if metadata.ID == "" || metadata.Version == "" || metadata.Manufacturer == "" ||
-			metadata.Model == "" || metadata.OSFamily == "" || metadata.Status == "" || metadata.Source == "" {
-			return nil, fmt.Errorf("template metadata %q is incomplete", metadataPath)
-		}
-		if _, exists := seenIDs[metadata.ID]; exists {
+		normalizedID := strings.ToLower(strings.TrimSpace(metadata.ID))
+		if _, exists := seenIDs[normalizedID]; exists {
 			return nil, fmt.Errorf("duplicate local template id %q", metadata.ID)
 		}
-		seenIDs[metadata.ID] = struct{}{}
+		seenIDs[normalizedID] = struct{}{}
 		templatePath := strings.TrimSuffix(metadataPath, "metadata.yaml") + "interfaces.cfg.tmpl"
 		content, err := vendorTemplateFiles.ReadFile(templatePath)
 		if err != nil {
@@ -274,6 +397,33 @@ func loadDeviceTemplates() ([]templateCandidate, error) {
 		})
 	}
 	return candidates, nil
+}
+
+func decodeDeviceTemplateMetadata(metadataPath string, data []byte) (deviceTemplateMetadata, error) {
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+	var metadata deviceTemplateMetadata
+	if err := decoder.Decode(&metadata); err != nil {
+		return deviceTemplateMetadata{}, fmt.Errorf("decode template metadata %q: %w", metadataPath, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return deviceTemplateMetadata{}, fmt.Errorf("template metadata %q must contain exactly one YAML document", metadataPath)
+		}
+		return deviceTemplateMetadata{}, fmt.Errorf("decode trailing template metadata %q: %w", metadataPath, err)
+	}
+	if strings.TrimSpace(metadata.ID) == "" || strings.TrimSpace(metadata.Version) == "" ||
+		strings.TrimSpace(metadata.Manufacturer) == "" || strings.TrimSpace(metadata.Model) == "" ||
+		strings.TrimSpace(metadata.OSFamily) == "" || strings.TrimSpace(metadata.Source) == "" {
+		return deviceTemplateMetadata{}, fmt.Errorf("template metadata %q is incomplete", metadataPath)
+	}
+	switch metadata.Status {
+	case "verified", "unknown", "unverified", "render-only":
+	default:
+		return deviceTemplateMetadata{}, fmt.Errorf("template metadata %q has unsupported status %q", metadataPath, metadata.Status)
+	}
+	return metadata, nil
 }
 
 func validateCatalogTemplateReferences(equipmentCatalog *catalog.Catalog, templates []templateCandidate) error {
