@@ -29,6 +29,8 @@ The provider currently implements:
 - authenticated gRPC catalog and report services;
 - authenticated HTTP API for user sessions, planning jobs, admin-only execution tasks, agents, and audit events;
 - local SQLite-backed user accounts, session management, and RBAC.
+- optional site-scoped gRPC artifact credentials that bind each Agent identity to
+  one site and prevent cross-site catalog, download, report, and log access.
 
 The generic execution API is available at `/api/v1/executions`. The Provider
 registers two operational task executors: `artifact.verify` (read-only
@@ -48,6 +50,24 @@ The agent currently implements:
 - hash-verified artifact download and local state storage;
 - processing of generated generic Ansible and Terraform artifacts in read-only validation mode;
 - local structured logging and delayed synchronization to the provider when available.
+
+An Agent can use `provider.artifact_token_env` for a dedicated site-scoped gRPC
+token while retaining `provider.token_env` for HTTP registration and heartbeat.
+When the Provider configures `agent_credentials`, every gRPC request must
+identify the configured Agent and authenticate with its unique token; catalog
+results are filtered to that Agent's site. Cross-site downloads and reports are
+rejected. The prior shared-token gRPC mode is retained only for a single-site
+catalog; it fails closed when published artifacts span multiple sites. These
+credentials do not establish device compatibility or grant execution authority.
+
+`examples/multisite-preparation.yaml` and the
+`TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts` integration test
+exercise four sites using the real Provider and Agent executables over loopback.
+The test verifies scoped transfer, output hashes, and persisted Agent reports.
+This is protocol/application evidence only: it does not start bootstrap
+services, execute Ansible/Terraform, or apply configuration to hardware. The
+example's family labels are declarative metadata without exact model or OS
+version claims; bootstrap service artifacts remain disabled.
 
 ### Ansible artifact semantics
 

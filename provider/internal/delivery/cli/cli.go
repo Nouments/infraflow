@@ -17,6 +17,7 @@ import (
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/infrastructure/security"
 	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/config"
@@ -478,7 +479,20 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials, logger)
+	agentCredentials := make([]grpcapi.AgentCredential, 0, len(settings.AgentCredentials))
+	for _, configured := range settings.AgentCredentials {
+		token := os.Getenv(configured.TokenEnv)
+		if len([]byte(token)) < security.MinAgentTokenBytes {
+			fmt.Fprintf(stderr, "infraflow-provider: agent token for %s must be set in %s and contain at least %d bytes\n", configured.AgentID, configured.TokenEnv, security.MinAgentTokenBytes)
+			return 2
+		}
+		agentCredentials = append(agentCredentials, grpcapi.AgentCredential{
+			AgentID: configured.AgentID, SiteID: configured.SiteID, Token: token,
+		})
+	}
+	server, err := grpcapi.NewServerWithAgentCredentials(
+		service, os.Getenv(settings.TokenEnv), agentCredentials, settings.ChunkSize, transportCredentials, logger,
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2

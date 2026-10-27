@@ -125,11 +125,16 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-agent: persist startup event: %v\n", err)
 		return 2
 	}
+	artifactTokenEnv := settings.Provider.ArtifactTokenEnv
+	if artifactTokenEnv == "" {
+		artifactTokenEnv = settings.Provider.TokenEnv
+	}
 	providerClient, err := providergrpc.New(
 		settings.Provider.Address,
-		os.Getenv(settings.Provider.TokenEnv),
+		os.Getenv(artifactTokenEnv),
 		settings.Provider.TLS.Enabled,
 		settings.Provider.TLS.CAFile,
+		settings.Agent.ID,
 	)
 	if err != nil {
 		_ = logger.Emit(context.Background(), observability.Event{

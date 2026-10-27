@@ -113,6 +113,85 @@ locally. See
 
 Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. They require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.
 
+### Four-site Agent synchronization demo
+
+`examples/multisite-preparation.yaml` is a documentation-only preparation
+scenario for Cisco IOS-XE, MikroTik RouterOS, and FortiOS family labels across
+four sites. It deliberately omits exact device models, OS versions, interfaces,
+and network configuration. Its shared `192.0.2.0/24` bootstrap range is
+TEST-NET documentation space; bootstrap service artifacts are generated with
+their services disabled. The vendor labels are declarations, not evidence that
+the devices or generated vendor-specific configuration are compatible.
+
+Validate, plan, and generate the versioned catalog into a fresh temporary
+directory:
+
+```sh
+go run ./provider/cmd validate -f examples/multisite-preparation.yaml
+go run ./provider/cmd plan -f examples/multisite-preparation.yaml
+demo_dir="$(mktemp -d "${TMPDIR:-/tmp}/infraflow-multisite.XXXXXX")"
+go run ./provider/cmd generate-all \
+  -f examples/multisite-preparation.yaml -out "$demo_dir/catalog"
+cat "$demo_dir/catalog/site-a/inventory.json"
+cat "$demo_dir/catalog/site-a/manifest.json"
+sha256sum "$demo_dir/catalog/site-a/inventory.json"
+```
+
+For an actual loopback transfer/report run, execute the end-to-end test:
+
+```sh
+go test -count=1 ./agent/internal/application \
+  -run '^TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts$'
+```
+
+The test builds and launches the real Provider and Agent executables, starts
+four Agents with distinct site-scoped gRPC tokens, and checks the downloaded
+file hashes, per-site state directories, disabled DHCP artifacts, and the four
+reports persisted by the Provider. It also checks that the unsupported OSPF
+example is rejected without publishing a config or generation report. All
+runtime state and generated files live under Go's temporary test directory.
+`agent_credentials` binds each gRPC token
+to one `agent_id` and `site_id`; in this mode the legacy global machine token
+cannot access the gRPC artifact catalog. Keep the global token in a secret
+manager/environment for the existing HTTP registration endpoint, and provide
+each Agent's scoped token separately using `provider.artifact_token_env`.
+The shared-token legacy gRPC mode remains limited to a single-site catalog.
+
+For example, the Provider's site credentials and one Agent's token references
+have this shape (all referenced environment values must be secret and at least
+32 bytes; every scoped Agent token must be unique and different from the global
+machine token):
+
+```yaml
+# Provider configuration
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-site-a
+    site_id: site-a
+    token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
+```
+
+```yaml
+# Agent configuration for site-a
+agent:
+  id: agent-site-a
+  site_id: site-a
+  state_directory: /var/lib/infraflow-agent
+provider:
+  address: provider.example:8443
+  api_address: https://provider.example:8080
+  token_env: INFRAFLOW_AGENT_TOKEN
+  artifact_token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
+  tls:
+    enabled: true
+```
+
+This scenario proves local generation, authenticated transfer, hash checks,
+and report acceptance only. Agent status `completed` means supported artifact
+processing/staging; it does not mean Ansible or Terraform ran, a bootstrap
+service started, or a network device was configured or verified. The demo does
+not perform any network/device operation.
+
 The provider can also persist validated planning jobs and expose them through its authenticated HTTP API when `api_listen_address` is set in the provider configuration. Plain HTTP is loopback-only; a remote API requires the configured TLS certificate/key pair. Job creation validates and plans only; it does not provision devices.
 
 The same API exposes a separate admin-only execution lifecycle at
@@ -144,7 +223,7 @@ same SQLite-backed sessions and RBAC instead of creating separate credentials.
 
 The agent has experimental, explicit-start DHCPv4, read-only TFTP, and bootstrap HTTP services. They bind to a selected interface, use provider-generated allowlists/configuration, and require an isolated provisioning network. DHCP leases remain in memory and firmware images are not bundled. DNS service and vendor-specific ZTP/AutoInstall are not implemented.
 
-To serve generated files to an agent, set a strong token through a secret manager or environment variable. The provider uses gRPC streaming; plaintext is restricted to loopback. Remote deployments require TLS.
+To serve generated files to a single-site legacy agent, set a strong token through a secret manager or environment variable. For multisite gRPC access, configure unique `agent_credentials` entries in the Provider configuration and set the matching `artifact_token_env` on each Agent. The provider uses gRPC streaming; plaintext is restricted to loopback. Remote deployments require TLS.
 
 ```sh
 export INFRAFLOW_AGENT_TOKEN='<secret of at least 32 bytes>'

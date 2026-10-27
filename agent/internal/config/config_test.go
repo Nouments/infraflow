@@ -82,6 +82,26 @@ provider:
 	}
 }
 
+func TestLoadSupportsSeparateArtifactTokenEnvironment(t *testing.T) {
+	path := writeConfig(t, `agent:
+  id: agent-a
+  site_id: site-a
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  api_address: http://127.0.0.1:8080
+  token_env: INFRAFLOW_AGENT_TOKEN
+  artifact_token_env: INFRAFLOW_SITE_A_TOKEN
+`)
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Provider.ArtifactTokenEnv != "INFRAFLOW_SITE_A_TOKEN" {
+		t.Fatalf("artifact token environment was not loaded: %#v", config.Provider)
+	}
+}
+
 func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
 	t.Setenv("INFRAFLOW_AGENT_ID", "agent-gns3")
 	t.Setenv("INFRAFLOW_AGENT_SITE_ID", "site-gns3")
@@ -90,6 +110,7 @@ func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
 	t.Setenv("INFRAFLOW_AGENT_PROVIDER_ADDRESS", "192.168.0.3:8443")
 	t.Setenv("INFRAFLOW_AGENT_API_ADDRESS", "https://192.168.0.3:8080")
 	t.Setenv("INFRAFLOW_AGENT_TOKEN_ENV", "INFRAFLOW_AGENT_TOKEN")
+	t.Setenv("INFRAFLOW_AGENT_ARTIFACT_TOKEN_ENV", "INFRAFLOW_SITE_TOKEN")
 	t.Setenv("INFRAFLOW_AGENT_PROVIDER_CA", "/run/secrets/provider-ca.pem")
 	t.Setenv("INFRAFLOW_AGENT_TLS_ENABLED", "true")
 
@@ -113,7 +134,7 @@ provider:
 	if strings.Join(config.Agent.Capabilities, ",") != "inventory,topology" {
 		t.Fatalf("unexpected capabilities: %#v", config.Agent.Capabilities)
 	}
-	if config.Provider.Address != "192.168.0.3:8443" || config.Provider.APIAddress != "https://192.168.0.3:8080" || config.Provider.TokenEnv != "INFRAFLOW_AGENT_TOKEN" {
+	if config.Provider.Address != "192.168.0.3:8443" || config.Provider.APIAddress != "https://192.168.0.3:8080" || config.Provider.TokenEnv != "INFRAFLOW_AGENT_TOKEN" || config.Provider.ArtifactTokenEnv != "INFRAFLOW_SITE_TOKEN" {
 		t.Fatalf("provider environment overrides were not applied: %#v", config.Provider)
 	}
 	if !config.Provider.TLS.Enabled || config.Provider.TLS.CAFile != "/run/secrets/provider-ca.pem" {

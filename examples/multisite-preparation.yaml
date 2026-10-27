@@ -1,0 +1,33 @@
+# TEST-NET address space is documentation-only; bootstrap services stay disabled.
+sites:
+  - name: site-a
+    bootstrap:
+      network: 192.0.2.0/24
+    devices:
+      - name: edge-a
+        vendor: cisco
+        family: iosxe
+  - name: site-b
+    bootstrap:
+      network: 192.0.2.0/24
+    devices:
+      - name: edge-b
+        vendor: mikrotik
+        family: routeros
+  - name: site-c
+    bootstrap:
+      network: 192.0.2.0/24
+    devices:
+      - name: edge-c
+        vendor: fortinet
+        family: fortios
+  - name: site-d
+    bootstrap:
+      network: 192.0.2.0/24
+    devices:
+      - name: edge-d-router
+        vendor: cisco
+        family: iosxe
+      - name: edge-d-firewall
+        vendor: fortinet
+        family: fortios

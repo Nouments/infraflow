@@ -80,6 +80,42 @@ token_env: TOKEN
 	}
 }
 
+func TestLoadValidatesSiteScopedAgentCredentials(t *testing.T) {
+	path := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-a
+    site_id: site-a
+    token_env: INFRAFLOW_SITE_A_TOKEN
+  - agent_id: agent-b
+    site_id: site-b
+    token_env: INFRAFLOW_SITE_B_TOKEN
+`)
+	config, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.AgentCredentials) != 2 || config.AgentCredentials[0].SiteID != "site-a" {
+		t.Fatalf("site-scoped agent credentials were not loaded: %#v", config.AgentCredentials)
+	}
+
+	duplicate := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-a
+    site_id: site-a
+    token_env: TOKEN_A
+  - agent_id: agent-a
+    site_id: site-b
+    token_env: TOKEN_B
+`)
+	if _, err := Load(duplicate); err == nil || !strings.Contains(err.Error(), "duplicate agent credential") {
+		t.Fatalf("expected duplicate agent credentials to be rejected, got %v", err)
+	}
+}
+
 func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
 artifact_directory: ./provider-data

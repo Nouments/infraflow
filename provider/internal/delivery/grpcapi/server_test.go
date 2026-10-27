@@ -157,6 +157,229 @@ func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 	}
 }
 
+func TestGRPCScopesAgentCatalogAndDownloadsToAuthorizedSite(t *testing.T) {
+	root := t.TempDir()
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte(`sites:
+  - name: site-a
+    devices:
+      - name: edge-a
+  - name: site-b
+    devices:
+      - name: edge-b
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generator.Generate(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(filesystem.NewArtifactRepository(root), nil, nil, nil, agents, application.Dependencies{})
+	for _, registered := range []application.AgentRegistration{
+		{ID: "agent-a", SiteID: "site-a"},
+		{ID: "agent-b", SiteID: "site-b"},
+	} {
+		if _, err := service.RegisterAgent(registered); err != nil {
+			t.Fatal(err)
+		}
+	}
+	credentials := []AgentCredential{
+		{AgentID: "agent-a", SiteID: "site-a", Token: strings.Repeat("a", security.MinAgentTokenBytes)},
+		{AgentID: "agent-b", SiteID: "site-b", Token: strings.Repeat("b", security.MinAgentTokenBytes)},
+	}
+	server, err := NewServerWithAgentCredentials(service, strings.Repeat("g", security.MinAgentTokenBytes), credentials, DefaultChunkSize, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := bufconn.Listen(1 << 20)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close(); <-serveDone })
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := infrav1.NewAgentProviderClient(connection)
+
+	agentAContext := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+credentials[0].Token,
+		"x-infraflow-agent-id", credentials[0].AgentID,
+	))
+	catalog, err := client.ListArtifacts(agentAContext, &infrav1.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.GetArtifacts()) != 2 {
+		t.Fatalf("site-scoped agent received %d artifacts, want 2", len(catalog.GetArtifacts()))
+	}
+	for _, artifact := range catalog.GetArtifacts() {
+		if !strings.HasPrefix(artifact.GetPath(), "site-a/") {
+			t.Errorf("site-scoped catalog leaked another site's artifact %q", artifact.GetPath())
+		}
+	}
+	_, err = client.ListArtifacts(metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+strings.Repeat("g", security.MinAgentTokenBytes),
+	)), &infrav1.Empty{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("legacy global token remained valid after scoped credentials were configured: %v", err)
+	}
+
+	crossSiteStream, err := client.DownloadArtifact(agentAContext, &infrav1.DownloadRequest{Path: "site-b/inventory.json"})
+	if err == nil {
+		_, err = crossSiteStream.Recv()
+	}
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("cross-site download returned %v, want PermissionDenied", err)
+	}
+	published, err := service.Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var otherSite protocol.Artifact
+	for _, artifact := range published {
+		if strings.HasPrefix(artifact.Path, "site-b/") {
+			otherSite = artifact
+			break
+		}
+	}
+	report := protocol.AgentReport{
+		AgentID: "agent-a", ReportedAt: time.Now().UTC(),
+		Artifacts: []protocol.ArtifactResult{{Path: otherSite.Path, OutputHash: otherSite.OutputHash, Status: protocol.StatusCompleted}},
+	}
+	report.ReportID = protocol.ComputeReportID(report)
+	_, err = client.ReportState(agentAContext, &infrav1.AgentStateReport{
+		ReportId: report.ReportID, AgentId: report.AgentID, ReportedAt: timestamppb.New(report.ReportedAt),
+		Artifacts: []*infrav1.ArtifactExecutionResult{{Path: otherSite.Path, OutputHash: otherSite.OutputHash, Status: protocol.StatusCompleted}},
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("cross-site synchronization report returned %v, want PermissionDenied", err)
+	}
+	_, err = client.ListArtifacts(metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+credentials[0].Token,
+		"x-infraflow-agent-id", credentials[1].AgentID,
+	)), &infrav1.Empty{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("agent token accepted for a different identity: %v", err)
+	}
+}
+
+func TestGRPCLegacyGlobalCredentialRefusesMultisiteCatalog(t *testing.T) {
+	root := t.TempDir()
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte(`sites:
+  - name: site-a
+  - name: site-b
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generator.Generate(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewService(filesystem.NewArtifactRepository(root), nil, nil, application.Dependencies{})
+	token := strings.Repeat("g", security.MinAgentTokenBytes)
+	server, err := NewServer(service, token, DefaultChunkSize, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := bufconn.Listen(1 << 20)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close(); <-serveDone })
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+token))
+	_, err = infrav1.NewAgentProviderClient(connection).ListArtifacts(ctx, &infrav1.Empty{})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("global credential exposed a multi-site catalog: %v", err)
+	}
+}
+
+func TestGRPCRejectsReuseOfGlobalTokenAsSiteCredential(t *testing.T) {
+	token := strings.Repeat("g", security.MinAgentTokenBytes)
+	_, err := NewServerWithAgentCredentials(
+		application.NewService(nil, nil, nil, application.Dependencies{}),
+		token,
+		[]AgentCredential{{AgentID: "agent-a", SiteID: "site-a", Token: token}},
+		DefaultChunkSize,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "must differ from the global machine token") {
+		t.Fatalf("expected global/site token reuse to be rejected, got %v", err)
+	}
+}
+
+func TestGRPCScopedAgentLogsRejectIdentityAndSiteSpoofing(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-a", SiteID: "site-a"}); err != nil {
+		t.Fatal(err)
+	}
+	token := strings.Repeat("a", security.MinAgentTokenBytes)
+	server, err := NewServerWithAgentCredentials(
+		service, strings.Repeat("g", security.MinAgentTokenBytes),
+		[]AgentCredential{{AgentID: "agent-a", SiteID: "site-a", Token: token}},
+		DefaultChunkSize, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := bufconn.Listen(1 << 20)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close(); <-serveDone })
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := infrav1.NewAgentProviderClient(connection)
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"authorization", "Bearer "+token,
+		"x-infraflow-agent-id", "agent-a",
+	))
+	encoded, err := json.Marshal(observability.Event{
+		ID: "scoped-log-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level: "INFO", Event: "agent.test", Message: "scoped log test",
+		AgentID: "agent-a", SiteID: "site-b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ReportLogs(ctx, &infrav1.AgentLogBatch{AgentId: "agent-b", EventsJson: [][]byte{encoded}}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("scoped token accepted a different log identity: %v", err)
+	}
+	if _, err := client.ReportLogs(ctx, &infrav1.AgentLogBatch{AgentId: "agent-a", EventsJson: [][]byte{encoded}}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("scoped token accepted a different log site: %v", err)
+	}
+}
+
 func TestGRPCIngestsAgentLogsIdempotentlyAndRejectsIdentitySpoofing(t *testing.T) {
 	root := t.TempDir()
 	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)

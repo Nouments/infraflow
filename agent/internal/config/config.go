@@ -41,10 +41,11 @@ type AgentConfig struct {
 }
 
 type ProviderConfig struct {
-	Address    string    `yaml:"address"`
-	APIAddress string    `yaml:"api_address,omitempty"`
-	TokenEnv   string    `yaml:"token_env"`
-	TLS        TLSConfig `yaml:"tls"`
+	Address          string    `yaml:"address"`
+	APIAddress       string    `yaml:"api_address,omitempty"`
+	TokenEnv         string    `yaml:"token_env"`
+	ArtifactTokenEnv string    `yaml:"artifact_token_env,omitempty"`
+	TLS              TLSConfig `yaml:"tls"`
 }
 
 type TLSConfig struct {
@@ -114,6 +115,7 @@ func applyEnvironment(config *Config) error {
 	setIfPresent("INFRAFLOW_AGENT_PROVIDER_ADDRESS", &config.Provider.Address)
 	setIfPresent("INFRAFLOW_AGENT_API_ADDRESS", &config.Provider.APIAddress)
 	setIfPresent("INFRAFLOW_AGENT_TOKEN_ENV", &config.Provider.TokenEnv)
+	setIfPresent("INFRAFLOW_AGENT_ARTIFACT_TOKEN_ENV", &config.Provider.ArtifactTokenEnv)
 	setIfPresent("INFRAFLOW_AGENT_PROVIDER_CA", &config.Provider.TLS.CAFile)
 	if value, exists := os.LookupEnv("INFRAFLOW_AGENT_CAPABILITIES"); exists {
 		config.Agent.Capabilities = nil
@@ -166,6 +168,9 @@ func (config Config) Validate() error {
 	}
 	if strings.TrimSpace(config.Provider.TokenEnv) == "" {
 		return fmt.Errorf("provider.token_env must name the environment variable holding the token")
+	}
+	if strings.ContainsAny(config.Provider.ArtifactTokenEnv, "\r\n") {
+		return fmt.Errorf("provider.artifact_token_env must be a valid environment variable name")
 	}
 	host, portText, err := net.SplitHostPort(config.Provider.Address)
 	if err != nil || host == "" {

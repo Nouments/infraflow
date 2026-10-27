@@ -32,11 +32,22 @@ type Client struct {
 	connection *grpc.ClientConn
 	service    infrav1.AgentProviderClient
 	token      string
+	agentID    string
 }
 
-func New(address, token string, tlsEnabled bool, caFile string) (*Client, error) {
+func New(address, token string, tlsEnabled bool, caFile string, agentIDs ...string) (*Client, error) {
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("agent token must be at least %d bytes", security.MinAgentTokenBytes)
+	}
+	if len(agentIDs) > 1 {
+		return nil, fmt.Errorf("at most one agent id may be provided")
+	}
+	agentID := ""
+	if len(agentIDs) == 1 {
+		agentID = strings.TrimSpace(agentIDs[0])
+		if !protocol.ValidSiteName(agentID) || len(agentID) > 128 {
+			return nil, fmt.Errorf("agent id must be a valid identifier")
+		}
 	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || host == "" || port == "" {
@@ -65,16 +76,20 @@ func New(address, token string, tlsEnabled bool, caFile string) (*Client, error)
 	connection, err := grpc.NewClient(
 		address,
 		grpc.WithTransportCredentials(transport),
-		grpc.WithPerRPCCredentials(bearerCredentials{token: token, secure: tlsEnabled}),
+		grpc.WithPerRPCCredentials(bearerCredentials{token: token, agentID: agentID, secure: tlsEnabled}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create provider gRPC client: %w", err)
 	}
-	return NewWithConnection(connection, token), nil
+	return NewWithConnection(connection, token, agentID), nil
 }
 
-func NewWithConnection(connection *grpc.ClientConn, token string) *Client {
-	return &Client{connection: connection, service: infrav1.NewAgentProviderClient(connection), token: token}
+func NewWithConnection(connection *grpc.ClientConn, token string, agentIDs ...string) *Client {
+	client := &Client{connection: connection, service: infrav1.NewAgentProviderClient(connection), token: token}
+	if len(agentIDs) > 0 {
+		client.agentID = agentIDs[0]
+	}
+	return client
 }
 
 func (client *Client) Close() error {
@@ -188,12 +203,17 @@ func isLoopback(host string) bool {
 }
 
 type bearerCredentials struct {
-	token  string
-	secure bool
+	token   string
+	agentID string
+	secure  bool
 }
 
 func (credentials bearerCredentials) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
-	return map[string]string{"authorization": "Bearer " + credentials.token}, nil
+	values := map[string]string{"authorization": "Bearer " + credentials.token}
+	if credentials.agentID != "" {
+		values["x-infraflow-agent-id"] = credentials.agentID
+	}
+	return values, nil
 }
 
 func (credentials bearerCredentials) RequireTransportSecurity() bool {

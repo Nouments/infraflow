@@ -42,11 +42,15 @@ func newProcessLogSession(configPath string) (*processLogSession, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load process logging configuration: %w", err)
 	}
-	token := os.Getenv(settings.Provider.TokenEnv)
-	if token == "" {
-		return nil, fmt.Errorf("provider token environment variable %s is empty", settings.Provider.TokenEnv)
+	tokenEnv := settings.Provider.ArtifactTokenEnv
+	if tokenEnv == "" {
+		tokenEnv = settings.Provider.TokenEnv
 	}
-	reporter, err := providergrpc.New(settings.Provider.Address, token, settings.Provider.TLS.Enabled, settings.Provider.TLS.CAFile)
+	token := os.Getenv(tokenEnv)
+	if token == "" {
+		return nil, fmt.Errorf("provider token environment variable %s is empty", tokenEnv)
+	}
+	reporter, err := providergrpc.New(settings.Provider.Address, token, settings.Provider.TLS.Enabled, settings.Provider.TLS.CAFile, settings.Agent.ID)
 	if err != nil {
 		return nil, fmt.Errorf("configure process log transport: %w", err)
 	}

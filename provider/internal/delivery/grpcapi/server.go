@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -35,13 +36,30 @@ const (
 
 type agentProviderServer struct {
 	infrav1.UnimplementedAgentProviderServer
-	service   *application.Service
-	token     []byte
-	chunkSize int
-	logger    *observability.Logger
+	service          *application.Service
+	token            []byte
+	agentCredentials map[string]AgentCredential
+	chunkSize        int
+	logger           *observability.Logger
+}
+
+type AgentCredential struct {
+	AgentID string
+	SiteID  string
+	Token   string
+}
+
+type agentPrincipal struct {
+	AgentID string
+	SiteID  string
+	Scoped  bool
 }
 
 func NewServer(service *application.Service, token string, chunkSize int, transportCredentials credentials.TransportCredentials, loggers ...*observability.Logger) (*grpc.Server, error) {
+	return NewServerWithAgentCredentials(service, token, nil, chunkSize, transportCredentials, loggers...)
+}
+
+func NewServerWithAgentCredentials(service *application.Service, token string, agentCredentials []AgentCredential, chunkSize int, transportCredentials credentials.TransportCredentials, loggers ...*observability.Logger) (*grpc.Server, error) {
 	if service == nil {
 		return nil, fmt.Errorf("provider application service is required")
 	}
@@ -62,13 +80,36 @@ func NewServer(service *application.Service, token string, chunkSize int, transp
 	if len(loggers) > 0 {
 		logger = loggers[0]
 	}
+	credentialsByAgent := make(map[string]AgentCredential, len(agentCredentials))
+	seenTokens := make(map[string]struct{}, len(agentCredentials))
+	for _, agentCredential := range agentCredentials {
+		if !protocol.ValidSiteName(agentCredential.AgentID) || len(agentCredential.AgentID) > 128 ||
+			!protocol.ValidSiteName(agentCredential.SiteID) || len(agentCredential.SiteID) > 128 {
+			return nil, fmt.Errorf("agent credential requires valid agent_id and site_id")
+		}
+		if len([]byte(agentCredential.Token)) < security.MinAgentTokenBytes {
+			return nil, fmt.Errorf("agent credential for %q must be at least %d bytes", agentCredential.AgentID, security.MinAgentTokenBytes)
+		}
+		if agentCredential.Token == token {
+			return nil, fmt.Errorf("agent credential for %q must differ from the global machine token", agentCredential.AgentID)
+		}
+		if _, exists := credentialsByAgent[agentCredential.AgentID]; exists {
+			return nil, fmt.Errorf("duplicate agent credential for %q", agentCredential.AgentID)
+		}
+		if _, exists := seenTokens[agentCredential.Token]; exists {
+			return nil, fmt.Errorf("agent credentials must use distinct tokens")
+		}
+		credentialsByAgent[agentCredential.AgentID] = agentCredential
+		seenTokens[agentCredential.Token] = struct{}{}
+	}
 	options = append(options,
 		grpc.ChainUnaryInterceptor(unaryLogInterceptor(logger)),
 		grpc.ChainStreamInterceptor(streamLogInterceptor(logger)),
 	)
 	server := grpc.NewServer(options...)
 	infrav1.RegisterAgentProviderServer(server, &agentProviderServer{
-		service: service, token: []byte(token), chunkSize: chunkSize, logger: logger,
+		service: service, token: []byte(token), agentCredentials: credentialsByAgent,
+		chunkSize: chunkSize, logger: logger,
 	})
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
@@ -138,12 +179,20 @@ func logGRPC(logger *observability.Logger, ctx context.Context, method, result, 
 }
 
 func (service *agentProviderServer) ListArtifacts(ctx context.Context, _ *infrav1.Empty) (*infrav1.ArtifactCatalog, error) {
-	if err := service.authorize(ctx); err != nil {
+	principal, err := service.authorize(ctx)
+	if err != nil {
 		return nil, err
 	}
 	artifacts, err := service.service.Catalog()
 	if err != nil {
 		return nil, status.Error(codes.Internal, "artifact catalog unavailable")
+	}
+	siteID, err := service.authorizedSite(principal, artifacts)
+	if err != nil {
+		return nil, err
+	}
+	if principal.Scoped {
+		artifacts = filterArtifactsBySite(artifacts, siteID)
 	}
 	response := &infrav1.ArtifactCatalog{Artifacts: make([]*infrav1.ArtifactRecord, 0, len(artifacts))}
 	for _, artifact := range artifacts {
@@ -155,11 +204,15 @@ func (service *agentProviderServer) ListArtifacts(ctx context.Context, _ *infrav
 }
 
 func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRequest, stream grpc.ServerStreamingServer[infrav1.ArtifactChunk]) error {
-	if err := service.authorize(stream.Context()); err != nil {
+	principal, err := service.authorize(stream.Context())
+	if err != nil {
 		return err
 	}
 	if request.GetPath() == "" {
 		return status.Error(codes.InvalidArgument, "artifact path is required")
+	}
+	if principal.Scoped && pathSite(request.GetPath()) != principal.SiteID {
+		return status.Error(codes.PermissionDenied, "artifact belongs to a different site")
 	}
 	reader, artifact, err := service.service.OpenArtifact(request.GetPath())
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -175,6 +228,19 @@ func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRe
 		return status.Error(codes.NotFound, "artifact is unavailable")
 	}
 	defer reader.Close()
+	if !principal.Scoped {
+		artifacts, catalogErr := service.service.Catalog()
+		if catalogErr != nil {
+			return status.Error(codes.Internal, "artifact catalog unavailable")
+		}
+		siteID, scopeErr := service.authorizedSite(principal, artifacts)
+		if scopeErr != nil {
+			return scopeErr
+		}
+		if pathSite(artifact.Path) != siteID {
+			return status.Error(codes.PermissionDenied, "artifact belongs to a different site")
+		}
+	}
 	buffer := make([]byte, service.chunkSize)
 	digest := sha256.New()
 	var offset uint64
@@ -209,7 +275,8 @@ func (service *agentProviderServer) DownloadArtifact(request *infrav1.DownloadRe
 }
 
 func (service *agentProviderServer) ReportState(ctx context.Context, input *infrav1.AgentStateReport) (*infrav1.ReportAck, error) {
-	if err := service.authorize(ctx); err != nil {
+	principal, err := service.authorize(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if input.GetReportedAt() == nil || !input.GetReportedAt().IsValid() {
@@ -224,6 +291,24 @@ func (service *agentProviderServer) ReportState(ctx context.Context, input *infr
 			Path: artifact.GetPath(), OutputHash: artifact.GetOutputHash(), Status: artifact.GetStatus(), Message: artifact.GetMessage(),
 		})
 	}
+	if principal.Scoped {
+		if report.AgentID != principal.AgentID {
+			return nil, status.Error(codes.PermissionDenied, "report agent identity does not match authenticated agent")
+		}
+		for _, artifact := range report.Artifacts {
+			if pathSite(artifact.Path) != principal.SiteID {
+				return nil, status.Error(codes.PermissionDenied, "report contains an artifact from a different site")
+			}
+		}
+	} else {
+		published, err := service.service.Catalog()
+		if err != nil {
+			return nil, status.Error(codes.Internal, "artifact catalog unavailable")
+		}
+		if _, err := service.authorizedSite(principal, published); err != nil {
+			return nil, err
+		}
+	}
 	added, err := service.service.SubmitReport(report)
 	if err != nil {
 		if errors.Is(err, application.ErrInvalidAgentReport) {
@@ -235,8 +320,12 @@ func (service *agentProviderServer) ReportState(ctx context.Context, input *infr
 }
 
 func (service *agentProviderServer) ReportLogs(ctx context.Context, input *infrav1.AgentLogBatch) (*infrav1.AgentLogAck, error) {
-	if err := service.authorize(ctx); err != nil {
+	principal, err := service.authorize(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if principal.Scoped && input.GetAgentId() != principal.AgentID {
+		return nil, status.Error(codes.PermissionDenied, "log agent identity does not match authenticated agent")
 	}
 	if len(input.GetEventsJson()) == 0 || len(input.GetEventsJson()) > observability.MaxIngestBatch {
 		return nil, status.Error(codes.InvalidArgument, "log batch size is invalid")
@@ -265,14 +354,69 @@ func (service *agentProviderServer) ReportLogs(ctx context.Context, input *infra
 	return &infrav1.AgentLogAck{AcceptedCount: uint32(result.Accepted), DuplicateCount: uint32(result.Duplicate)}, nil
 }
 
-func (service *agentProviderServer) authorize(ctx context.Context) error {
+func (service *agentProviderServer) authorize(ctx context.Context) (agentPrincipal, error) {
 	metadataValues, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return status.Error(codes.Unauthenticated, "bearer token is required")
+		return agentPrincipal{}, status.Error(codes.Unauthenticated, "bearer token is required")
 	}
 	authorization := metadataValues.Get("authorization")
-	if len(authorization) != 1 || !security.BearerTokenMatches(authorization[0], service.token) {
-		return status.Error(codes.Unauthenticated, "invalid bearer token")
+	if len(authorization) != 1 {
+		return agentPrincipal{}, status.Error(codes.Unauthenticated, "invalid bearer token")
 	}
-	return nil
+	if len(service.agentCredentials) > 0 {
+		agentIDs := metadataValues.Get("x-infraflow-agent-id")
+		if len(agentIDs) != 1 {
+			return agentPrincipal{}, status.Error(codes.Unauthenticated, "agent identity is required")
+		}
+		credential, exists := service.agentCredentials[agentIDs[0]]
+		if !exists || !security.BearerTokenMatches(authorization[0], []byte(credential.Token)) {
+			return agentPrincipal{}, status.Error(codes.Unauthenticated, "invalid agent credentials")
+		}
+		registeredAgent, err := service.service.Agent(credential.AgentID)
+		if err != nil || registeredAgent.SiteID != credential.SiteID {
+			return agentPrincipal{}, status.Error(codes.PermissionDenied, "agent is not registered for its authorized site")
+		}
+		return agentPrincipal{AgentID: credential.AgentID, SiteID: credential.SiteID, Scoped: true}, nil
+	}
+	if !security.BearerTokenMatches(authorization[0], service.token) {
+		return agentPrincipal{}, status.Error(codes.Unauthenticated, "invalid bearer token")
+	}
+	return agentPrincipal{}, nil
+}
+
+func (service *agentProviderServer) authorizedSite(principal agentPrincipal, artifacts []protocol.Artifact) (string, error) {
+	if principal.Scoped {
+		return principal.SiteID, nil
+	}
+	siteIDs := make(map[string]struct{})
+	for _, artifact := range artifacts {
+		if siteID := pathSite(artifact.Path); siteID != "" {
+			siteIDs[siteID] = struct{}{}
+		}
+	}
+	if len(siteIDs) > 1 {
+		return "", status.Error(codes.FailedPrecondition, "multi-site artifact access requires site-scoped agent credentials")
+	}
+	for siteID := range siteIDs {
+		return siteID, nil
+	}
+	return "", nil
+}
+
+func filterArtifactsBySite(artifacts []protocol.Artifact, siteID string) []protocol.Artifact {
+	filtered := make([]protocol.Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if pathSite(artifact.Path) == siteID {
+			filtered = append(filtered, artifact)
+		}
+	}
+	return filtered
+}
+
+func pathSite(artifactPath string) string {
+	siteID, _, ok := strings.Cut(artifactPath, "/")
+	if !ok || !protocol.ValidSiteName(siteID) {
+		return ""
+	}
+	return siteID
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"infraflow/pkg/observability"
+	"infraflow/pkg/protocol"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,20 +23,27 @@ const (
 )
 
 type Config struct {
-	ListenAddress         string        `yaml:"listen_address"`
-	APIListenAddress      string        `yaml:"api_listen_address,omitempty"`
-	WebUIEnabled          bool          `yaml:"web_ui_enabled,omitempty"`
-	ArtifactDirectory     string        `yaml:"artifact_directory"`
-	DatabasePath          string        `yaml:"database_path,omitempty"`
-	TokenEnv              string        `yaml:"token_env"`
-	AdminUsername         string        `yaml:"admin_username,omitempty"`
-	AdminCredentialFile   string        `yaml:"admin_credential_file,omitempty"`
-	AdminCredentialScript string        `yaml:"admin_credential_script,omitempty"`
-	SessionTTLMinutes     int           `yaml:"session_ttl_minutes,omitempty"`
-	ChunkSize             int           `yaml:"chunk_size"`
-	Logging               LoggingConfig `yaml:"logging,omitempty"`
-	TLS                   TLSConfig     `yaml:"tls"`
-	KnownHostsFile        string        `yaml:"known_hosts_file,omitempty"`
+	ListenAddress         string            `yaml:"listen_address"`
+	APIListenAddress      string            `yaml:"api_listen_address,omitempty"`
+	WebUIEnabled          bool              `yaml:"web_ui_enabled,omitempty"`
+	ArtifactDirectory     string            `yaml:"artifact_directory"`
+	DatabasePath          string            `yaml:"database_path,omitempty"`
+	TokenEnv              string            `yaml:"token_env"`
+	AgentCredentials      []AgentCredential `yaml:"agent_credentials,omitempty"`
+	AdminUsername         string            `yaml:"admin_username,omitempty"`
+	AdminCredentialFile   string            `yaml:"admin_credential_file,omitempty"`
+	AdminCredentialScript string            `yaml:"admin_credential_script,omitempty"`
+	SessionTTLMinutes     int               `yaml:"session_ttl_minutes,omitempty"`
+	ChunkSize             int               `yaml:"chunk_size"`
+	Logging               LoggingConfig     `yaml:"logging,omitempty"`
+	TLS                   TLSConfig         `yaml:"tls"`
+	KnownHostsFile        string            `yaml:"known_hosts_file,omitempty"`
+}
+
+type AgentCredential struct {
+	AgentID  string `yaml:"agent_id"`
+	SiteID   string `yaml:"site_id"`
+	TokenEnv string `yaml:"token_env"`
 }
 
 type LoggingConfig struct {
@@ -156,6 +164,18 @@ func (config Config) Validate() error {
 	}
 	if strings.TrimSpace(config.TokenEnv) == "" {
 		return fmt.Errorf("token_env must name the environment variable holding the token")
+	}
+	seenAgentIDs := make(map[string]struct{}, len(config.AgentCredentials))
+	for _, credential := range config.AgentCredentials {
+		if !protocol.ValidSiteName(credential.AgentID) || len(credential.AgentID) > 128 ||
+			!protocol.ValidSiteName(credential.SiteID) || len(credential.SiteID) > 128 ||
+			strings.TrimSpace(credential.TokenEnv) == "" || strings.ContainsAny(credential.TokenEnv, "\r\n") {
+			return fmt.Errorf("agent_credentials require valid agent_id, site_id, and token_env values")
+		}
+		if _, exists := seenAgentIDs[credential.AgentID]; exists {
+			return fmt.Errorf("duplicate agent credential for %q", credential.AgentID)
+		}
+		seenAgentIDs[credential.AgentID] = struct{}{}
 	}
 	if strings.TrimSpace(config.DatabasePath) == "" {
 		return fmt.Errorf("database_path must be set")
