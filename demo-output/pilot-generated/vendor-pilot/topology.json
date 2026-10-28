@@ -1,0 +1,30 @@
+{
+  "site": "vendor-pilot",
+  "nodes": [
+    {
+      "id": "CiscoR1",
+      "name": "CiscoR1",
+      "role": "router",
+      "vendor": "cisco",
+      "model": "isr-1100",
+      "management_ip": "192.0.2.10"
+    },
+    {
+      "id": "FortiGate1",
+      "name": "FortiGate1",
+      "role": "firewall",
+      "vendor": "fortinet",
+      "model": "unspecified",
+      "management_ip": "203.0.113.10"
+    },
+    {
+      "id": "MikroTikR1",
+      "name": "MikroTikR1",
+      "role": "router",
+      "vendor": "mikrotik",
+      "model": "RB750Gr3",
+      "management_ip": "198.51.100.10"
+    }
+  ],
+  "edges": null
+}

@@ -1,0 +1,2 @@
+# Copy this file to terraform.tfvars only when a local override is needed.
+environment = "lab"

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "service": "pxe",
+  "enabled": false,
+  "site": "vendor-pilot",
+  "tftp_directory": "tftp",
+  "http_directory": "pxe",
+  "scripts": [
+    "ipxe/bootstrap.ipxe",
+    "ipxe/menu.ipxe"
+  ],
+  "images": []
+}
+

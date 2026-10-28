@@ -1,0 +1,31 @@
+{
+  "all": {
+    "children": {
+      "network": {
+        "hosts": {
+          "CiscoR1": {
+            "ansible_host": "192.0.2.10",
+            "infraflow_vendor": "cisco",
+            "infraflow_family": "iosxe",
+            "infraflow_model": "isr-1100",
+            "infraflow_role": "router"
+          },
+          "FortiGate1": {
+            "ansible_host": "203.0.113.10",
+            "infraflow_vendor": "fortinet",
+            "infraflow_family": "fortios",
+            "infraflow_model": "unspecified",
+            "infraflow_role": "firewall"
+          },
+          "MikroTikR1": {
+            "ansible_host": "198.51.100.10",
+            "infraflow_vendor": "mikrotik",
+            "infraflow_family": "routeros",
+            "infraflow_model": "RB750Gr3",
+            "infraflow_role": "router"
+          }
+        }
+      }
+    }
+  }
+}

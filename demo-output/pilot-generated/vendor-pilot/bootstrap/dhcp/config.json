@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "service": "dhcp",
+  "enabled": false,
+  "site": "vendor-pilot",
+  "network": "10.0.0.0/24",
+  "gateway": "10.0.0.1",
+  "pools": [
+    {
+      "start": "10.0.0.2",
+      "end": "10.0.0.254"
+    }
+  ],
+  "reserved_addresses": [
+    "10.0.0.1"
+  ],
+  "reservations": [],
+  "options": {
+    "dns_servers": [],
+    "next_server": "",
+    "next_server_source": "agent_runtime",
+    "boot_mode": "",
+    "boot_filename": "",
+    "tftp_directory": "",
+    "ipxe_script": "pxe/ipxe/bootstrap.ipxe"
+  }
+}
+

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+  "sites": [
+    {
+      "site_id": "vendor-pilot",
+      "site_name": "vendor-pilot",
+      "status": "succeeded",
+      "artifact_count": 23,
+      "site_manifest_path": "vendor-pilot/site-manifest.json",
+      "site_manifest_sha256": "bd64166dfceac234e52df4341cc520bd8dc49a96c0cf1777a3fb903ca2c2d8f3",
+      "generation_report_path": "vendor-pilot/generation-report.json"
+    }
+  ]
+}

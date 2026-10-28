@@ -1,0 +1,52 @@
+sites:
+  - name: vendor-pilot
+    bootstrap:
+      network: 10.0.0.0/24
+      gateway: 10.0.0.1
+    devices:
+      - name: CiscoR1
+        role: router
+        vendor: cisco
+        family: iosxe
+        model: isr-1100
+        management:
+          ipv4: 192.0.2.10
+        provisioning:
+          method: ssh
+        network:
+          interfaces:
+            - name: GigabitEthernet0/0/0
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+      - name: MikroTikR1
+        role: router
+        vendor: mikrotik
+        family: routeros
+        model: RB750Gr3
+        management:
+          ipv4: 198.51.100.10
+        provisioning:
+          method: api
+        network:
+          interfaces:
+            - name: ether2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+      - name: FortiGate1
+        role: firewall
+        vendor: fortinet
+        family: fortios
+        model: unspecified
+        management:
+          ipv4: 203.0.113.10
+        provisioning:
+          method: https
+        network:
+          vdom: root
+          interfaces:
+            - name: port2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 203.0.113.1/24

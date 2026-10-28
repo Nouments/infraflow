@@ -1,0 +1,17 @@
+{
+  "template_version": "1",
+  "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+  "execution_mode": "manual-only; run with --check for preview; INFRAFLOW_APPLY=true is required for mutation",
+  "devices": [
+    "CiscoR1",
+    "FortiGate1",
+    "MikroTikR1"
+  ],
+  "methods": {
+    "CiscoR1": "ssh",
+    "FortiGate1": "https",
+    "MikroTikR1": "api"
+  },
+  "status": "UNVERIFIED",
+  "evidence": "Rendered only for supported interface and static-route intent; no device execution or lab verification occurred"
+}

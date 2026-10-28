@@ -1,0 +1,12 @@
+#!ipxe
+# InfraFlow generated bootstrap entrypoint for vendor-pilot.
+# The agent supplies next-server and serves the referenced artifact path.
+dhcp
+isset ${next-server} || goto no_boot_server
+chain --replace http://${next-server}/infraflow/vendor-pilot/bootstrap/pxe/ipxe/menu.ipxe
+exit
+
+:no_boot_server
+echo InfraFlow: DHCP did not provide a bootstrap server.
+sleep 5
+exit

@@ -1,0 +1,40 @@
+{
+  "all": {
+    "children": {
+      "network": {
+        "hosts": {
+          "CiscoR1": {
+            "ansible_connection": "ansible.netcommon.network_cli",
+            "ansible_host": "192.0.2.10",
+            "ansible_network_os": "cisco.ios.ios",
+            "infraflow_family": "iosxe",
+            "infraflow_method": "ssh",
+            "infraflow_model": "isr-1100",
+            "infraflow_role": "router",
+            "infraflow_vendor": "cisco"
+          },
+          "FortiGate1": {
+            "ansible_connection": "ansible.netcommon.httpapi",
+            "ansible_host": "203.0.113.10",
+            "ansible_httpapi_use_ssl": true,
+            "ansible_httpapi_validate_certs": true,
+            "ansible_network_os": "fortinet.fortios.fortios",
+            "infraflow_family": "fortios",
+            "infraflow_method": "https",
+            "infraflow_model": "unspecified",
+            "infraflow_role": "firewall",
+            "infraflow_vendor": "fortinet"
+          },
+          "MikroTikR1": {
+            "ansible_host": "198.51.100.10",
+            "infraflow_family": "routeros",
+            "infraflow_method": "api",
+            "infraflow_model": "RB750Gr3",
+            "infraflow_role": "router",
+            "infraflow_vendor": "mikrotik"
+          }
+        }
+      }
+    }
+  }
+}
