@@ -56,4 +56,12 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !ValidArtifactPath("lab", Artifact{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"}) || !ValidArtifactPath("lab", Artifact{Type: "bootstrap_ipxe_script", Path: "lab/bootstrap/pxe/ipxe/bootstrap.ipxe"}) {
 		t.Fatal("expected valid bootstrap artifact paths")
 	}
+	if !ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: "lab/native/device-edge-west-1.cfg"}) {
+		t.Fatal("expected valid stable native device artifact path")
+	}
+	for _, path := range []string{"lab/native/device-../escape.cfg", "lab/native/device-a/b.cfg", "lab/native/device-.cfg"} {
+		if ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: path}) {
+			t.Errorf("accepted invalid native device artifact path %q", path)
+		}
+	}
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"infraflow/internal/domain"
-	"infraflow/pkg/protocol"
 
 	"gopkg.in/yaml.v3"
 )
@@ -91,10 +90,10 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 	if deployment.Kind != "NetworkDeployment" {
 		return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("kind: expected NetworkDeployment")
 	}
-	if !protocol.ValidSiteName(deployment.Metadata.Name) {
+	if !validTopologyIdentifier(deployment.Metadata.Name) {
 		return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("metadata.name: required; use letters, digits, '.', '_' or '-'")
 	}
-	if !protocol.ValidSiteName(deployment.Spec.Site) {
+	if !validTopologyIdentifier(deployment.Spec.Site) {
 		return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("spec.site: required; use letters, digits, '.', '_' or '-'")
 	}
 	if len(deployment.Spec.Devices) == 0 {
@@ -106,7 +105,7 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 	site := domain.Site{Name: deployment.Spec.Site}
 	for deviceIndex, declared := range deployment.Spec.Devices {
 		devicePath := fmt.Sprintf("spec.devices[%d]", deviceIndex)
-		if !protocol.ValidSiteName(declared.Name) {
+		if !validTopologyIdentifier(declared.Name) {
 			return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("%s.name: required; use letters, digits, '.', '_' or '-'", devicePath)
 		}
 		if _, exists := seenDevices[declared.Name]; exists {
@@ -139,7 +138,7 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 		seenInterfaces := make(map[string]struct{}, len(declared.Interfaces))
 		for interfaceIndex, declaredInterface := range declared.Interfaces {
 			interfacePath := fmt.Sprintf("%s.interfaces[%d]", devicePath, interfaceIndex)
-			if !deploymentInterfaceName.MatchString(declaredInterface.Name) {
+			if !validInterfaceIdentifier(declaredInterface.Name) {
 				return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("%s.name: invalid interface identifier", interfacePath)
 			}
 			if _, exists := seenInterfaces[declaredInterface.Name]; exists {

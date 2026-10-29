@@ -120,6 +120,14 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "requirements.yml"
 	case "ansible_vendor_manifest":
 		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-template.json"
+	case "native_device_config":
+		if len(parts) != 3 || parts[1] != "native" || !strings.HasPrefix(parts[2], "device-") || !strings.HasSuffix(parts[2], ".cfg") {
+			return false
+		}
+		index := strings.TrimSuffix(strings.TrimPrefix(parts[2], "device-"), ".cfg")
+		return len(index) <= 63 && ValidSiteName(index)
+	case "native_manifest":
+		return len(parts) == 3 && parts[1] == "native" && parts[2] == "native-manifest.json"
 	case "terraform_versions":
 		return len(parts) == 3 && parts[1] == "terraform" && parts[2] == "versions.tf"
 	case "terraform_providers":

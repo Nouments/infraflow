@@ -81,6 +81,7 @@ func NewServerWithAgentCredentials(service *application.Service, token string, a
 		logger = loggers[0]
 	}
 	credentialsByAgent := make(map[string]AgentCredential, len(agentCredentials))
+	seenSites := make(map[string]struct{}, len(agentCredentials))
 	seenTokens := make(map[string]struct{}, len(agentCredentials))
 	for _, agentCredential := range agentCredentials {
 		if !protocol.ValidSiteName(agentCredential.AgentID) || len(agentCredential.AgentID) > 128 ||
@@ -96,11 +97,20 @@ func NewServerWithAgentCredentials(service *application.Service, token string, a
 		if _, exists := credentialsByAgent[agentCredential.AgentID]; exists {
 			return nil, fmt.Errorf("duplicate agent credential for %q", agentCredential.AgentID)
 		}
+		if _, exists := seenSites[agentCredential.SiteID]; exists {
+			return nil, fmt.Errorf("site_id %q is assigned to multiple Agents", agentCredential.SiteID)
+		}
 		if _, exists := seenTokens[agentCredential.Token]; exists {
 			return nil, fmt.Errorf("agent credentials must use distinct tokens")
 		}
 		credentialsByAgent[agentCredential.AgentID] = agentCredential
+		seenSites[agentCredential.SiteID] = struct{}{}
 		seenTokens[agentCredential.Token] = struct{}{}
+	}
+	if len(credentialsByAgent) > 0 {
+		if err := validateAgentSiteCoverage(service, credentialsByAgent); err != nil {
+			return nil, err
+		}
 	}
 	options = append(options,
 		grpc.ChainUnaryInterceptor(unaryLogInterceptor(logger)),
@@ -115,6 +125,69 @@ func NewServerWithAgentCredentials(service *application.Service, token string, a
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(server, healthServer)
 	return server, nil
+}
+
+func validateAgentSiteCoverage(service *application.Service, credentials map[string]AgentCredential) error {
+	artifacts, err := service.Catalog()
+	if err != nil {
+		return fmt.Errorf("load published artifact catalog for Agent site validation: %w", err)
+	}
+	publishedSites := make(map[string]struct{})
+	for _, artifact := range artifacts {
+		if artifact.Type != "site_manifest" {
+			continue
+		}
+		reader, published, err := service.OpenArtifact(artifact.Path)
+		if err != nil {
+			return fmt.Errorf("open published site manifest %q: %w", artifact.Path, err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(reader, protocol.MaxArtifactBytes+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return fmt.Errorf("read published site manifest %q: %w", artifact.Path, readErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close published site manifest %q: %w", artifact.Path, closeErr)
+		}
+		if len(data) > protocol.MaxArtifactBytes {
+			return fmt.Errorf("published site manifest %q exceeds the maximum artifact size", artifact.Path)
+		}
+		if protocol.SHA256(data) != published.OutputHash {
+			return fmt.Errorf("published site manifest %q changed after catalog validation", artifact.Path)
+		}
+		var manifest protocol.SiteManifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return fmt.Errorf("decode published site manifest %q: %w", artifact.Path, err)
+		}
+		if manifest.Status != "succeeded" || !protocol.ValidSiteName(manifest.SiteID) {
+			return fmt.Errorf("published site manifest %q has invalid site metadata", artifact.Path)
+		}
+		if _, exists := publishedSites[manifest.SiteID]; exists {
+			return fmt.Errorf("multiple published site manifests for site_id %q", manifest.SiteID)
+		}
+		publishedSites[manifest.SiteID] = struct{}{}
+	}
+	if len(publishedSites) == 0 {
+		return nil
+	}
+	for siteID := range publishedSites {
+		found := false
+		for _, credential := range credentials {
+			if credential.SiteID == siteID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("no Agent credential configured for published site %q", siteID)
+		}
+	}
+	for _, credential := range credentials {
+		if _, exists := publishedSites[credential.SiteID]; !exists {
+			return fmt.Errorf("Agent credential %q references site %q without a published site manifest", credential.AgentID, credential.SiteID)
+		}
+	}
+	return nil
 }
 
 func unaryLogInterceptor(logger *observability.Logger) grpc.UnaryServerInterceptor {

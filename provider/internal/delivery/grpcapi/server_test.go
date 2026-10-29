@@ -121,6 +121,52 @@ func TestGRPCStreamsArtifactsAndReportsState(t *testing.T) {
 	}
 }
 
+func TestGRPCRequiresOneAgentCredentialForEveryPublishedSite(t *testing.T) {
+	root := t.TempDir()
+	infrastructure, err := (configadapter.Parser{}).Parse([]byte(`sites:
+  - name: site-a
+    bootstrap:
+      network: 192.0.2.0/24
+      gateway: 192.0.2.1
+  - name: site-b
+    bootstrap:
+      network: 198.51.100.0/24
+      gateway: 198.51.100.1
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := generator.GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewService(
+		filesystem.NewArtifactRepository(root), nil, generation.Generator{},
+		application.Dependencies{},
+	)
+	_, err = NewServerWithAgentCredentials(
+		service, strings.Repeat("g", security.MinAgentTokenBytes),
+		[]AgentCredential{{
+			AgentID: "agent-a", SiteID: "site-a", Token: strings.Repeat("a", security.MinAgentTokenBytes),
+		}},
+		DefaultChunkSize, nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "site-b") {
+		t.Fatalf("expected missing credential for published site-b to be rejected, got %v", err)
+	}
+	_, err = NewServerWithAgentCredentials(
+		service, strings.Repeat("g", security.MinAgentTokenBytes),
+		[]AgentCredential{
+			{AgentID: "agent-a", SiteID: "site-a", Token: strings.Repeat("a", security.MinAgentTokenBytes)},
+			{AgentID: "agent-b", SiteID: "site-b", Token: strings.Repeat("b", security.MinAgentTokenBytes)},
+			{AgentID: "agent-c", SiteID: "site-c", Token: strings.Repeat("c", security.MinAgentTokenBytes)},
+		},
+		DefaultChunkSize, nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "site-c") {
+		t.Fatalf("expected credential for unpublished site-c to be rejected, got %v", err)
+	}
+}
+
 func TestGRPCRejectsUnauthenticatedAgent(t *testing.T) {
 	root := t.TempDir()
 	infrastructure, err := (configadapter.Parser{}).Parse([]byte("sites:\n  - name: lab\n"))
@@ -323,6 +369,22 @@ func TestGRPCRejectsReuseOfGlobalTokenAsSiteCredential(t *testing.T) {
 	}
 }
 
+func TestGRPCRejectsMultipleAgentsForOneSite(t *testing.T) {
+	_, err := NewServerWithAgentCredentials(
+		application.NewService(nil, nil, nil, application.Dependencies{}),
+		strings.Repeat("g", security.MinAgentTokenBytes),
+		[]AgentCredential{
+			{AgentID: "agent-a", SiteID: "site-a", Token: strings.Repeat("a", security.MinAgentTokenBytes)},
+			{AgentID: "agent-b", SiteID: "site-a", Token: strings.Repeat("b", security.MinAgentTokenBytes)},
+		},
+		DefaultChunkSize,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "site_id") {
+		t.Fatalf("expected duplicate site assignment to be rejected, got %v", err)
+	}
+}
+
 func TestGRPCScopedAgentLogsRejectIdentityAndSiteSpoofing(t *testing.T) {
 	root := t.TempDir()
 	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
@@ -333,7 +395,7 @@ func TestGRPCScopedAgentLogsRejectIdentityAndSiteSpoofing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	service := application.NewServiceWithJobsAndAgents(filesystem.NewArtifactRepository(root), nil, nil, nil, agents, application.Dependencies{Logs: logs})
 	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-a", SiteID: "site-a"}); err != nil {
 		t.Fatal(err)
 	}

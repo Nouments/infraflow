@@ -166,6 +166,7 @@ func (config Config) Validate() error {
 		return fmt.Errorf("token_env must name the environment variable holding the token")
 	}
 	seenAgentIDs := make(map[string]struct{}, len(config.AgentCredentials))
+	seenAgentSites := make(map[string]struct{}, len(config.AgentCredentials))
 	for _, credential := range config.AgentCredentials {
 		if !protocol.ValidSiteName(credential.AgentID) || len(credential.AgentID) > 128 ||
 			!protocol.ValidSiteName(credential.SiteID) || len(credential.SiteID) > 128 ||
@@ -176,6 +177,10 @@ func (config Config) Validate() error {
 			return fmt.Errorf("duplicate agent credential for %q", credential.AgentID)
 		}
 		seenAgentIDs[credential.AgentID] = struct{}{}
+		if _, exists := seenAgentSites[credential.SiteID]; exists {
+			return fmt.Errorf("site_id %q is assigned to multiple Agents", credential.SiteID)
+		}
+		seenAgentSites[credential.SiteID] = struct{}{}
 	}
 	if strings.TrimSpace(config.DatabasePath) == "" {
 		return fmt.Errorf("database_path must be set")

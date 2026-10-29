@@ -616,7 +616,8 @@ func TestGenerateTerraformEscapesUserStrings(t *testing.T) {
 	infrastructure, err := config.Parse([]byte(`sites:
   - name: lab
     devices:
-      - name: '${dangerous_expression}'
+      - name: R1
+        vendor: '${dangerous_expression}'
 `))
 	if err != nil {
 		t.Fatal(err)

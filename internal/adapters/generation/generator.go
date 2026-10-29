@@ -616,6 +616,7 @@ func GenerateAllContext(ctx context.Context, infrastructure domain.Infrastructur
 			{"inventory and topology", Generate},
 			{"generic Ansible", GenerateAnsible},
 			{"vendor Ansible", GenerateVendorAnsible},
+			{"native configuration", GenerateNative},
 			{"Terraform data", GenerateTerraform},
 			{"bootstrap data", GenerateBootstrap},
 		} {
@@ -949,6 +950,14 @@ func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.G
 		})
 	} else {
 		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "vendor_ansible_rendering", Status: "not_configured"})
+	}
+	if _, exists := types["native_device_config"]; exists {
+		capabilities = append(capabilities, protocol.GenerationCapability{
+			Feature: "native_configuration_rendering", Status: "unverified",
+			Evidence: "text-only output; command syntax and physical-device behavior were not validated",
+		})
+	} else {
+		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "native_configuration_rendering", Status: "not_configured"})
 	}
 	for _, device := range site.Devices {
 		profile, exists := domain.VendorProfileFor(device)

@@ -136,6 +136,32 @@ func TestRunnerRejectsInvalidCatalogBeforeDownloads(t *testing.T) {
 	}
 }
 
+func TestRunnerRequiresSiteManifestForScopedAgent(t *testing.T) {
+	contents := []byte(`{"site":"site-a","devices":[]}`)
+	artifact := protocol.Artifact{
+		Type: "inventory", Path: "site-a/inventory.json",
+		InputHash: protocol.SHA256([]byte("input")), OutputHash: protocol.SHA256(contents),
+	}
+	provider := &fakeProvider{
+		catalog:  []protocol.Artifact{artifact},
+		contents: map[string][]byte{artifact.Path: contents},
+	}
+	state := &fakeState{artifacts: make(map[string][]byte)}
+	processor := &fakeProcessor{status: protocol.StatusCompleted}
+	runner, err := NewRunner("agent-a", provider, state, processor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.SetObservability(nil, nil, "site-a")
+	if _, err := runner.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "site manifest is required") {
+		t.Fatalf("site-scoped Agent accepted a catalog without a site manifest: %v", err)
+	}
+	if processor.count != 0 || len(state.artifacts) != 0 || len(provider.reports) != 0 {
+		t.Fatalf("Agent processed a catalog before site-manifest validation: processed=%d files=%d reports=%d",
+			processor.count, len(state.artifacts), len(provider.reports))
+	}
+}
+
 func TestRunnerVerifiesSiteManifestAgainstCatalogBeforeSynchronization(t *testing.T) {
 	inventoryBytes := []byte(`{"site":"site-a","devices":[]}`)
 	reportBytes, err := json.Marshal(protocol.GenerationReport{

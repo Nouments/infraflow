@@ -69,6 +69,16 @@ IPv4 interface addressing and administrative state. The report includes the
 candidate score (93/100), its criterion-by-criterion rationale, resolved
 variables, template hash, and explicit hardware-validation limits. Generated
 configuration is render-only; it is not applied to equipment.
+
+`generate-all` also emits text-only native configurations for the currently
+implemented Cisco IOS-XE, MikroTik RouterOS 7, and FortiOS family profiles.
+Native filenames use the declared device ID (or device name when no ID is
+provided), so adding another device does not renumber existing artifacts. The
+native manifest records model and software-version metadata when supplied but
+marks compatibility `unknown`; family-level rendering is not a supported
+model/version matrix or evidence of syntax validation. Unsupported intent is
+rejected rather than silently omitted. These outputs do not implement ZTP or
+AutoInstall and are never applied automatically.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
 and physical-device validation as `not_performed`. No IOS parser or device
@@ -177,6 +187,9 @@ to one `agent_id` and `site_id`; in this mode the legacy global machine token
 cannot access the gRPC artifact catalog. Keep the global token in a secret
 manager/environment for the existing HTTP registration endpoint, and provide
 each Agent's scoped token separately using `provider.artifact_token_env`.
+When site manifests are published, Provider startup verifies that every
+published site has exactly one configured Agent credential and rejects
+credentials for sites absent from the published catalog.
 The shared-token legacy gRPC mode remains limited to a single-site catalog.
 
 For example, the Provider's site credentials and one Agent's token references

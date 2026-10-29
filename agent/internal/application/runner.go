@@ -234,6 +234,9 @@ func (runner *Runner) verifySiteManifest(ctx context.Context, artifacts []protoc
 		manifestArtifact = &artifacts[index]
 	}
 	if manifestArtifact == nil {
+		if runner.siteID != "" {
+			return nil, fmt.Errorf("site manifest is required for a site-scoped Agent")
+		}
 		return nil, nil
 	}
 	siteName, _, _ := strings.Cut(manifestArtifact.Path, "/")

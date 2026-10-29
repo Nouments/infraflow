@@ -28,7 +28,24 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 		Type: "inventory", Path: "lab/inventory.json",
 		InputHash: protocol.SHA256([]byte("input")), OutputHash: protocol.SHA256(data),
 	}
-	server := &fakeAgentProvider{token: token, artifact: artifact, data: data}
+	manifestData, err := json.Marshal(protocol.SiteManifest{
+		SchemaVersion: 1, SiteID: "agent-01", SiteName: "lab", Status: "succeeded",
+		GeneratorVersion: "test", TemplateVersion: "test", InputHash: artifact.InputHash,
+		Artifacts: []protocol.SiteArtifact{{
+			Type: artifact.Type, Path: artifact.Path, SizeBytes: int64(len(data)), SHA256: artifact.OutputHash,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := protocol.Artifact{
+		Type: "site_manifest", Path: "lab/site-manifest.json",
+		InputHash: artifact.InputHash, OutputHash: protocol.SHA256(manifestData),
+	}
+	server := &fakeAgentProvider{
+		token: token, artifact: artifact, data: data,
+		manifest: manifest, manifestData: manifestData,
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +73,13 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("agent run failed with %d: %s", code, stderr.String())
 	}
-	if server.report == nil || server.report.AgentId != "agent-01" || len(server.report.Artifacts) != 1 || server.report.Artifacts[0].Status != protocol.StatusCompleted {
+	if server.report == nil || server.report.AgentId != "agent-01" || len(server.report.Artifacts) != 2 {
 		t.Fatalf("provider did not receive completed agent state: %#v", server.report)
+	}
+	for _, result := range server.report.Artifacts {
+		if result.Status != protocol.StatusCompleted {
+			t.Fatalf("provider received incomplete agent state: %#v", server.report)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(output, "lab", "inventory.json")); err != nil {
 		t.Fatalf("agent artifact missing: %v", err)
@@ -494,12 +516,14 @@ func TestAnsibleProcessOutputIsStreamedRedactedAndReportedOverGRPC(t *testing.T)
 
 type fakeAgentProvider struct {
 	infrav1.UnimplementedAgentProviderServer
-	token       string
-	artifact    protocol.Artifact
-	data        []byte
-	report      *infrav1.AgentStateReport
-	logBatches  []*infrav1.AgentLogBatch
-	releasePath string
+	token        string
+	artifact     protocol.Artifact
+	data         []byte
+	manifest     protocol.Artifact
+	manifestData []byte
+	report       *infrav1.AgentStateReport
+	logBatches   []*infrav1.AgentLogBatch
+	releasePath  string
 }
 
 func (server *fakeAgentProvider) authorize(ctx context.Context) error {
@@ -514,20 +538,38 @@ func (server *fakeAgentProvider) ListArtifacts(ctx context.Context, _ *infrav1.E
 	if err := server.authorize(ctx); err != nil {
 		return nil, err
 	}
-	return &infrav1.ArtifactCatalog{Artifacts: []*infrav1.ArtifactRecord{{
-		Type: server.artifact.Type, Path: server.artifact.Path,
-		InputHash: server.artifact.InputHash, OutputHash: server.artifact.OutputHash,
-	}}}, nil
+	artifacts := make([]*infrav1.ArtifactRecord, 0, 2)
+	if server.artifact.Path != "" {
+		artifacts = append(artifacts, artifactRecord(server.artifact))
+	}
+	if server.manifest.Path != "" {
+		artifacts = append(artifacts, artifactRecord(server.manifest))
+	}
+	return &infrav1.ArtifactCatalog{Artifacts: artifacts}, nil
 }
 
 func (server *fakeAgentProvider) DownloadArtifact(request *infrav1.DownloadRequest, stream grpc.ServerStreamingServer[infrav1.ArtifactChunk]) error {
 	if err := server.authorize(stream.Context()); err != nil {
 		return err
 	}
-	if err := stream.Send(&infrav1.ArtifactChunk{Path: server.artifact.Path, OutputHash: server.artifact.OutputHash, Data: server.data}); err != nil {
+	artifact, data := server.artifact, server.data
+	if request.GetPath() == server.manifest.Path {
+		artifact, data = server.manifest, server.manifestData
+	}
+	if request.GetPath() != artifact.Path || artifact.Path == "" {
+		return status.Error(codes.NotFound, "artifact not found")
+	}
+	if err := stream.Send(&infrav1.ArtifactChunk{Path: artifact.Path, OutputHash: artifact.OutputHash, Data: data}); err != nil {
 		return err
 	}
-	return stream.Send(&infrav1.ArtifactChunk{Path: server.artifact.Path, OutputHash: server.artifact.OutputHash, Offset: uint64(len(server.data)), Eof: true})
+	return stream.Send(&infrav1.ArtifactChunk{Path: artifact.Path, OutputHash: artifact.OutputHash, Offset: uint64(len(data)), Eof: true})
+}
+
+func artifactRecord(artifact protocol.Artifact) *infrav1.ArtifactRecord {
+	return &infrav1.ArtifactRecord{
+		Type: artifact.Type, Path: artifact.Path,
+		InputHash: artifact.InputHash, OutputHash: artifact.OutputHash,
+	}
 }
 
 func (server *fakeAgentProvider) ReportState(ctx context.Context, report *infrav1.AgentStateReport) (*infrav1.ReportAck, error) {

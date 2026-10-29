@@ -258,6 +258,127 @@ func TestParseSingleSiteAndEndpointForm(t *testing.T) {
 	}
 }
 
+func TestParseRejectsInvalidTopologyIdentifiers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "site id",
+			input: "sites:\n  - name: lab\n    id: 'bad id'\n",
+			want:  "id must be a valid identifier",
+		},
+		{
+			name:  "device name",
+			input: "sites:\n  - name: lab\n    devices:\n      - name: 'bad device'\n",
+			want:  "device name must be a valid identifier",
+		},
+		{
+			name:  "device id",
+			input: "sites:\n  - name: lab\n    devices:\n      - name: R1\n        id: 'bad id'\n",
+			want:  "device id must be a valid identifier",
+		},
+		{
+			name: "link id",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+      - name: SW1
+    links:
+      - id: "bad id"
+        a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`,
+			want: "link id must be a valid identifier",
+		},
+		{
+			name: "link interface",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+      - name: SW1
+    links:
+      - a: R1:bad interface
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`,
+			want: "endpoint interface must be a valid identifier",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse([]byte(test.input))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected error containing %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestParseRejectsDanglingAndAddressInconsistentLinks(t *testing.T) {
+	base := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/30
+      - name: SW1
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.2/30
+    links:
+      - id: transit
+        a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "unknown interface",
+			input: strings.Replace(base, "a: R1:Gi1", "a: R1:Gi9", 1),
+			want:  "endpoint references unknown interface Gi9 on device R1",
+		},
+		{
+			name:  "address outside link subnet",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.2/30", "ipv4_address: 10.0.1.2/30", 1),
+			want:  "endpoint address 10.0.1.2 is outside link network 10.0.0.0/30",
+		},
+		{
+			name:  "network address assigned",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.1/30", "ipv4_address: 10.0.0.0/30", 1),
+			want:  "network and broadcast addresses cannot be assigned",
+		},
+		{
+			name:  "duplicate interface address",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.2/30", "ipv4_address: 10.0.0.1/30", 1),
+			want:  "IPv4 address 10.0.0.1 duplicates",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse([]byte(test.input))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected error containing %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
 func TestParseRejectsUnknownFields(t *testing.T) {
 	_, err := Parse([]byte("sites:\n  - name: lab\n    surprise: true\n"))
 	if err == nil || !strings.Contains(err.Error(), "field surprise not found") {

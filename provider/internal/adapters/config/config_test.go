@@ -114,6 +114,21 @@ agent_credentials:
 	if _, err := Load(duplicate); err == nil || !strings.Contains(err.Error(), "duplicate agent credential") {
 		t.Fatalf("expected duplicate agent credentials to be rejected, got %v", err)
 	}
+
+	duplicateSite := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-a
+    site_id: site-a
+    token_env: TOKEN_A
+  - agent_id: agent-b
+    site_id: site-a
+    token_env: TOKEN_B
+`)
+	if _, err := Load(duplicateSite); err == nil || !strings.Contains(err.Error(), "site_id") {
+		t.Fatalf("expected a site to be assigned to only one Agent, got %v", err)
+	}
 }
 
 func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
