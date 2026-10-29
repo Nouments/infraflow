@@ -129,10 +129,11 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 		}
 
 		device := domain.Device{
-			Name:   declared.Name,
-			Vendor: strings.TrimSpace(declared.Vendor),
-			Model:  strings.TrimSpace(declared.Model),
-			Family: strings.TrimSpace(declared.OS),
+			Name:      declared.Name,
+			Vendor:    strings.TrimSpace(declared.Vendor),
+			Model:     strings.TrimSpace(declared.Model),
+			Family:    strings.TrimSpace(declared.OS),
+			OSVersion: strings.TrimSpace(declared.OSVersion),
 		}
 		network := &domain.DeviceNetwork{}
 		seenInterfaces := make(map[string]struct{}, len(declared.Interfaces))

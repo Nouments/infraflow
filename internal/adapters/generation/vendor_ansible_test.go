@@ -209,7 +209,10 @@ func TestBuildVendorTasksRendersCiscoInterfacesIntegration(t *testing.T) {
 		},
 	}
 
-	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	tasks, err := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(tasks) < 2 {
 		t.Fatalf("expected Cisco tasks plus safety assertion, got %d", len(tasks))
 	}
@@ -281,7 +284,10 @@ func TestBuildVendorTasksOmitsCiscoInterfaceTaskWhenNoInterfaces(t *testing.T) {
 		Network: &domain.DeviceNetwork{},
 	}
 
-	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	tasks, err := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(tasks) != 1 {
 		t.Fatalf("expected only the safety assertion when Cisco network intent is empty, got %d tasks", len(tasks))
 	}
@@ -307,7 +313,10 @@ func TestBuildVendorTasksKeepsCiscoInterfaceWithoutIPv4ButNoInventedData(t *test
 		},
 	}
 
-	tasks := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	tasks, err := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(tasks) != 2 {
 		t.Fatalf("expected safety assertion plus interface task, got %d", len(tasks))
 	}
@@ -334,6 +343,68 @@ func TestBuildVendorTasksKeepsCiscoInterfaceWithoutIPv4ButNoInventedData(t *test
 		if _, exists := entry[forbidden]; exists {
 			t.Fatalf("unexpected automatic %q field for interface without IP: %#v", forbidden, entry)
 		}
+	}
+}
+
+func TestBuildVendorTasksRendersCiscoStaticRoutes(t *testing.T) {
+	device := domain.Device{
+		Name:   "R1",
+		Vendor: "cisco",
+		Family: "iosxe",
+		Network: &domain.DeviceNetwork{
+			Interfaces: []domain.NetworkInterface{{
+				Name: "GigabitEthernet1", Role: "wan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24",
+			}},
+			Routes: []domain.StaticRoute{{
+				Destination: "203.0.113.0/24",
+				NextHop:     "192.0.2.2",
+				Interface:   "GigabitEthernet1",
+				Distance:    25,
+			}},
+		},
+	}
+
+	tasks, err := buildVendorTasks(device, vendorProfile{group: "cisco_iosxe", collection: "cisco.ios", family: "iosxe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected safety, interface, and route tasks; got %#v", tasks)
+	}
+	routeTask, ok := tasks[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected route task map, got %#v", tasks[2])
+	}
+	if routeTask["name"] != "Render Cisco static routes" {
+		t.Fatalf("unexpected route task name: %#v", routeTask["name"])
+	}
+	iosTask, ok := routeTask["cisco.ios.ios_static_routes"].(map[string]any)
+	if !ok || iosTask["state"] != "merged" {
+		t.Fatalf("expected merged cisco.ios.ios_static_routes task, got %#v", routeTask)
+	}
+	configItems, ok := iosTask["config"].([]any)
+	if !ok || len(configItems) != 1 {
+		t.Fatalf("expected one route configuration, got %#v", iosTask["config"])
+	}
+	addressFamilies := configItems[0].(map[string]any)["address_families"].([]any)
+	family := addressFamilies[0].(map[string]any)
+	if family["afi"] != "ipv4" {
+		t.Fatalf("expected IPv4 route family, got %#v", family["afi"])
+	}
+	routes := family["routes"].([]any)
+	route := routes[0].(map[string]any)
+	if route["dest"] != "203.0.113.0/24" {
+		t.Fatalf("unexpected Cisco route destination: %#v", route["dest"])
+	}
+	nextHops := route["next_hops"].([]any)
+	nextHop := nextHops[0].(map[string]any)
+	expectedNextHop := map[string]any{
+		"forward_router_address": "192.0.2.2",
+		"interface":              "GigabitEthernet1",
+		"distance_metric":        25,
+	}
+	if !reflect.DeepEqual(nextHop, expectedNextHop) {
+		t.Fatalf("unexpected Cisco route next-hop: got %#v, want %#v", nextHop, expectedNextHop)
 	}
 }
 
@@ -364,6 +435,11 @@ func TestGenerateVendorAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
               role: transit
               ipv4_mode: static
               ipv4_address: 10.0.0.5/30
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 10.0.0.6
+              interface: GigabitEthernet4
+              distance: 25
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -463,6 +539,30 @@ func TestGenerateVendorAnsibleWritesCiscoVendorPlaybookArtifact(t *testing.T) {
 		if seen[expectedName] != expectedAddr {
 			t.Fatalf("expected %q=%q in generated artifact, got %q", expectedName, expectedAddr, seen[expectedName])
 		}
+	}
+
+	if len(tasks) != 3 {
+		t.Fatalf("expected safety, interface, and route tasks in generated playbook; got %#v", tasks)
+	}
+	routeTask, ok := tasks[2].(map[string]any)
+	if !ok || routeTask["name"] != "Render Cisco static routes" {
+		t.Fatalf("expected Cisco static route task in generated playbook, got %#v", tasks[2])
+	}
+	staticRoutes, ok := routeTask["cisco.ios.ios_static_routes"].(map[string]any)
+	if !ok || staticRoutes["state"] != "merged" {
+		t.Fatalf("expected merged Cisco static route payload, got %#v", routeTask)
+	}
+	routeConfig := staticRoutes["config"].([]any)[0].(map[string]any)
+	routeFamily := routeConfig["address_families"].([]any)[0].(map[string]any)
+	generatedRoute := routeFamily["routes"].([]any)[0].(map[string]any)
+	if generatedRoute["dest"] != "203.0.113.0/24" {
+		t.Fatalf("expected canonical Cisco route destination in generated YAML, got %#v", generatedRoute["dest"])
+	}
+	generatedNextHop := generatedRoute["next_hops"].([]any)[0].(map[string]any)
+	if generatedNextHop["forward_router_address"] != "10.0.0.6" ||
+		generatedNextHop["interface"] != "GigabitEthernet4" ||
+		generatedNextHop["distance_metric"] != 25 {
+		t.Fatalf("unexpected generated Cisco static route next-hop: %#v", generatedNextHop)
 	}
 }
 

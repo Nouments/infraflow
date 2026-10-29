@@ -85,8 +85,8 @@ func TestGenerateCanonicalizesLinksWithSameEndpoints(t *testing.T) {
       - a: R1:Gi1
         b: SW1:Gi1
         network: 10.0.0.0/30
-      - a: R1:Gi1
-        b: SW1:Gi1
+      - a: R1:Gi2
+        b: SW1:Gi2
         network: 10.0.1.0/30
 `
 	secondInput := `sites:
@@ -95,8 +95,8 @@ func TestGenerateCanonicalizesLinksWithSameEndpoints(t *testing.T) {
       - name: R1
       - name: SW1
     links:
-      - a: R1:Gi1
-        b: SW1:Gi1
+      - a: R1:Gi2
+        b: SW1:Gi2
         network: 10.0.1.0/30
       - a: R1:Gi1
         b: SW1:Gi1

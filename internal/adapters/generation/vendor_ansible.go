@@ -87,9 +87,6 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 		if err != nil {
 			return nil, nil, err
 		}
-		if len(device.Network.Routes) > 0 && profile.group == "cisco_iosxe" {
-			return nil, nil, fmt.Errorf("device %s: Cisco Ansible renderer does not support static routes", device.Name)
-		}
 		if len(device.Network.NAT.Source)+len(device.Network.NAT.Destination) > 0 {
 			return nil, nil, fmt.Errorf("device %s: vendor Ansible renderer does not support NAT intent", device.Name)
 		}
@@ -142,12 +139,16 @@ func vendorAnsibleFiles(site domain.Site, inputHash string) ([]pendingFile, []Ar
 	playbook := make([]any, 0, len(deviceNames))
 	for _, deviceName := range deviceNames {
 		device := findDevice(site.Devices, deviceName)
+		tasks, err := buildVendorTasks(device, profiles[deviceName])
+		if err != nil {
+			return nil, nil, err
+		}
 		playbook = append(playbook, map[string]any{
 			"name":         "InfraFlow vendor configuration for " + deviceName,
 			"hosts":        deviceName,
 			"gather_facts": false,
 			"serial":       1,
-			"tasks":        buildVendorTasks(device, profiles[deviceName]),
+			"tasks":        tasks,
 		})
 	}
 	playbookBytes, err := marshal(playbook)
@@ -233,7 +234,7 @@ func findDevice(devices []domain.Device, name string) domain.Device {
 	return domain.Device{Name: name}
 }
 
-func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
+func buildVendorTasks(device domain.Device, profile vendorProfile) ([]any, error) {
 	if device.Network == nil {
 		return []any{
 			map[string]any{
@@ -244,7 +245,7 @@ func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
 				},
 			},
 			map[string]any{"name": "No network intent for this device", "ansible.builtin.debug": map[string]any{"msg": "No vendor task generated because network intent is empty"}},
-		}
+		}, nil
 	}
 
 	baseTasks := []any{
@@ -259,8 +260,12 @@ func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
 
 	switch profile.group {
 	case "cisco_iosxe":
+		tasks, err := renderCiscoTasks(device)
+		if err != nil {
+			return nil, err
+		}
 		baseTasks = append(baseTasks, renderCiscoAdminState(device.Network.Interfaces)...)
-		baseTasks = append(baseTasks, renderCiscoTasks(device)...)
+		baseTasks = append(baseTasks, tasks...)
 	case "mikrotik_routeros":
 		baseTasks = append(baseTasks, renderMikroTikTasks(device)...)
 	case "fortinet_fortios":
@@ -268,7 +273,7 @@ func buildVendorTasks(device domain.Device, profile vendorProfile) []any {
 	default:
 		baseTasks = append(baseTasks, map[string]any{"name": "Render vendor placeholder task", "ansible.builtin.debug": map[string]any{"msg": "Template is intentionally inert until a verified profile implementation is available"}})
 	}
-	return baseTasks
+	return baseTasks, nil
 }
 
 func renderCiscoAdminState(interfaces []domain.NetworkInterface) []any {
@@ -295,7 +300,7 @@ func renderCiscoAdminState(interfaces []domain.NetworkInterface) []any {
 	}}
 }
 
-func renderCiscoTasks(device domain.Device) []any {
+func renderCiscoTasks(device domain.Device) ([]any, error) {
 	tasks := make([]any, 0, 2)
 	if len(device.Network.Interfaces) > 0 {
 		tasks = append(tasks, map[string]any{
@@ -306,7 +311,20 @@ func renderCiscoTasks(device domain.Device) []any {
 			},
 		})
 	}
-	return tasks
+	if len(device.Network.Routes) > 0 {
+		routes, err := renderCiscoRoutes(device.Network.Routes)
+		if err != nil {
+			return nil, fmt.Errorf("device %s: render Cisco static routes: %w", device.Name, err)
+		}
+		tasks = append(tasks, map[string]any{
+			"name": "Render Cisco static routes",
+			"cisco.ios.ios_static_routes": map[string]any{
+				"config": routes,
+				"state":  "merged",
+			},
+		})
+	}
+	return tasks, nil
 }
 
 func renderCiscoInterfaces(interfaces []domain.NetworkInterface) []any {
@@ -324,23 +342,34 @@ func renderCiscoInterfaces(interfaces []domain.NetworkInterface) []any {
 	return out
 }
 
-func renderCiscoRoutes(routes []domain.StaticRoute) []any {
+func renderCiscoRoutes(routes []domain.StaticRoute) ([]any, error) {
 	out := make([]any, 0, len(routes))
 	for _, route := range routes {
+		destination, err := nativeNetworkPrefix(route.Destination)
+		if err != nil {
+			return nil, err
+		}
+		nextHop := make(map[string]any)
+		if route.NextHop != "" {
+			nextHop["forward_router_address"] = route.NextHop
+		}
+		if route.Interface != "" {
+			nextHop["interface"] = route.Interface
+		}
+		if route.Distance > 0 {
+			nextHop["distance_metric"] = route.Distance
+		}
 		out = append(out, map[string]any{
 			"address_families": []any{map[string]any{
 				"afi": "ipv4",
-				"safis": []any{map[string]any{
-					"multi_hop": false,
-					"routes": []any{map[string]any{
-						"dest":     route.Destination,
-						"next_hop": map[string]any{"forward_router_address": route.NextHop},
-					}},
+				"routes": []any{map[string]any{
+					"dest":      destination,
+					"next_hops": []any{nextHop},
 				}},
 			}},
 		})
 	}
-	return out
+	return out, nil
 }
 
 func renderMikroTikTasks(device domain.Device) []any {

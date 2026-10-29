@@ -31,7 +31,18 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the complete agent catalog (inventory, topology, Ansible, Terraform, DHCP/DNS/TFTP/PXE/iPXE) with one combined manifest; it does not contact infrastructure or apply a plan.
+`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the supported artifact catalog (inventory, topology, Ansible, Terraform, native device configuration, and bootstrap DHCP/DNS/TFTP/PXE/iPXE data) with one combined manifest; it does not contact infrastructure or apply a plan.
+
+The YAML parser accepts either `site` or `sites`, based on which top-level key
+is present, and rejects documents containing both. Network validation rejects
+overlapping static prefixes on interfaces of the same device, requires each
+declared link endpoint's configured prefix to match the link network, and
+rejects repeated interfaces within a link or interfaces assigned to multiple
+links. It checks a static route's next hop against the selected (or any) directly
+connected static interface prefix, and requires route destinations to use
+canonical IPv4 network CIDRs. The validator does not resolve recursive routes,
+DHCP-assigned gateways, VLANs, or dynamic routing; such reachability cannot be
+proven from the current input model.
 
 ### Reproducible declarative device-configuration demo
 
@@ -121,7 +132,7 @@ entries distinguish official URL references from files actually available
 locally. See
 [`internal/adapters/catalog/README.md`](internal/adapters/catalog/README.md).
 
-Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. They require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.
+Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. Cisco IOS-XE static routes use `cisco.ios.ios_static_routes` with the pinned `cisco.ios` 11.5.1 schema. These playbooks require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.
 
 ### Four-site Agent synchronization demo
 

@@ -22,6 +22,7 @@ var (
 	nativeIdentifier = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,62}$`)
 	nativeHostname   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,34}$`)
 	nativeVDOM       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,30}$`)
+	routerOS7Version = regexp.MustCompile(`^7\.(?:x|[0-9]+(?:\.[0-9]+)*)$`)
 )
 
 type nativeManifest struct {
@@ -136,7 +137,7 @@ func renderNativeSite(site domain.Site) ([]nativeOutput, error) {
 	devices := append([]domain.Device(nil), site.Devices...)
 	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
 	outputs := make([]nativeOutput, 0, len(devices))
-	seenPaths := make(map[string]struct{}, len(devices))
+	seenIdentities := make(map[string]struct{}, len(devices))
 	for _, device := range devices {
 		if device.Network == nil {
 			continue
@@ -172,10 +173,11 @@ func renderNativeSite(site domain.Site) ([]nativeOutput, error) {
 			return nil, err
 		}
 		path := filepath.ToSlash(filepath.Join(site.Name, "native", "device-"+artifactID+".cfg"))
-		if _, exists := seenPaths[path]; exists {
+		identityKey := strings.ToLower(artifactID)
+		if _, exists := seenIdentities[identityKey]; exists {
 			return nil, fmt.Errorf("site %s: native artifact identity %q is not unique", site.Name, artifactID)
 		}
-		seenPaths[path] = struct{}{}
+		seenIdentities[identityKey] = struct{}{}
 		outputs = append(outputs, nativeOutput{device: device, path: path, data: []byte(contents)})
 	}
 	return outputs, nil
@@ -197,13 +199,8 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 		return nativeCiscoIOSXE, nil
 	case vendor == "mikrotik" && family == "routeros":
 		version := strings.TrimSpace(device.OSVersion)
-		if !strings.HasPrefix(version, "7.") && version != "7.x" {
+		if !routerOS7Version.MatchString(version) {
 			return 0, fmt.Errorf("device %s: native MikroTik renderer requires an explicit RouterOS 7 version", device.Name)
-		}
-		for _, r := range version {
-			if !(r >= '0' && r <= '9') && r != '.' && r != 'x' {
-				return 0, fmt.Errorf("device %s: invalid RouterOS version %q", device.Name, version)
-			}
 		}
 		return nativeMikroTikRouterOS7, nil
 	case (vendor == "fortinet" || vendor == "fortigate") && (family == "fortios" || family == "fortigate"):
@@ -245,7 +242,7 @@ func renderNativeDevice(device domain.Device, profile nativeProfile) (string, er
 			out.WriteString("!\n")
 		}
 		for _, route := range device.Network.Routes {
-			destination, mask, err := nativeAddressAndMask(route.Destination)
+			destination, mask, err := nativeNetworkAddressAndMask(route.Destination)
 			if err != nil {
 				return "", fmt.Errorf("device %s route %s: %w", device.Name, route.Destination, err)
 			}
@@ -320,8 +317,12 @@ func renderNativeDevice(device domain.Device, profile nativeProfile) (string, er
 		if len(device.Network.Routes) > 0 {
 			out.WriteString("        config router static\n")
 			for _, route := range device.Network.Routes {
+				destination, mask, err := nativeNetworkAddressAndMask(route.Destination)
+				if err != nil {
+					return "", fmt.Errorf("device %s route %s: %w", device.Name, route.Destination, err)
+				}
 				fmt.Fprintf(&out, "            edit %d\n", route.FortinetSequence)
-				fmt.Fprintf(&out, "                set dst %s\n", route.Destination)
+				fmt.Fprintf(&out, "                set dst %s %s\n", destination, mask)
 				if route.NextHop != "" {
 					fmt.Fprintf(&out, "                set gateway %s\n", route.NextHop)
 				}
@@ -347,4 +348,20 @@ func nativeAddressAndMask(prefix string) (string, string, error) {
 	}
 	mask := net.IP(network.Mask).String()
 	return address.To4().String(), mask, nil
+}
+
+func nativeNetworkAddressAndMask(prefix string) (string, string, error) {
+	_, network, err := net.ParseCIDR(prefix)
+	if err != nil || network == nil || network.IP.To4() == nil {
+		return "", "", fmt.Errorf("expected IPv4 network CIDR, got %q", prefix)
+	}
+	return network.IP.To4().String(), net.IP(network.Mask).String(), nil
+}
+
+func nativeNetworkPrefix(prefix string) (string, error) {
+	_, network, err := net.ParseCIDR(prefix)
+	if err != nil || network == nil || network.IP.To4() == nil {
+		return "", fmt.Errorf("expected IPv4 network CIDR, got %q", prefix)
+	}
+	return network.String(), nil
 }

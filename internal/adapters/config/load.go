@@ -43,6 +43,10 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 		infrastructure, _, err := ParseNetworkDeployment(data)
 		return infrastructure, err
 	}
+	rootKeys, err := topLevelYAMLKeys(data)
+	if err != nil {
+		return domain.Infrastructure{}, fmt.Errorf("decode configuration: %w", err)
+	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -58,7 +62,7 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 		}
 		return domain.Infrastructure{}, fmt.Errorf("decode trailing YAML: %w", err)
 	}
-	if input.Site != nil && len(input.Sites) > 0 {
+	if rootKeys["site"] && rootKeys["sites"] {
 		return domain.Infrastructure{}, fmt.Errorf("use either 'site' or 'sites', not both")
 	}
 
@@ -90,6 +94,24 @@ func Parse(data []byte) (domain.Infrastructure, error) {
 		return domain.Infrastructure{}, validationErrors
 	}
 	return infrastructure, nil
+}
+
+func topLevelYAMLKeys(data []byte) (map[string]bool, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool)
+	if root.Kind != yaml.DocumentNode || len(root.Content) != 1 || root.Content[0].Kind != yaml.MappingNode {
+		return keys, nil
+	}
+	for index := 0; index+1 < len(root.Content[0].Content); index += 2 {
+		key := root.Content[0].Content[index]
+		if key.Kind == yaml.ScalarNode {
+			keys[key.Value] = true
+		}
+	}
+	return keys, nil
 }
 
 func Read(reader io.Reader) (domain.Infrastructure, error) {
@@ -244,8 +266,10 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 		}
 
 		seenLinkIDs := make(map[string]struct{})
+		linkedInterfaces := make(map[string]string)
 		for _, link := range site.Links {
 			linkPrefix := prefix + ", link " + display(link.ID)
+			linkEndpoints := make(map[string]struct{}, 2)
 			if link.ID != "" {
 				if !validTopologyIdentifier(link.ID) {
 					problems = append(problems, linkPrefix+": link id must be a valid identifier no longer than 128 characters")
@@ -278,6 +302,11 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 						problems = append(problems, linkPrefix+": endpoint interface must be a valid identifier")
 						continue
 					}
+					if _, exists := linkEndpoints[endpoint]; exists {
+						problems = append(problems, linkPrefix+": endpoints must reference two distinct device interfaces")
+						continue
+					}
+					linkEndpoints[endpoint] = struct{}{}
 					device, exists := devicesByName[deviceName]
 					if !exists {
 						problems = append(problems, linkPrefix+": endpoint references unknown device "+deviceName)
@@ -288,6 +317,13 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 							problems = append(problems, linkPrefix+": endpoint references unknown interface "+iface+" on device "+deviceName)
 						}
 					}
+				}
+			}
+			for endpoint := range linkEndpoints {
+				if previous, exists := linkedInterfaces[endpoint]; exists {
+					problems = append(problems, linkPrefix+": endpoint "+endpoint+" is already assigned to "+previous)
+				} else {
+					linkedInterfaces[endpoint] = "link " + display(link.ID)
 				}
 			}
 			_, linkNetwork, err := net.ParseCIDR(link.Network)
@@ -309,10 +345,38 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 						if !exists {
 							continue
 						}
-						address, _, parseErr := net.ParseCIDR(iface.IPv4Address)
-						if parseErr == nil && address.To4() != nil && !linkNetwork.Contains(address) {
-							problems = append(problems, linkPrefix+": endpoint address "+address.To4().String()+" is outside link network "+link.Network)
+						address, interfaceNetwork, parseErr := net.ParseCIDR(iface.IPv4Address)
+						if parseErr == nil && address.To4() != nil {
+							if !linkNetwork.Contains(address) {
+								problems = append(problems, linkPrefix+": endpoint address "+address.To4().String()+" is outside link network "+link.Network)
+							} else if interfaceNetwork.String() != linkNetwork.String() {
+								problems = append(problems, linkPrefix+": endpoint interface prefix "+interfaceNetwork.String()+" does not match link network "+link.Network)
+							}
 						}
+					}
+				}
+			}
+		}
+		for _, device := range site.Devices {
+			if device.Network == nil {
+				continue
+			}
+			var deviceNetworks []namedNetwork
+			for _, iface := range device.Network.Interfaces {
+				if iface.IPv4Mode != "static" {
+					continue
+				}
+				_, network, err := net.ParseCIDR(iface.IPv4Address)
+				if err == nil {
+					deviceNetworks = append(deviceNetworks, namedNetwork{
+						name: iface.Name, network: network,
+					})
+				}
+			}
+			for index, current := range deviceNetworks {
+				for _, previous := range deviceNetworks[:index] {
+					if networksOverlap(current.network, previous.network) {
+						problems = append(problems, prefix+": interfaces "+device.Name+":"+current.name+" and "+device.Name+":"+previous.name+" have overlapping networks")
 					}
 				}
 			}
@@ -395,8 +459,8 @@ func validateDeviceNetwork(prefix string, device domain.Device, seenIPv4Addresse
 	routes := make(map[string]struct{}, len(device.Network.Routes))
 	fortinetSequences := make(map[int]struct{})
 	for _, route := range device.Network.Routes {
-		if !validIPv4Prefix(route.Destination) {
-			problems = append(problems, prefix+": route destination must be an IPv4 CIDR")
+		if !validIPv4NetworkPrefix(route.Destination) {
+			problems = append(problems, prefix+": route destination must be a canonical IPv4 network CIDR")
 		}
 		if route.NextHop == "" && route.Interface == "" {
 			problems = append(problems, prefix+": route requires next_hop or interface")
@@ -407,6 +471,41 @@ func validateDeviceNetwork(prefix string, device domain.Device, seenIPv4Addresse
 		if route.Interface != "" {
 			if _, exists := interfaces[route.Interface]; !exists {
 				problems = append(problems, prefix+": route references unknown interface "+route.Interface)
+			}
+		}
+		if route.NextHop != "" && validIPv4Address(route.NextHop) {
+			nextHop := net.ParseIP(route.NextHop).To4()
+			reachable := false
+			for ifaceName, iface := range interfaces {
+				if route.Interface != "" && ifaceName != route.Interface {
+					continue
+				}
+				if iface.IPv4Mode != "static" {
+					continue
+				}
+				address, network, err := net.ParseCIDR(iface.IPv4Address)
+				if err != nil || !network.Contains(nextHop) || address.To4().Equal(nextHop) {
+					continue
+				}
+				ones, bits := network.Mask.Size()
+				if bits == 32 && ones <= 30 {
+					broadcast := append(net.IP(nil), network.IP.To4()...)
+					for maskIndex, maskByte := range network.Mask {
+						broadcast[maskIndex] |= ^maskByte
+					}
+					if nextHop.Equal(network.IP.To4()) || nextHop.Equal(broadcast) {
+						continue
+					}
+				}
+				reachable = true
+				break
+			}
+			if !reachable {
+				if route.Interface != "" {
+					problems = append(problems, prefix+": route next_hop must be inside a static IPv4 prefix on interface "+route.Interface)
+				} else {
+					problems = append(problems, prefix+": route next_hop must be reachable through a configured static IPv4 interface")
+				}
 			}
 		}
 		if route.Distance < 0 || route.Distance > 255 {
@@ -560,6 +659,11 @@ func validIPv4Address(value string) bool {
 func validIPv4Prefix(value string) bool {
 	address, _, err := net.ParseCIDR(value)
 	return err == nil && address.To4() != nil
+}
+
+func validIPv4NetworkPrefix(value string) bool {
+	address, network, err := net.ParseCIDR(value)
+	return err == nil && address.To4() != nil && network != nil && address.To4().Equal(network.IP.To4())
 }
 
 func validIPv4Mask(value string) bool {

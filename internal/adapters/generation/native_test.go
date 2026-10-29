@@ -118,7 +118,7 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 		"set ip 192.0.2.3 255.255.255.0",
 		"set status down",
 		"edit 10",
-		"set dst 198.51.100.0/24",
+		"set dst 198.51.100.0 255.255.255.0",
 		`set device "port1"`,
 		"set distance 7",
 	} {
@@ -171,6 +171,16 @@ func TestGenerateNativeRejectsUnsupportedIntent(t *testing.T) {
 			name: "RouterOS version must be explicit",
 			device: domain.Device{
 				Name: "router2", Vendor: "mikrotik", Family: "routeros",
+				Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{
+					{Name: "ether1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.2/24"},
+				}},
+			},
+			wantMessage: "requires an explicit RouterOS 7 version",
+		},
+		{
+			name: "RouterOS version syntax must be valid",
+			device: domain.Device{
+				Name: "router2", Vendor: "mikrotik", Family: "routeros", OSVersion: "7..12",
 				Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{
 					{Name: "ether1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.2/24"},
 				}},
@@ -242,6 +252,39 @@ func TestGenerateNativeRejectsInvalidParameters(t *testing.T) {
 	}
 }
 
+func TestGenerateNativeRejectsCaseInsensitiveArtifactIdentityCollision(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: router1
+        id: Edge
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+      - name: router2
+        id: edge
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateNative(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "native artifact identity") {
+		t.Fatalf("expected case-insensitive artifact path collision to be rejected, got %v", err)
+	}
+}
+
 func TestGenerateNativeArtifactsHaveDeterministicHashes(t *testing.T) {
 	infrastructure, err := config.Parse([]byte(`sites:
   - name: lab
@@ -250,6 +293,11 @@ func TestGenerateNativeArtifactsHaveDeterministicHashes(t *testing.T) {
         vendor: cisco
         family: iosxe
         network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
           routes:
             - destination: 198.51.100.0/24
               next_hop: 192.0.2.254
@@ -334,6 +382,56 @@ func TestGenerateAllPublishesNativeArtifactsThroughManifest(t *testing.T) {
 	}
 	if len(catalog) != len(generated) {
 		t.Fatalf("published catalog has %d artifacts; GenerateAll returned %d", len(catalog), len(generated))
+	}
+}
+
+func TestPilotInputPublishesNativeConfigsForEachDeclaredVendor(t *testing.T) {
+	input, err := os.ReadFile(filepath.Join("..", "..", "..", "demo-output", "pilot-input.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := config.Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatalf("pilot generate-all failed: %v", err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedPaths := []string{
+		"vendor-pilot/native/device-CiscoR1.cfg",
+		"vendor-pilot/native/device-MikroTikR1.cfg",
+		"vendor-pilot/native/device-FortiGate1.cfg",
+	}
+	publishedPaths := make(map[string]protocol.Artifact, len(catalog))
+	for _, artifact := range catalog {
+		publishedPaths[artifact.Path] = artifact
+	}
+	for _, path := range expectedPaths {
+		artifact, exists := publishedPaths[path]
+		if !exists || artifact.Type != "native_device_config" {
+			t.Errorf("pilot did not publish native device config %q: %#v", path, artifact)
+			continue
+		}
+		contents, verified, err := ReadArtifact(root, path)
+		if err != nil || len(contents) == 0 || protocol.SHA256(contents) != verified.OutputHash {
+			t.Errorf("pilot native artifact %q failed published hash verification: %v", path, err)
+		}
+	}
+	var manifest nativeManifest
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "vendor-pilot", "native", "native-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Devices) != 3 || manifest.Status != "rendered_unverified" {
+		t.Fatalf("pilot manifest does not describe the three unverified vendor renders: %#v", manifest)
 	}
 }
 

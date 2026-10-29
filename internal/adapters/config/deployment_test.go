@@ -16,6 +16,7 @@ spec:
       vendor: cisco
       model: isr-1100
       os: ios-xe
+      os_version: "17.12.4"
       interfaces:
         - name: GigabitEthernet0/0/0
           ipv4: 192.0.2.1/24
@@ -27,7 +28,8 @@ func TestParseNetworkDeploymentAdaptsVersionedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deployment.Metadata.Name != "demo" || infrastructure.Sites[0].Devices[0].Family != "ios-xe" {
+	if deployment.Metadata.Name != "demo" || infrastructure.Sites[0].Devices[0].Family != "ios-xe" ||
+		infrastructure.Sites[0].Devices[0].OSVersion != "17.12.4" {
 		t.Fatalf("unexpected adapted deployment: %#v / %#v", deployment, infrastructure)
 	}
 	if got := infrastructure.Sites[0].Devices[0].Network.Interfaces[0].IPv4Address; got != "192.0.2.1/24" {

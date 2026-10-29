@@ -24,6 +24,8 @@ sites:
         vendor: mikrotik
         family: routeros
         model: RB750Gr3
+        # Version train only; exact version and hardware compatibility are unknown.
+        os_version: "7.x"
         management:
           ipv4: 198.51.100.10
         provisioning:
