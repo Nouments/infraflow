@@ -131,7 +131,7 @@ entries distinguish official URL references from files actually available
 locally. See
 [`internal/adapters/catalog/README.md`](internal/adapters/catalog/README.md).
 
-Ansible is not part of the InfraFlow architecture: there is no Ansible generator, artifact contract, runner, or CLI command. The project focus is device-specific ZTP and AutoInstall workflows. Today, the provider emits generic static DHCP/DNS/TFTP/PXE/iPXE bootstrap contracts and native text configurations; these are not yet complete vendor ZTP/AutoInstall flows, are not automatically applied, and remain unverified against physical devices.
+Ansible is not part of the InfraFlow architecture: there is no Ansible generator, artifact contract, runner, or CLI command. The project focus is device-specific ZTP and AutoInstall workflows. Today, the provider emits generic static DHCP/DNS/TFTP/PXE/iPXE bootstrap contracts and native text configurations; these are not yet complete vendor ZTP/AutoInstall flows, are not automatically applied, and remain unverified against physical devices. See the [vendor provisioning audit](docs/vendor-provisioning-audit.md) for the current capability matrix, architecture boundaries, official references consulted, and evidence limits.
 
 ### Four-site Agent synchronization demo
 

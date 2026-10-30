@@ -37,9 +37,11 @@ type nativeManifest struct {
 type nativeDeviceReport struct {
 	ID            string `json:"id,omitempty"`
 	Name          string `json:"name"`
+	Vendor        string `json:"vendor"`
 	Family        string `json:"family"`
 	Model         string `json:"model,omitempty"`
 	OSVersion     string `json:"os_version,omitempty"`
+	TemplateID    string `json:"template_id"`
 	Compatibility string `json:"compatibility"`
 	Path          string `json:"path"`
 	Status        string `json:"status"`
@@ -91,8 +93,13 @@ func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string
 			Devices: make([]nativeDeviceReport, 0, len(outputs)),
 		}
 		for _, output := range outputs {
+			profile, err := nativeProfileFor(output.device)
+			if err != nil {
+				return nil, err
+			}
 			manifest.Devices = append(manifest.Devices, nativeDeviceReport{
-				ID: output.device.ID, Name: output.device.Name, Family: output.device.Family,
+				ID: output.device.ID, Name: output.device.Name, Vendor: nativeVendor(profile),
+				Family: nativeFamily(profile), TemplateID: nativeTemplateID(profile),
 				Model: output.device.Model, OSVersion: output.device.OSVersion,
 				Compatibility: "unknown", Path: output.path, Status: "rendered_unverified",
 			})
@@ -190,6 +197,45 @@ const (
 	nativeMikroTikRouterOS7
 	nativeFortiOS
 )
+
+func nativeVendor(profile nativeProfile) string {
+	switch profile {
+	case nativeCiscoIOSXE:
+		return "cisco"
+	case nativeMikroTikRouterOS7:
+		return "mikrotik"
+	case nativeFortiOS:
+		return "fortinet"
+	default:
+		return ""
+	}
+}
+
+func nativeFamily(profile nativeProfile) string {
+	switch profile {
+	case nativeCiscoIOSXE:
+		return "iosxe"
+	case nativeMikroTikRouterOS7:
+		return "routeros"
+	case nativeFortiOS:
+		return "fortios"
+	default:
+		return ""
+	}
+}
+
+func nativeTemplateID(profile nativeProfile) string {
+	switch profile {
+	case nativeCiscoIOSXE:
+		return "infraflow.cisco.iosxe.native"
+	case nativeMikroTikRouterOS7:
+		return "infraflow.mikrotik.routeros7.native"
+	case nativeFortiOS:
+		return "infraflow.fortinet.fortios.native"
+	default:
+		return ""
+	}
+}
 
 func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 	vendor := strings.ToLower(strings.TrimSpace(device.Vendor))

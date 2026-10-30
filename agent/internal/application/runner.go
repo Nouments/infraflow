@@ -282,7 +282,8 @@ func (runner *Runner) verifySiteManifest(ctx context.Context, artifacts []protoc
 		if !exists || catalogArtifact.Type != declared.Type || catalogArtifact.OutputHash != declared.SHA256 ||
 			catalogArtifact.InputHash != manifest.InputHash ||
 			declared.SizeBytes < 0 || declared.SizeBytes > protocol.MaxArtifactBytes ||
-			!protocol.ValidArtifactPath(siteName, protocol.Artifact{Type: declared.Type, Path: declared.Path}) {
+			!protocol.ValidArtifactPath(siteName, protocol.Artifact{Type: declared.Type, Path: declared.Path}) ||
+			!protocol.ValidSiteArtifactMetadata(manifest.SiteID, manifest.InputHash, declared) {
 			return nil, fmt.Errorf("site manifest contains an unexpected or inconsistent artifact")
 		}
 		sizes[declared.Path] = declared.SizeBytes

@@ -141,6 +141,9 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 	if manifest.Devices[0].Compatibility != "unknown" || manifest.Devices[0].Model != "FG-60F" || manifest.Devices[0].OSVersion != "7.4.5" {
 		t.Fatalf("native manifest must preserve target identity without claiming compatibility: %#v", manifest.Devices[0])
 	}
+	if manifest.Devices[0].Vendor != "fortinet" || manifest.Devices[0].TemplateID != "infraflow.fortinet.fortios.native" {
+		t.Fatalf("native manifest must identify the renderer provenance: %#v", manifest.Devices[0])
+	}
 }
 
 func TestGenerateNativeRejectsUnsupportedIntent(t *testing.T) {
@@ -379,6 +382,34 @@ func TestGenerateAllPublishesNativeArtifactsThroughManifest(t *testing.T) {
 		if !paths[path] {
 			t.Errorf("GenerateAll manifest omitted native artifact %q", path)
 		}
+	}
+	var siteManifest protocol.SiteManifest
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "lab", "site-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestBytes, &siteManifest); err != nil {
+		t.Fatal(err)
+	}
+	foundNativeConfig := false
+	for _, artifact := range siteManifest.Artifacts {
+		if artifact.Type != "native_device_config" {
+			continue
+		}
+		foundNativeConfig = true
+		if artifact.SiteID != "lab" || artifact.DeviceID != "router1" ||
+			artifact.Vendor != "cisco" || artifact.Family != "iosxe" ||
+			artifact.Format != "text/plain" || artifact.TemplateID != "infraflow.cisco.iosxe.native" ||
+			artifact.TemplateVersion != nativeTemplateVersion ||
+			artifact.InputHash != siteManifest.InputHash ||
+			artifact.GenerationStatus != "rendered_unverified" ||
+			artifact.CompatibilityStatus != "unknown" ||
+			artifact.DocumentationReferences == nil {
+			t.Fatalf("native artifact metadata is incomplete or overclaims support: %#v", artifact)
+		}
+	}
+	if !foundNativeConfig {
+		t.Fatal("site manifest does not declare native configuration provenance")
 	}
 	if len(catalog) != len(generated) {
 		t.Fatalf("published catalog has %d artifacts; GenerateAll returned %d", len(catalog), len(generated))

@@ -19,10 +19,23 @@ type Artifact struct {
 }
 
 type SiteArtifact struct {
-	Type      string `json:"type"`
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"size_bytes"`
-	SHA256    string `json:"sha256"`
+	Type                    string   `json:"type"`
+	Path                    string   `json:"path"`
+	SizeBytes               int64    `json:"size_bytes"`
+	SHA256                  string   `json:"sha256"`
+	SiteID                  string   `json:"site_id,omitempty"`
+	DeviceID                string   `json:"device_id,omitempty"`
+	Vendor                  string   `json:"vendor,omitempty"`
+	Family                  string   `json:"family,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	OSVersion               string   `json:"os_version,omitempty"`
+	Format                  string   `json:"artifact_format,omitempty"`
+	TemplateID              string   `json:"template_id,omitempty"`
+	TemplateVersion         string   `json:"template_version,omitempty"`
+	InputHash               string   `json:"input_hash,omitempty"`
+	GenerationStatus        string   `json:"generation_status,omitempty"`
+	CompatibilityStatus     string   `json:"compatibility_status,omitempty"`
+	DocumentationReferences []string `json:"documentation_references"`
 }
 
 type GenerationCapability struct {
@@ -150,6 +163,30 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 func IsSHA256(value string) bool {
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == sha256.Size
+}
+
+// ValidSiteArtifactMetadata validates optional per-device provenance fields.
+// Older site manifests remain valid when all such fields are absent.
+func ValidSiteArtifactMetadata(siteID, manifestInputHash string, artifact SiteArtifact) bool {
+	hasMetadata := artifact.SiteID != "" || artifact.DeviceID != "" || artifact.Vendor != "" ||
+		artifact.Family != "" || artifact.Model != "" || artifact.OSVersion != "" ||
+		artifact.Format != "" || artifact.TemplateID != "" || artifact.TemplateVersion != "" ||
+		artifact.InputHash != "" || artifact.GenerationStatus != "" ||
+		artifact.CompatibilityStatus != "" || artifact.DocumentationReferences != nil
+	if !hasMetadata {
+		return true
+	}
+
+	return artifact.SiteID == siteID &&
+		ValidSiteName(artifact.DeviceID) && len(artifact.DeviceID) <= 128 &&
+		artifact.Type == "native_device_config" && artifact.Format == "text/plain" &&
+		artifact.Vendor != "" && artifact.Family != "" &&
+		artifact.Format != "" && artifact.TemplateID != "" &&
+		artifact.TemplateVersion != "" &&
+		IsSHA256(artifact.InputHash) && artifact.InputHash == manifestInputHash &&
+		artifact.GenerationStatus == "rendered_unverified" &&
+		artifact.CompatibilityStatus == "unknown" &&
+		artifact.DocumentationReferences != nil
 }
 
 func SHA256(data []byte) string {

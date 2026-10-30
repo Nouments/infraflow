@@ -31,6 +31,7 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 			t.Errorf("accepted invalid artifact path %q", path)
 		}
 	}
+
 	if !IsSHA256(SHA256([]byte("test"))) || IsSHA256("short") {
 		t.Fatal("SHA-256 validation failed")
 	}
@@ -50,5 +51,36 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 		if ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: path}) {
 			t.Errorf("accepted invalid native device artifact path %q", path)
 		}
+	}
+
+}
+
+func TestValidSiteArtifactMetadataRequiresCompleteRenderOnlyProvenance(t *testing.T) {
+	inputHash := SHA256([]byte("input"))
+	artifact := SiteArtifact{
+		Type: "native_device_config", Path: "lab/native/device-r1.cfg",
+		SiteID: "site-lab", DeviceID: "r1", Vendor: "cisco", Family: "iosxe",
+		Model: "C9300", OSVersion: "17.6.4", Format: "text/plain",
+		TemplateID: "infraflow.cisco.iosxe.native", TemplateVersion: "1",
+		InputHash: inputHash, GenerationStatus: "rendered_unverified",
+		CompatibilityStatus: "unknown", DocumentationReferences: []string{},
+	}
+	if !ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("expected complete render-only metadata to validate")
+	}
+
+	artifact.CompatibilityStatus = "compatible"
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must not accept a compatibility claim from render-only metadata")
+	}
+	artifact.CompatibilityStatus = "unknown"
+	artifact.Type = "inventory"
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must not accept device provenance on a non-device artifact")
+	}
+	artifact.Type = "native_device_config"
+	artifact.InputHash = SHA256([]byte("different input"))
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must reject provenance tied to a different input")
 	}
 }

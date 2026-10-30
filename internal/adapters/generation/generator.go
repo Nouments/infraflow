@@ -633,7 +633,10 @@ func publishSiteGenerationResults(ctx context.Context, root string, results []si
 		}
 		details := []protocol.SiteArtifact(nil)
 		if summary.Status == "succeeded" {
-			details = artifactDetails(baseArtifacts, artifactFiles)
+			details, err = artifactDetails(summary.SiteID, baseArtifacts, artifactFiles)
+			if err != nil {
+				return allArtifacts, fmt.Errorf("build artifact metadata for site %q: %w", result.site.Name, err)
+			}
 			details = append(details, protocol.SiteArtifact{
 				Type: reportArtifact.Type, Path: reportArtifact.Path,
 				SizeBytes: int64(len(siteReportBytes)), SHA256: reportArtifact.OutputHash,
@@ -804,20 +807,59 @@ func readAndValidateStagedArtifacts(root string, artifacts []Artifact) ([]Artifa
 	return artifacts, files, nil
 }
 
-func artifactDetails(artifacts []Artifact, files []pendingFile) []protocol.SiteArtifact {
+func artifactDetails(siteID string, artifacts []Artifact, files []pendingFile) ([]protocol.SiteArtifact, error) {
 	dataByPath := make(map[string][]byte, len(files))
 	for _, file := range files {
 		dataByPath[file.path] = file.data
 	}
+	nativeDevices := make(map[string]nativeDeviceReport)
+	var nativeVersion string
+	for _, file := range files {
+		if !strings.HasSuffix(file.path, "/native/native-manifest.json") {
+			continue
+		}
+		var manifest nativeManifest
+		if err := json.Unmarshal(file.data, &manifest); err != nil {
+			return nil, fmt.Errorf("decode native manifest %q: %w", file.path, err)
+		}
+		nativeVersion = manifest.TemplateVersion
+		for _, device := range manifest.Devices {
+			nativeDevices[device.Path] = device
+		}
+	}
 	details := make([]protocol.SiteArtifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		data := dataByPath[artifact.Path]
-		details = append(details, protocol.SiteArtifact{
+		detail := protocol.SiteArtifact{
 			Type: artifact.Type, Path: artifact.Path,
 			SizeBytes: int64(len(data)), SHA256: artifact.OutputHash,
-		})
+		}
+		if artifact.Type == "native_device_config" {
+			device, exists := nativeDevices[artifact.Path]
+			if !exists || nativeVersion == "" || device.TemplateID == "" {
+				return nil, fmt.Errorf("native artifact %q has no matching device provenance", artifact.Path)
+			}
+			deviceID := device.ID
+			if deviceID == "" {
+				deviceID = device.Name
+			}
+			detail.SiteID = siteID
+			detail.DeviceID = deviceID
+			detail.Vendor = device.Vendor
+			detail.Family = device.Family
+			detail.Model = device.Model
+			detail.OSVersion = device.OSVersion
+			detail.Format = "text/plain"
+			detail.TemplateID = device.TemplateID
+			detail.TemplateVersion = nativeVersion
+			detail.InputHash = artifact.InputHash
+			detail.GenerationStatus = "rendered_unverified"
+			detail.CompatibilityStatus = "unknown"
+			detail.DocumentationReferences = []string{}
+		}
+		details = append(details, detail)
 	}
-	return details
+	return details, nil
 }
 
 func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.GenerationCapability {
