@@ -6,7 +6,6 @@ The provider is an independent service. It validates infrastructure YAML, create
 go run ./provider/cmd validate -f examples/infra.yaml
 go run ./provider/cmd plan -f examples/infra.yaml
 go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
-go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-output
 go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
 go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
 go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
@@ -14,8 +13,8 @@ INFRAFLOW_AGENT_TOKEN='<secret of at least 32 bytes>' go run ./provider/cmd serv
 ```
 
 Use `generate-all` when the agent should receive one complete, hash-verified
-catalog containing generic inventory/topology, Ansible/Terraform validation
-inputs, and bootstrap contracts. The command stages and verifies every file
+catalog containing inventory/topology, native text configurations, Terraform
+data, and bootstrap contracts. The command stages and verifies every file
 before publishing the combined per-site manifest. It does not run external
 tools or provision resources.
 
@@ -60,11 +59,11 @@ curl -X POST -H "Authorization: Bearer $INFRAFLOW_USER_TOKEN" \
   http://127.0.0.1:8080/api/v1/jobs
 ```
 
-Jobs validate and persist a plan. They do not execute provisioning. Vendor
-configuration artifacts can be generated for supported renderer profiles, but
-the device execution adapter and independent verification remain unavailable.
-DHCP, DNS, TFTP, HTTP, and iPXE are agent-side bootstrap services and are not
-provided by this planning API.
+Jobs validate and persist a plan. They do not execute provisioning. Native
+device configuration artifacts can be generated for supported render-only
+profiles, but device execution through this workflow and independent
+verification remain unavailable. DHCP, DNS, TFTP, HTTP, and iPXE are
+agent-side bootstrap services and are not provided by this planning API.
 
 The API can be exposed beyond loopback only when the configured TLS
 certificate/key pair is present. The Linux TUI connects directly to that
@@ -79,11 +78,11 @@ use the existing log list/run and SSE routes, including cursor pagination and
 renders log content as text. Its infrastructure editor can compose sites, devices, and
 links visually or edit the source YAML, then request a read-only server-side
 validation and plan preview. The explicit **Generate artifacts** action sends
-that validated input through the planner and existing vendor Ansible renderer;
-it returns per-task artifact paths, formats, template versions, and verified
-SHA-256 hashes, and records a `plan.generation.result` audit event. Unsupported
-tasks remain `UNSUPPORTED`; generated artifacts and vendor profiles remain
-`UNVERIFIED`. Execution is `NOT_REQUESTED` and verification is
+that validated input through the planner and native configuration renderer;
+it returns per-task native configuration paths, formats, template versions,
+and verified SHA-256 hashes, and records a `plan.generation.result` audit event.
+Unsupported tasks remain `UNSUPPORTED`; generated artifacts and vendor profiles
+remain `UNVERIFIED`. Execution is `NOT_REQUESTED` and verification is
 `NOT_PERFORMED`. Creating a job still only persists a plan. Admins can create
 users and enable/disable accounts, and job cancel/retry actions use the existing
 API state rules.
@@ -102,18 +101,17 @@ curl -X POST -H "Authorization: Bearer $INFRAFLOW_AGENT_TOKEN" \
 `POST /api/v1/auth/login`; the machine agent token cannot call plan endpoints.
 
 `POST /api/v1/plan/generate` accepts the same `{"input":"<yaml>"}` body as
-preview and writes only vendor Ansible artifacts for planned interface tasks
-to the configured artifact directory. It does not generate generic inventory,
-topology, Terraform, or bootstrap files as a side effect. The vendor playbook
-is not accepted by the agent's current read-only debug runner, so generation
+preview and writes only native text configuration artifacts for supported
+planned tasks to the configured artifact directory. It does not generate
+inventory, topology, Terraform, or bootstrap files as a side effect. Rendering
 does not mean execution or verification. Admin TUI users can inspect persisted
 result states with the `e` command.
 
 Vendor and model values can be represented in the desired state, including
 mixed-vendor sites. They are not evidence of verified device support: supported
-renderer profiles can produce vendor configuration artifacts, but remain
+native renderer profiles can produce text configuration artifacts, but remain
 `UNVERIFIED` until a real device execution and observable lab result are
-recorded. Generated vendor bundles are returned and audited by the HTTP
+recorded. Generated native artifacts are returned and audited by the HTTP
 generation endpoint; they are not added to the agent's gRPC catalog by that
 endpoint.
 
@@ -132,11 +130,10 @@ Planning jobs are available to both roles. User and agent management, audit
 events, and agent registration/heartbeat require the appropriate human admin
 session or machine agent token; a normal user session cannot access them.
 
-`generate-ansible` creates `site/ansible/inventory.yml` and
-`site/ansible/site.yml`. The files contain generic metadata and a read-only
-inspection task; the playbook is cataloged as `ansible_inspection_playbook` to
-distinguish it from the vendor `ansible_playbook` artifact. They are not vendor
-configuration, do not run Ansible, and do not publish an execution job.
+Ansible is not used or required by InfraFlow. Its generator, artifact types,
+runner, and commands have been removed. The provisioning roadmap now focuses on
+device-specific ZTP and AutoInstall contracts; current generic bootstrap
+artifacts are not complete or hardware-validated workflows.
 
 `generate-terraform` creates a data-only configuration under
 `site/terraform/`: `versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`,

@@ -77,15 +77,6 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputPath, "lab", "manifest.json")); err != nil {
 		t.Fatalf("provider manifest missing: %v", err)
 	}
-	ansibleOutput := filepath.Join(t.TempDir(), "ansible")
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"generate-ansible", "-f", inputPath, "-out", ansibleOutput}, &stdout, &stderr); code != 0 {
-		t.Fatalf("generate-ansible failed: %s", stderr.String())
-	}
-	if _, err := os.Stat(filepath.Join(ansibleOutput, "lab", "ansible", "inventory.yml")); err != nil {
-		t.Fatalf("Ansible inventory missing: %v", err)
-	}
 	terraformOutput := filepath.Join(t.TempDir(), "terraform")
 	stdout.Reset()
 	stderr.Reset()
@@ -103,6 +94,14 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(bootstrapOutput, "lab", "bootstrap", "dhcp", "config.json")); err != nil {
 		t.Fatalf("DHCP bootstrap configuration missing: %v", err)
+	}
+}
+
+func TestLegacyAnsibleGenerationCommandIsUnknown(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"generate-ansible"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("removed generation command was not rejected: code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -134,10 +133,10 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 19 {
-		t.Fatalf("expected 19 complete artifacts in agent catalog, got %d", len(catalog))
+	if len(catalog) != 17 {
+		t.Fatalf("expected 17 complete artifacts in agent catalog, got %d", len(catalog))
 	}
-	if !strings.Contains(stdout.String(), "generated and published lab/ansible/site.yml") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
+	if strings.Contains(stdout.String(), "ansible") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
 		t.Fatalf("generate-all did not report tool artifacts as published: %s", stdout.String())
 	}
 }

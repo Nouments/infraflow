@@ -177,7 +177,7 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			Model:         model,
 			DefaultMethod: "ssh",
 			Methods: map[string]string{
-				"ssh": "IOS XE Ansible network_cli management path",
+				"ssh": "IOS XE SSH management transport; configuration rendering is local only",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real Cisco IOS XE device execution or observed state recorded yet.",
@@ -189,7 +189,7 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			Model:         model,
 			DefaultMethod: "api",
 			Methods: map[string]string{
-				"api": "RouterOS API via community.routeros",
+				"api": "RouterOS API management transport; configuration rendering is local only",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet.",

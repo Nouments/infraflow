@@ -875,50 +875,26 @@ func inspectLogOutbox(logDir string) logOutboxInspection {
 type toolRunnerInspection struct {
 	status    string
 	detail    string
-	ansible   string
 	terraform string
 }
 
 func inspectToolRunner() toolRunnerInspection {
-	ansiblePath, ansibleErr := exec.LookPath("ansible-playbook")
 	terraformPath, terraformErr := exec.LookPath("terraform")
-
-	ansibleFound := ansibleErr == nil
 	terraformFound := terraformErr == nil
-
-	ansibleDesc := "Introuvable dans PATH"
-	if ansibleFound {
-		ansibleDesc = ansiblePath
-	}
 	terraformDesc := "Introuvable dans PATH"
 	if terraformFound {
 		terraformDesc = terraformPath
 	}
-
-	if ansibleFound && terraformFound {
+	if terraformFound {
 		return toolRunnerInspection{
 			status:    "Détecté",
-			detail:    "ansible-playbook et terraform détectés dans PATH (fonctionnement non vérifié)",
-			ansible:   ansibleDesc,
-			terraform: terraformDesc,
-		}
-	}
-	if ansibleFound || terraformFound {
-		missing := "ansible-playbook"
-		if !terraformFound {
-			missing = "terraform"
-		}
-		return toolRunnerInspection{
-			status:    "Dégradé",
-			detail:    fmt.Sprintf("Exécutable manquant dans PATH: %s", missing),
-			ansible:   ansibleDesc,
+			detail:    "terraform détecté dans PATH (fonctionnement non vérifié)",
 			terraform: terraformDesc,
 		}
 	}
 	return toolRunnerInspection{
 		status:    "Absent",
-		detail:    "ansible-playbook et terraform introuvables dans PATH",
-		ansible:   ansibleDesc,
+		detail:    "terraform introuvable dans PATH",
 		terraform: terraformDesc,
 	}
 }
@@ -1044,8 +1020,7 @@ func (instance model) servicesListView(width int) []string {
 	}
 	lines = append(lines, sectionStyle.Render("  3. Process Execution (Tool Runner)"))
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Status:"), toolStatusBadge))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Ansible:"), quietStyle.Render(toolInsp.ansible)))
-	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Terraform:"), quietStyle.Render(toolInsp.terraform)))
+	lines = append(lines, fmt.Sprintf(" %s %s", labelStyle.Render("Terraform:"), quietStyle.Render(toolInsp.terraform)))
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Detail:"), quietStyle.Render(toolInsp.detail)))
 	lines = append(lines, fmt.Sprintf("     %s  %s", labelStyle.Render("Isolation:"), quietStyle.Render("Timeouts explicites et capture sécurisée des flux standard lors des runs")))
 	lines = append(lines, "")

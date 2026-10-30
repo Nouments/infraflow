@@ -100,6 +100,14 @@ func TestAgentCLIHasNoProviderImplementationCommand(t *testing.T) {
 	}
 }
 
+func TestLegacyAnsibleExecutionCommandIsUnknown(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"execute-ansible"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("removed execution command was not rejected: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestAgentCLIUsageAndUnknownCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -208,7 +216,7 @@ func TestServeTFTPRejectsDisabledConfiguration(t *testing.T) {
 }
 
 func TestToolCommandsRequireExplicitSiteAndDirectory(t *testing.T) {
-	for _, command := range []string{"execute-ansible", "validate-terraform"} {
+	for _, command := range []string{"validate-terraform"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		if code := Run([]string{command}, &stdout, &stderr); code != 2 {
@@ -218,7 +226,7 @@ func TestToolCommandsRequireExplicitSiteAndDirectory(t *testing.T) {
 }
 
 func TestToolCommandsRejectMissingArtifactsAndInvalidTimeouts(t *testing.T) {
-	for _, command := range []string{"execute-ansible", "validate-terraform"} {
+	for _, command := range []string{"validate-terraform"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		if code := Run([]string{command, "-directory", t.TempDir(), "-site", "lab"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "read ") {
@@ -357,19 +365,7 @@ func TestCLIModesConfigValidation(t *testing.T) {
 		t.Fatalf("run mode did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
 	}
 
-	// 2. Mode 'execute-ansible' with -config
-	stderr.Reset()
-	code = Run([]string{"execute-ansible", "-directory", tempDir, "-site", "lab", "-config", nonexistentPath}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "load process logging configuration") {
-		t.Fatalf("execute-ansible did not reject missing config: code=%d, stderr=%q", code, stderr.String())
-	}
-	stderr.Reset()
-	code = Run([]string{"execute-ansible", "-directory", tempDir, "-site", "lab", "-config", unknownFieldPath}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
-		t.Fatalf("execute-ansible did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
-	}
-
-	// 3. Mode 'validate-terraform' with -config
+	// 2. Mode 'validate-terraform' with -config
 	stderr.Reset()
 	code = Run([]string{"validate-terraform", "-directory", tempDir, "-site", "lab", "-config", nonexistentPath}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "load process logging configuration") {
@@ -391,17 +387,10 @@ func TestInterfaceAddressValidation(t *testing.T) {
 	}
 }
 
-func TestToolCommandsRunProviderGeneratedArtifacts(t *testing.T) {
+func TestTerraformValidationRunsOnExpectedArtifacts(t *testing.T) {
 	stateDirectory := t.TempDir()
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/inventory.yml", "all:\n  children:\n    network:\n      hosts:\n        R1:\n          ansible_host: 192.0.2.10\n")
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/site.yml", `[{"name":"Inspect declared InfraFlow devices","hosts":"network","gather_facts":false,"tasks":[{"name":"Display declared device metadata","ansible.builtin.debug":{"msg":"device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"}}]}]`)
-	installCLITool(t, "ansible-playbook")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if code := Run([]string{"execute-ansible", "-directory", stateDirectory, "-site", "lab"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "--check") {
-		t.Fatalf("execute-ansible did not run in check mode: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-
 	for filename, contents := range map[string]string{
 		"versions.tf":  `terraform { required_version = ">= 1.4.0" }`,
 		"providers.tf": `# no providers`,
@@ -417,100 +406,6 @@ func TestToolCommandsRunProviderGeneratedArtifacts(t *testing.T) {
 	stderr.Reset()
 	if code := Run([]string{"validate-terraform", "-directory", stateDirectory, "-site", "lab"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "terraform validate") {
 		t.Fatalf("validate-terraform did not run validation: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestAnsibleProcessOutputIsStreamedRedactedAndReportedOverGRPC(t *testing.T) {
-	token := strings.Repeat("v", security.MinAgentTokenBytes)
-	releasePath := filepath.Join(t.TempDir(), "received")
-	server := &fakeAgentProvider{token: token, releasePath: releasePath}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	grpcServer := grpc.NewServer()
-	infrav1.RegisterAgentProviderServer(grpcServer, server)
-	go func() { _ = grpcServer.Serve(listener) }()
-	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
-
-	stateDirectory := t.TempDir()
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/inventory.yml", "all:\n  children:\n    network:\n      hosts:\n        R1:\n          ansible_host: 192.0.2.10\n")
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/site.yml", `[{
-	"name":"Inspect declared InfraFlow devices","hosts":"network","gather_facts":false,
-	"tasks":[{"name":"Display declared device metadata","ansible.builtin.debug":{"msg":"device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"}}]}]`)
-	toolDirectory := t.TempDir()
-	toolPath := filepath.Join(toolDirectory, "ansible-playbook")
-	script := "#!/bin/sh\n" +
-		"printf 'token=secret-value\\n'\n" +
-		"while [ ! -f '" + releasePath + "' ]; do :; done\n" +
-		"printf 'stderr marker\\n' >&2\n"
-	if err := os.WriteFile(toolPath, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", toolDirectory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("INFRAFLOW_TEST_PROCESS_TOKEN", token)
-	configPath := filepath.Join(t.TempDir(), "agent.yaml")
-	logDirectory := filepath.Join(t.TempDir(), "logs")
-	configuration := strings.Join([]string{
-		"agent:", "  id: agent-01", "  site_id: site-01", "  state_directory: " + stateDirectory,
-		"provider:", "  address: " + listener.Addr().String(), "  token_env: INFRAFLOW_TEST_PROCESS_TOKEN",
-		"  tls:", "    enabled: false",
-		"logging:", "  directory: " + logDirectory, "  level: DEBUG", "  format: json", "",
-	}, "\n")
-	if err := os.WriteFile(configPath, []byte(configuration), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := Run([]string{"execute-ansible", "-directory", stateDirectory, "-site", "lab", "-config", configPath}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("configured process command failed: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if strings.Contains(stdout.String()+stderr.String(), "secret-value") || !strings.Contains(stdout.String(), "[REDACTED]") || !strings.Contains(stderr.String(), "stderr marker") {
-		t.Fatalf("process output was not separated and redacted: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-	if len(server.logBatches) == 0 {
-		t.Fatal("process logs were not reported to the authenticated gRPC server")
-	}
-	var startedEvent, outputEvent, errorStreamEvent, completionEvent *observability.Event
-	for _, batch := range server.logBatches {
-		for _, encoded := range batch.GetEventsJson() {
-			var event observability.Event
-			if err := json.Unmarshal(encoded, &event); err != nil {
-				t.Fatalf("reported log event is malformed: %v", err)
-			}
-			if event.Event == "process.started" {
-				copy := event
-				startedEvent = &copy
-			}
-			if event.Event == "process.output" && event.Stream == "stdout" {
-				copy := event
-				outputEvent = &copy
-			}
-			if event.Event == "process.output" && event.Stream == "stderr" {
-				copy := event
-				errorStreamEvent = &copy
-			}
-			if event.Event == "process.completed" {
-				copy := event
-				completionEvent = &copy
-			}
-			if strings.Contains(string(encoded), "secret-value") {
-				t.Fatalf("reported process log leaked a secret: %s", encoded)
-			}
-		}
-	}
-	if outputEvent == nil || outputEvent.RunID == "" || !strings.Contains(outputEvent.Line, "[REDACTED]") {
-		t.Fatalf("server did not receive a redacted, run-correlated stdout event: %#v", outputEvent)
-	}
-	if startedEvent == nil || startedEvent.RunID != outputEvent.RunID || startedEvent.Status != "RUNNING" {
-		t.Fatalf("server did not receive a matching process start event: %#v output=%#v", startedEvent, outputEvent)
-	}
-	if errorStreamEvent == nil || errorStreamEvent.RunID != outputEvent.RunID || !strings.Contains(errorStreamEvent.Line, "stderr marker") {
-		t.Fatalf("server did not receive stderr as a distinct event: %#v", errorStreamEvent)
-	}
-	if completionEvent == nil || completionEvent.RunID != outputEvent.RunID || completionEvent.Status != "COMPLETED" {
-		t.Fatalf("server did not receive the matching process completion: %#v output=%#v", completionEvent, outputEvent)
 	}
 }
 

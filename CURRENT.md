@@ -1,5 +1,12 @@
 # InfraFlow — Bloc 1 Audit
 
+> **Historique — état antérieur au 2026-10-29.** Les sections ci-dessous
+> décrivent un audit réalisé avant la décision d’exclure Ansible. Depuis cette
+> date, ses générateurs, artefacts, runners et commandes ont été retirés.
+> L’architecture courante vise les workflows ZTP/AutoInstall propres aux
+> constructeurs; les artefacts bootstrap présents ne démontrent pas encore ces
+> workflows.
+
 Audit date: 2026-10-13
 Branch: `develop`
 Reference commit inspected before edits: `a4b7cb07605be5503c608e97343ab9f78348bbfe`

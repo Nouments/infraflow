@@ -49,9 +49,6 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if arguments[0] == "serve-tftp" {
 		return runTFTPServer(arguments[1:], stdout, stderr)
 	}
-	if arguments[0] == "execute-ansible" {
-		return runAnsibleCheck(arguments[1:], stdout, stderr)
-	}
 	if arguments[0] == "validate-terraform" {
 		return runTerraformValidation(arguments[1:], stdout, stderr)
 	}
@@ -403,58 +400,6 @@ func runTFTPServer(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runAnsibleCheck(arguments []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("execute-ansible", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	directory := flags.String("directory", "", "agent state directory containing verified Ansible artifacts")
-	site := flags.String("site", "", "site identifier whose playbook should run")
-	timeout := flags.Duration("timeout", 5*time.Minute, "maximum Ansible execution time")
-	configPath := flags.String("config", "", "agent configuration for local log persistence and provider synchronization")
-	if err := flags.Parse(arguments); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 || *directory == "" || *site == "" {
-		fmt.Fprintln(stderr, "infraflow-agent: execute-ansible requires -directory and -site")
-		return 2
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	output := newSynchronizedProcessOutput(stdout, stderr)
-	logSession, err := newProcessLogSession(*configPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
-		return 2
-	}
-	if logSession != nil {
-		logSession.Start(ctx)
-	}
-	observer := func(processOutput toolrunner.ProcessOutput) {
-		output.Write(processOutput)
-		logSession.Observe(processOutput)
-	}
-	result, err := toolrunner.RunAnsibleWithOutput(ctx, *directory, *site, *timeout, observer)
-	if output.Started() {
-		logSession.Complete("ansible-check", err)
-	}
-	logSyncErr := logSession.Close()
-	if output.Err() != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: write process output: %v\n", output.Err())
-		return 1
-	}
-	if logSyncErr != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: %v\n", logSyncErr)
-		return 1
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
-		return 1
-	}
-	for _, step := range result.Steps {
-		fmt.Fprintln(stdout, step)
-	}
-	return 0
-}
-
 func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("validate-terraform", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -618,7 +563,6 @@ Usage:
 	infraflow-agent serve-bootstrap -directory <state-dir> -interface <name> -listen <ipv4> [-port 80]
 	infraflow-agent serve-dhcp -config <dhcp-config.json> -interface <name> -listen <ipv4> [-port 67]
 	infraflow-agent serve-tftp -config <tftp-config.json> -root <bootstrap-dir> -interface <name> -listen <ipv4> [-port 69]
-	infraflow-agent execute-ansible -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent validate-terraform -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 

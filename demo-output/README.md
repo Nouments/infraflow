@@ -16,9 +16,9 @@ Reproduce the existing generator output with:
 go run ./provider/cmd generate-all -f demo-output/pilot-input.yaml -out demo-output/pilot-generated
 ```
 
-The vendor playbook is [vendor-playbook.yml](pilot-generated/vendor-pilot/ansible/vendor-playbook.yml), with its [UNVERIFIED manifest](pilot-generated/vendor-pilot/ansible/vendor-template.json). The overall [generation report](pilot-generated/vendor-pilot/generation-report.json) records 23 artifacts. Generation does not start bootstrap services, run Ansible/Terraform, or contact devices.
+The [generation report](pilot-generated/vendor-pilot/generation-report.json) records the current hash-verified artifacts. Generation does not start bootstrap services, validate Terraform, or contact devices.
 
-This pilot exercises Cisco IOS XE, MikroTik RouterOS API, and FortiOS day-two interface rendering. The current generator does **not** emit RouterOS-native ROS6/ROS7 `.rsc` scripts or FortiDeploy/FortiManager ZTP artifacts. Those remain the next template work, gated on exact release/model and provisioning-backend inputs.
+This pilot exercises native text rendering for Cisco IOS XE, MikroTik RouterOS 7, and FortiOS. It does **not** emit RouterOS `.rsc`/`.auto.rsc` or FortiDeploy/FortiManager ZTP artifacts, nor does it provide a complete ZTP/AutoInstall workflow. Those are the provisioning focus, gated on exact release/model and backend inputs.
 
 ## Pilot order
 

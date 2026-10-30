@@ -1,7 +1,7 @@
 locals {
   infrastructure = {
     "environment" = var.environment
-    "input_hash"  = "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd"
+    "input_hash"  = "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa"
     "sites" = {
       "vendor-pilot" = {
         "bootstrap" = {

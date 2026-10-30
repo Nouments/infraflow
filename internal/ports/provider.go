@@ -37,12 +37,8 @@ type AllArtifactGenerator interface {
 	GenerateAll(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
-type AnsibleArtifactGenerator interface {
-	GenerateAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
-}
-
-type VendorArtifactGenerator interface {
-	GenerateVendorAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error)
+type NativeArtifactGenerator interface {
+	GenerateNative(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
 type TerraformArtifactGenerator interface {

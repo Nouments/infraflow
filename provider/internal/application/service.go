@@ -327,18 +327,6 @@ func (service *Service) GenerateAll(input []byte, outputDirectory string) ([]pro
 	return generator.GenerateAll(infrastructure, outputDirectory)
 }
 
-func (service *Service) GenerateAnsible(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
-	infrastructure, err := service.Validate(input)
-	if err != nil {
-		return nil, err
-	}
-	generator, ok := service.generator.(ports.AnsibleArtifactGenerator)
-	if !ok {
-		return nil, fmt.Errorf("Ansible artifact generator is not configured")
-	}
-	return generator.GenerateAnsible(infrastructure, outputDirectory)
-}
-
 func (service *Service) GenerateTerraform(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {

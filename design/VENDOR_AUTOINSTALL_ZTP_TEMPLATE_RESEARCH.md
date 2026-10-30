@@ -1,5 +1,11 @@
 # Vendor ZTP and Configuration Template Research
 
+> Architecture decision (2026-10-29): Ansible is excluded from the
+> implementation and architecture. References below are historical research
+> context, not an implementation proposal or dependency. The active direction
+> is device-specific ZTP and AutoInstall using native artifacts and
+> verification.
+
 **Research date:** 2026-10-07  
 **Status:** DESIGN PROPOSAL - NOT LAB-VERIFIED
 
@@ -10,9 +16,9 @@ This note records primary-source findings and a proposed contract for Cisco IOS 
 Model two distinct phases instead of calling every vendor path "ZTP":
 
 1. **Day-zero bootstrap** gets a factory/default device onto a trusted management network and reachable by the controller.
-2. **Day-two desired-state configuration** configures interfaces, addresses, routes, firewall policy, SNAT, and DNAT through a vendor-specific Ansible connection/collection.
+2. **Day-two desired-state configuration** uses a vendor-native CLI/API adapter with explicit credentials, change previews, and read-back verification.
 
-A bootstrap mechanism is not a substitute for an Ansible configuration adapter. The initial templates must require exact device model, OS version, bootstrap method, interface mapping, and address plan. Do not claim supported capability until rendered output and device behavior are tested on the exact target.
+A bootstrap mechanism is not a substitute for a day-two configuration adapter. The initial templates must require exact device model, OS version, bootstrap method, interface mapping, and address plan. Do not claim supported capability until rendered output and device behavior are tested on the exact target.
 
 ## Findings by Vendor
 

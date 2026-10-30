@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
@@ -216,7 +214,7 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != len(artifacts) || len(catalog) != 19 {
+	if len(catalog) != len(artifacts) || len(catalog) != 17 {
 		t.Fatalf("combined manifest published %d of %d generated artifacts", len(catalog), len(artifacts))
 	}
 	for _, path := range []string{
@@ -263,7 +261,7 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 			t.Fatalf("catalog artifact %s failed its hash check: %v", artifact.Path, err)
 		}
 	}
-	for _, artifactType := range []string{"inventory", "topology", "ansible_inventory", "ansible_inspection_playbook", "terraform_locals", "bootstrap_dhcp", "bootstrap_tftp", "bootstrap_ipxe_script"} {
+	for _, artifactType := range []string{"inventory", "topology", "terraform_locals", "bootstrap_dhcp", "bootstrap_tftp", "bootstrap_ipxe_script"} {
 		if !seenTypes[artifactType] {
 			t.Errorf("combined manifest omitted %s", artifactType)
 		}
@@ -348,7 +346,7 @@ func TestGenerateAllPreflightsSitePublicationBeforeWritingArtifacts(t *testing.T
 	if len(artifacts) != 0 {
 		t.Fatalf("failed site unexpectedly returned published artifacts: %#v", artifacts)
 	}
-	for _, path := range []string{"lab/inventory.json", "lab/ansible/inventory.yml"} {
+	for _, path := range []string{"lab/inventory.json", "lab/native/device-R1.cfg"} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); !os.IsNotExist(err) {
 			t.Errorf("site publication left a partial artifact %s: %v", path, err)
 		}
@@ -358,188 +356,6 @@ func TestGenerateAllPreflightsSitePublicationBeforeWritingArtifacts(t *testing.T
 	}
 	if catalog, err := Catalog(root); err != nil || len(catalog) != 0 {
 		t.Fatalf("failed site's partial artifacts became Agent-visible: catalog=%#v err=%v", catalog, err)
-	}
-}
-
-func TestGenerateAnsibleIsDeterministicAndReadOnly(t *testing.T) {
-	infrastructure, err := config.Parse([]byte(`sites:
-  - name: lab
-    devices:
-      - name: R1
-        role: router
-        vendor: cisco
-        family: ios-xe
-        model: csr1000v
-        management:
-          ipv4: 10.0.0.1
-      - name: SW1
-        vendor: cisco
-        model: ios-xe
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstDirectory := t.TempDir()
-	secondDirectory := t.TempDir()
-	first, err := GenerateAnsible(infrastructure, firstDirectory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := GenerateAnsible(infrastructure, secondDirectory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(first, second) || len(first) != 2 {
-		t.Fatalf("unexpected Ansible metadata: %#v %#v", first, second)
-	}
-	if first[0].Type != "ansible_inventory" || first[1].Type != "ansible_inspection_playbook" {
-		t.Fatalf("generic Ansible artifacts must distinguish inspection from vendor configuration: %#v", first)
-	}
-	for _, relativePath := range []string{"lab/ansible/inventory.yml", "lab/ansible/site.yml"} {
-		firstData, err := os.ReadFile(filepath.Join(firstDirectory, relativePath))
-		if err != nil {
-			t.Fatal(err)
-		}
-		secondData, err := os.ReadFile(filepath.Join(secondDirectory, relativePath))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(firstData) != string(secondData) {
-			t.Errorf("%s differs between equivalent inputs", relativePath)
-		}
-		var decoded any
-		if err := yaml.Unmarshal(firstData, &decoded); err != nil {
-			t.Errorf("%s is not valid YAML: %v", relativePath, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(firstDirectory, "lab", "manifest.json")); !os.IsNotExist(err) {
-		t.Fatalf("Ansible-only generation must not silently publish a provider manifest: %v", err)
-	}
-}
-
-func TestGenerateAnsibleDoesNotIncludeVendorConfigurationBundle(t *testing.T) {
-	infrastructure, err := config.Parse([]byte(`sites:
-  - name: lab
-    devices:
-      - name: R1
-        vendor: cisco
-        family: iosxe
-        network:
-          interfaces:
-            - name: GigabitEthernet1
-              role: lan
-              ipv4_mode: static
-              ipv4_address: 192.0.2.1/24
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	outputDirectory := t.TempDir()
-	artifacts, err := GenerateAnsible(infrastructure, outputDirectory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(artifacts) != 2 {
-		t.Fatalf("generic Ansible generation must publish only inventory and inspection playbook, got %#v", artifacts)
-	}
-	for _, artifact := range artifacts {
-		if artifact.Path != "lab/ansible/inventory.yml" && artifact.Path != "lab/ansible/site.yml" {
-			t.Fatalf("generic Ansible generation published vendor-specific artifact %#v", artifact)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "ansible", "vendor-playbook.yml")); !os.IsNotExist(err) {
-		t.Fatalf("generic Ansible generation wrote a vendor configuration playbook: %v", err)
-	}
-	playbook, err := os.ReadFile(filepath.Join(outputDirectory, "lab", "ansible", "site.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(playbook), "ansible.builtin.debug") || strings.Contains(string(playbook), "cisco.ios.") {
-		t.Fatalf("generic playbook must inspect declared metadata without configuring a vendor: %s", playbook)
-	}
-}
-
-func TestGenerateAllExplicitlyPublishesVendorBundle(t *testing.T) {
-	infrastructure, err := config.Parse([]byte(`sites:
-  - name: lab
-    bootstrap:
-      network: 192.0.2.0/24
-      gateway: 192.0.2.254
-    devices:
-      - name: R1
-        vendor: cisco
-        family: iosxe
-        network:
-          interfaces:
-            - name: GigabitEthernet1
-              role: lan
-              ipv4_mode: static
-              ipv4_address: 192.0.2.1/24
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	root := t.TempDir()
-	artifacts, err := GenerateAll(infrastructure, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := Catalog(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(catalog) != len(artifacts) {
-		t.Fatalf("catalog has %d artifacts, generator returned %d", len(catalog), len(artifacts))
-	}
-	seen := make(map[string]protocol.Artifact)
-	for _, artifact := range catalog {
-		data, published, err := ReadArtifact(root, artifact.Path)
-		if err != nil || protocol.SHA256(data) != published.OutputHash {
-			t.Fatalf("catalog artifact %s failed integrity validation: %v", artifact.Path, err)
-		}
-		seen[artifact.Path] = published
-	}
-	for _, relativePath := range []string{
-		"lab/ansible/site.yml",
-		"lab/ansible/vendor-playbook.yml",
-		"lab/ansible/vendor-inventory.yml",
-		"lab/ansible/requirements.yml",
-		"lab/ansible/vendor-template.json",
-	} {
-		if _, exists := seen[relativePath]; !exists {
-			t.Errorf("combined generation omitted %s", relativePath)
-		}
-	}
-	var manifest vendorTemplateManifest
-	manifestData, err := os.ReadFile(filepath.Join(root, "lab", "ansible", "vendor-template.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(manifestData, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Status != "UNVERIFIED" || manifest.Methods["R1"] != "ssh" || !strings.Contains(manifest.ExecutionMode, "run with --check") {
-		t.Fatalf("vendor manifest does not accurately describe its status/method: %#v", manifest)
-	}
-}
-
-func TestGenerateAnsibleRefusesSymlinkedParent(t *testing.T) {
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	outputDirectory := t.TempDir()
-	outside := t.TempDir()
-	if err := os.Mkdir(filepath.Join(outputDirectory, "lab"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(outputDirectory, "lab", "ansible")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	if _, err := GenerateAnsible(infrastructure, outputDirectory); err == nil {
-		t.Fatal("expected Ansible generation to reject symlinked parent")
 	}
 }
 

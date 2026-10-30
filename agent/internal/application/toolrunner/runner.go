@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -30,8 +28,6 @@ const (
 	maxArtifactBytes   = 16 << 20
 	maxOutputBytes     = 64 << 10
 	maxOutputLineBytes = 8 << 10
-	debugMessage       = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
-	debugMessageWithOS = debugMessage + " os_version={{ hostvars[inventory_hostname].infraflow_os_version | default('unknown') }}"
 )
 
 var sensitiveOutputPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
@@ -73,39 +69,6 @@ func (result ProcessResult) Combined() string {
 		return result.Stdout
 	}
 	return result.Stdout + result.Stderr
-}
-
-type ansibleInventory struct {
-	All struct {
-		Children struct {
-			Network struct {
-				Hosts map[string]ansibleHost `yaml:"hosts"`
-			} `yaml:"network"`
-		} `yaml:"children"`
-	} `yaml:"all"`
-}
-
-type ansibleHost struct {
-	AnsibleHost        string `yaml:"ansible_host,omitempty"`
-	InfraflowVendor    string `yaml:"infraflow_vendor,omitempty"`
-	InfraflowFamily    string `yaml:"infraflow_family,omitempty"`
-	InfraflowModel     string `yaml:"infraflow_model,omitempty"`
-	InfraflowOSVersion string `yaml:"infraflow_os_version,omitempty"`
-	InfraflowRole      string `yaml:"infraflow_role,omitempty"`
-}
-
-type ansiblePlay struct {
-	Name        string        `yaml:"name"`
-	Hosts       string        `yaml:"hosts"`
-	GatherFacts bool          `yaml:"gather_facts"`
-	Tasks       []ansibleTask `yaml:"tasks"`
-}
-
-type ansibleTask struct {
-	Name  string `yaml:"name"`
-	Debug struct {
-		Msg string `yaml:"msg"`
-	} `yaml:"ansible.builtin.debug"`
 }
 
 type cappedBuffer struct {
@@ -209,71 +172,6 @@ func (writer *processOutputWriter) emitPending() {
 	writer.truncated = false
 }
 
-func RunAnsible(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
-	return RunAnsibleWithOutput(ctx, stateDirectory, site, timeout, nil)
-}
-
-func RunAnsibleWithOutput(ctx context.Context, stateDirectory, site string, timeout time.Duration, observer OutputObserver) (Result, error) {
-	result := Result{Tool: "ansible"}
-	if ctx == nil {
-		return result, fmt.Errorf("Ansible context is required")
-	}
-	if !protocol.ValidSiteName(site) {
-		return result, fmt.Errorf("invalid site name")
-	}
-	timeout, err := checkedTimeout(timeout)
-	if err != nil {
-		return result, err
-	}
-	inventoryData, err := readArtifact(stateDirectory, filepath.ToSlash(filepath.Join(site, "ansible", "inventory.yml")))
-	if err != nil {
-		return result, fmt.Errorf("read Ansible inventory: %w", err)
-	}
-	playbookData, err := readArtifact(stateDirectory, filepath.ToSlash(filepath.Join(site, "ansible", "site.yml")))
-	if err != nil {
-		return result, fmt.Errorf("read Ansible playbook: %w", err)
-	}
-	if err := validateAnsibleInventory(inventoryData); err != nil {
-		return result, err
-	}
-	if err := validateAnsiblePlaybook(playbookData); err != nil {
-		return result, err
-	}
-	workDirectory, err := os.MkdirTemp("", "infraflow-ansible-")
-	if err != nil {
-		return result, fmt.Errorf("create Ansible workspace: %w", err)
-	}
-	defer os.RemoveAll(workDirectory)
-	if err := os.WriteFile(filepath.Join(workDirectory, "inventory.yml"), inventoryData, 0o600); err != nil {
-		return result, fmt.Errorf("stage Ansible inventory: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(workDirectory, "site.yml"), playbookData, 0o600); err != nil {
-		return result, fmt.Errorf("stage Ansible playbook: %w", err)
-	}
-	configPath := filepath.Join(workDirectory, "ansible.cfg")
-	if err := os.WriteFile(configPath, []byte("[defaults]\nhost_key_checking = True\nretry_files_enabled = False\ninterpreter_python = auto_silent\n"), 0o600); err != nil {
-		return result, fmt.Errorf("write isolated Ansible config: %w", err)
-	}
-	homeDirectory := filepath.Join(workDirectory, "home")
-	localTemp := filepath.Join(workDirectory, "tmp")
-	if err := os.MkdirAll(homeDirectory, 0o700); err != nil {
-		return result, fmt.Errorf("create Ansible home directory: %w", err)
-	}
-	if err := os.MkdirAll(localTemp, 0o700); err != nil {
-		return result, fmt.Errorf("create Ansible temp directory: %w", err)
-	}
-	result.Steps = append(result.Steps, "ansible-playbook --check (debug-only playbook)")
-	output, err := runCommandWithOutput(ctx, timeout, workDirectory, []string{
-		"PATH=" + os.Getenv("PATH"), "HOME=" + homeDirectory, "ANSIBLE_CONFIG=" + configPath,
-		"ANSIBLE_LOCAL_TEMP=" + localTemp, "ANSIBLE_NOCOLOR=1", "ANSIBLE_RETRY_FILES_ENABLED=False",
-	}, observer, "ansible-playbook", "--inventory", "inventory.yml", "--limit", "network", "--check", "--forks", "1", "--timeout", "10", "site.yml")
-	result.Output = output
-	if err != nil {
-		return result, fmt.Errorf("run read-only Ansible playbook: %w", err)
-	}
-	return result, nil
-}
-
 func RunTerraform(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
 	return RunTerraformWithOutput(ctx, stateDirectory, site, timeout, nil)
 }
@@ -363,62 +261,6 @@ func readArtifact(root, relativePath string) ([]byte, error) {
 		return nil, fmt.Errorf("artifact exceeds %d bytes", maxArtifactBytes)
 	}
 	return data, nil
-}
-
-func validateAnsibleInventory(data []byte) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	var inventory ansibleInventory
-	if err := decoder.Decode(&inventory); err != nil {
-		return fmt.Errorf("invalid Ansible inventory: %w", err)
-	}
-	if err := requireSingleYAMLDocument(decoder); err != nil {
-		return fmt.Errorf("invalid Ansible inventory: %w", err)
-	}
-	if len(inventory.All.Children.Network.Hosts) == 0 {
-		return fmt.Errorf("Ansible inventory must contain at least one network host")
-	}
-	for name, host := range inventory.All.Children.Network.Hosts {
-		if !protocol.ValidSiteName(name) {
-			return fmt.Errorf("Ansible inventory contains an unsafe host name")
-		}
-		if host.AnsibleHost != "" && net.ParseIP(host.AnsibleHost).To4() == nil {
-			return fmt.Errorf("Ansible inventory host %q has an invalid ansible_host address", name)
-		}
-	}
-	return nil
-}
-
-func validateAnsiblePlaybook(data []byte) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	var plays []ansiblePlay
-	if err := decoder.Decode(&plays); err != nil {
-		return fmt.Errorf("invalid Ansible playbook: %w", err)
-	}
-	if err := requireSingleYAMLDocument(decoder); err != nil {
-		return fmt.Errorf("invalid Ansible playbook: %w", err)
-	}
-	if len(plays) != 1 || plays[0].Hosts != "network" || plays[0].GatherFacts || len(plays[0].Tasks) == 0 {
-		return fmt.Errorf("Ansible runner only accepts the generated network inspection playbook")
-	}
-	for _, task := range plays[0].Tasks {
-		if task.Debug.Msg != debugMessage && task.Debug.Msg != debugMessageWithOS {
-			return fmt.Errorf("Ansible runner only accepts the generated debug task; mutating or dynamic tasks are blocked")
-		}
-	}
-	return nil
-}
-
-func requireSingleYAMLDocument(decoder *yaml.Decoder) error {
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("multiple YAML documents are not allowed")
-		}
-		return err
-	}
-	return nil
 }
 
 func validateTerraformFile(filename string, data []byte) error {

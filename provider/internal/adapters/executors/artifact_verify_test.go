@@ -533,7 +533,7 @@ func TestArtifactVerifyIntegrationWithRealGeneratorAndExecutionService(t *testin
 			{
 				ID:         "task-verify-absent",
 				Type:       ArtifactVerifyType,
-				Parameters: json.RawMessage(`{"path":"lab/ansible/site.yml"}`),
+				Parameters: json.RawMessage(`{"path":"lab/unregistered/data.yml"}`),
 			},
 		},
 	})

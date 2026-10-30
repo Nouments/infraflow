@@ -87,47 +87,6 @@ type siteGenerationResult struct {
 	err         error
 }
 
-type ansibleInventory struct {
-	All ansibleInventoryAll `json:"all"`
-}
-
-type ansibleInventoryAll struct {
-	Children ansibleInventoryChildren `json:"children"`
-}
-
-type ansibleInventoryChildren struct {
-	Network ansibleGroup `json:"network"`
-}
-
-type ansibleGroup struct {
-	Hosts map[string]ansibleHost `json:"hosts"`
-}
-
-type ansibleHost struct {
-	AnsibleHost        string `json:"ansible_host,omitempty"`
-	InfraflowVendor    string `json:"infraflow_vendor,omitempty"`
-	InfraflowFamily    string `json:"infraflow_family,omitempty"`
-	InfraflowModel     string `json:"infraflow_model,omitempty"`
-	InfraflowOSVersion string `json:"infraflow_os_version,omitempty"`
-	InfraflowRole      string `json:"infraflow_role,omitempty"`
-}
-
-type ansiblePlay struct {
-	Name        string            `json:"name"`
-	Hosts       string            `json:"hosts"`
-	GatherFacts bool              `json:"gather_facts"`
-	Tasks       []ansiblePlayTask `json:"tasks"`
-}
-
-type ansiblePlayTask struct {
-	Name  string           `json:"name"`
-	Debug ansibleDebugTask `json:"ansible.builtin.debug"`
-}
-
-type ansibleDebugTask struct {
-	Msg string `json:"msg"`
-}
-
 type terraformPendingFile struct {
 	path string
 	data []byte
@@ -406,69 +365,6 @@ func isHCLCollection(value any) bool {
 	}
 }
 
-// GenerateAnsible emits a generic, read-only Ansible inventory and inspection
-// playbook. It does not select vendor modules or execute Ansible.
-func GenerateAnsible(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
-	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
-	}
-	canonical := canonicalize(infrastructure)
-	canonicalInput, err := json.Marshal(canonical)
-	if err != nil {
-		return nil, fmt.Errorf("encode normalized input: %w", err)
-	}
-	inputHash := protocol.SHA256(canonicalInput)
-	files := make([]pendingFile, 0, len(canonical.Sites)*6)
-	artifacts := make([]Artifact, 0, len(canonical.Sites)*6)
-	for _, site := range canonical.Sites {
-		hosts := make(map[string]ansibleHost, len(site.Devices))
-		for _, device := range site.Devices {
-			host := ansibleHost{
-				AnsibleHost: device.Management.IPv4, InfraflowVendor: device.Vendor,
-				InfraflowFamily: device.Family, InfraflowModel: device.Model,
-				InfraflowOSVersion: device.OSVersion, InfraflowRole: device.Role,
-			}
-			hosts[device.Name] = host
-		}
-		inventoryBytes, err := marshal(ansibleInventory{All: ansibleInventoryAll{Children: ansibleInventoryChildren{Network: ansibleGroup{Hosts: hosts}}}})
-		if err != nil {
-			return nil, err
-		}
-		playbookBytes, err := marshal([]ansiblePlay{{
-			Name: "Inspect declared InfraFlow devices", Hosts: "network", GatherFacts: false,
-			Tasks: []ansiblePlayTask{{
-				Name:  "Display declared device metadata",
-				Debug: ansibleDebugTask{Msg: "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }} os_version={{ hostvars[inventory_hostname].infraflow_os_version | default('unknown') }}"},
-			}},
-		}})
-		if err != nil {
-			return nil, err
-		}
-		inventoryPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "inventory.yml"))
-		playbookPath := filepath.ToSlash(filepath.Join(site.Name, "ansible", "site.yml"))
-		inventoryArtifact := Artifact{Type: "ansible_inventory", Path: inventoryPath, InputHash: inputHash, OutputHash: protocol.SHA256(inventoryBytes)}
-		playbookArtifact := Artifact{Type: "ansible_inspection_playbook", Path: playbookPath, InputHash: inputHash, OutputHash: protocol.SHA256(playbookBytes)}
-		artifacts = append(artifacts, inventoryArtifact, playbookArtifact)
-		files = append(files, pendingFile{path: inventoryPath, data: inventoryBytes}, pendingFile{path: playbookPath, data: playbookBytes})
-	}
-	root, err := filepath.Abs(outputDirectory)
-	if err != nil {
-		return nil, fmt.Errorf("resolve output directory: %w", err)
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
-	}
-	for _, file := range files {
-		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
-			return nil, fmt.Errorf("write Ansible artifact %q: %w", file.path, err)
-		}
-	}
-	return artifacts, nil
-}
-
 func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems
@@ -614,8 +510,6 @@ func GenerateAllContext(ctx context.Context, infrastructure domain.Infrastructur
 			run  func(domain.Infrastructure, string) ([]Artifact, error)
 		}{
 			{"inventory and topology", Generate},
-			{"generic Ansible", GenerateAnsible},
-			{"vendor Ansible", GenerateVendorAnsible},
 			{"native configuration", GenerateNative},
 			{"Terraform data", GenerateTerraform},
 			{"bootstrap data", GenerateBootstrap},
@@ -936,20 +830,6 @@ func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.G
 		{Feature: "bootstrap_service_execution", Status: "not_configured", Evidence: "generation emits static files only; no service is started"},
 		{Feature: "ztp", Status: "unknown", Evidence: "no device-specific ZTP mechanism was verified"},
 		{Feature: "autoinstall", Status: "unknown", Evidence: "no device-specific autoinstall mechanism was verified"},
-	}
-	if _, exists := types["ansible_inspection_playbook"]; exists {
-		capabilities = append(capabilities, protocol.GenerationCapability{
-			Feature: "ansible_inspection", Status: "generated",
-			Evidence: "inspection playbook only; no Ansible process was executed",
-		})
-	}
-	if _, exists := types["ansible_playbook"]; exists {
-		capabilities = append(capabilities, protocol.GenerationCapability{
-			Feature: "vendor_ansible_rendering", Status: "unverified",
-			Evidence: "rendered from an unverified profile; no equipment execution was performed",
-		})
-	} else {
-		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "vendor_ansible_rendering", Status: "not_configured"})
 	}
 	if _, exists := types["native_device_config"]; exists {
 		capabilities = append(capabilities, protocol.GenerationCapability{

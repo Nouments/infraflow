@@ -108,18 +108,6 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 		return len(parts) == 2 && parts[1] == "generation-report.json"
 	case "site_manifest":
 		return len(parts) == 2 && parts[1] == "site-manifest.json"
-	case "ansible_inventory":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "inventory.yml"
-	case "ansible_inspection_playbook":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "site.yml"
-	case "ansible_playbook":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-playbook.yml"
-	case "ansible_vendor_inventory":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-inventory.yml"
-	case "ansible_requirements":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "requirements.yml"
-	case "ansible_vendor_manifest":
-		return len(parts) == 3 && parts[1] == "ansible" && parts[2] == "vendor-template.json"
 	case "native_device_config":
 		if len(parts) != 3 || parts[1] != "native" || !strings.HasPrefix(parts[2], "device-") || !strings.HasSuffix(parts[2], ".cfg") {
 			return false

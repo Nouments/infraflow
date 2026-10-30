@@ -1,146 +1,134 @@
 {
   "generator_version": "0.1.0",
   "template_version": "1",
-  "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+  "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
   "site_id": "vendor-pilot",
   "status": "succeeded",
   "artifacts": [
     {
-      "type": "ansible_inventory",
-      "path": "vendor-pilot/ansible/inventory.yml",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "b95ddd027b0dff7c42cc410704cad22c11bcce332204d126f2069c5a136e7264"
-    },
-    {
-      "type": "ansible_requirements",
-      "path": "vendor-pilot/ansible/requirements.yml",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "539eb4765ae0ede81a2859a00cfa32e31eded7922408f4abc7387dd7d53fee1e"
-    },
-    {
-      "type": "ansible_inspection_playbook",
-      "path": "vendor-pilot/ansible/site.yml",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "c6d4ed93a8603c892e7b619f939c5a84f8316cc1695c51bba69f4879449696c8"
-    },
-    {
-      "type": "ansible_vendor_inventory",
-      "path": "vendor-pilot/ansible/vendor-inventory.yml",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "82abd9cf4a1b533d8c0781618fe8879f765441b6730515717dc50bd53593f3c1"
-    },
-    {
-      "type": "ansible_playbook",
-      "path": "vendor-pilot/ansible/vendor-playbook.yml",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "0edadd867d2b373afd1915c88711e3da2414d4a7b613eae023c76e664ffe0b71"
-    },
-    {
-      "type": "ansible_vendor_manifest",
-      "path": "vendor-pilot/ansible/vendor-template.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "f064defadd56429e0f6b7236edd38043dad5b89eb3be2f976e27b26e16178dac"
-    },
-    {
       "type": "bootstrap_dhcp",
       "path": "vendor-pilot/bootstrap/dhcp/config.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "23b7949de2fc18058ba1a1e652371f6ffdf00db49cbf06251faa2538a6aba514"
     },
     {
       "type": "bootstrap_dns",
       "path": "vendor-pilot/bootstrap/dns/config.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "789b5539ebf7850321a139ab83774f9825928e44d5ced3c483f4cd419c3b0596"
     },
     {
       "type": "bootstrap_ipxe_script",
       "path": "vendor-pilot/bootstrap/pxe/ipxe/bootstrap.ipxe",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "707313f2d28bd582b9f8fcb41cae8f2cbd9ee2f43e16d82af1cf33d98de1731f"
     },
     {
       "type": "bootstrap_ipxe_menu",
       "path": "vendor-pilot/bootstrap/pxe/ipxe/menu.ipxe",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "256c5cd3fbc3e430a21f9fbefa577af4fd3ee5a226be658aa56d99274a754ff6"
     },
     {
       "type": "bootstrap_pxe",
       "path": "vendor-pilot/bootstrap/pxe/metadata.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "a49dfc7bc05902f250154558b2553d4fe3859e1c8bdfc8a3948705f32e226122"
     },
     {
       "type": "bootstrap_tftp",
       "path": "vendor-pilot/bootstrap/tftp/config.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "7afe76bbfd1d7db8c30d83eb76b7b7fd788b1dd805588c7616ad6a8d5fac2195"
     },
     {
       "type": "generation_report",
       "path": "vendor-pilot/generation-report.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "904593f46e3c17b88d83216b24434a89820cd27df0e446fa46c9801722cb8a32"
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "2f62ca504d0bdf651fa610ac55eb4a215574fe26d3d51046db5b645ab3e95b18"
     },
     {
       "type": "inventory",
       "path": "vendor-pilot/inventory.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "1369386f4e037f0299656b67e933ad469729f8eddfbf134eac5c0530cc6226b8"
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "8eef32c9a0273fd1789a430d3457cd4ea7693ee9c1abdc75fe0957ef26113ede"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-CiscoR1.cfg",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-FortiGate1.cfg",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "41665a8999a479b4e41e94ba264ba860957cbcce949d0293b6c22a6ad2b08c70"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-MikroTikR1.cfg",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0"
+    },
+    {
+      "type": "native_manifest",
+      "path": "vendor-pilot/native/native-manifest.json",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "cb4003433413e0c5aabd0f39f5a017caf62a97ab66d7f8911b452c09ae38e2c1"
     },
     {
       "type": "site_manifest",
       "path": "vendor-pilot/site-manifest.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "bd64166dfceac234e52df4341cc520bd8dc49a96c0cf1777a3fb903ca2c2d8f3"
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "aa97ae1b424d77efe12ab0a7e71f0a9da1a0fb337e2d19743df1fc5981ad429b"
     },
     {
       "type": "terraform_locals",
       "path": "vendor-pilot/terraform/locals.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
-      "output_hash": "e4231b2556eb55c0ea20e2b85360700976b79200ffa17ebc8775cf9f1a3dd59e"
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "96d418c93786b97ce7608f629bb66eedc4437037c1662dc6792ce63a96497d2d"
     },
     {
       "type": "terraform_main",
       "path": "vendor-pilot/terraform/main.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e"
     },
     {
       "type": "terraform_outputs",
       "path": "vendor-pilot/terraform/outputs.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94"
     },
     {
       "type": "terraform_providers",
       "path": "vendor-pilot/terraform/providers.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62"
     },
     {
       "type": "terraform_tfvars_example",
       "path": "vendor-pilot/terraform/terraform.tfvars.example",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6"
     },
     {
       "type": "terraform_variables",
       "path": "vendor-pilot/terraform/variables.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4"
     },
     {
       "type": "terraform_versions",
       "path": "vendor-pilot/terraform/versions.tf",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f"
     },
     {
       "type": "topology",
       "path": "vendor-pilot/topology.json",
-      "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
       "output_hash": "057033835650e9d9a2f59de56be15d2b28cc48769f24da44740332dfd4d8bb89"
     }
   ]

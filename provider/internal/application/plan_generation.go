@@ -51,16 +51,18 @@ type GeneratedArtifact struct {
 	Status          string `json:"status"`
 }
 
-type vendorManifestVersion struct {
-	TemplateVersion string            `json:"template_version"`
-	InputHash       string            `json:"input_hash"`
-	Devices         []string          `json:"devices"`
-	Methods         map[string]string `json:"methods"`
-	Status          string            `json:"status"`
+type nativeManifestVersion struct {
+	TemplateVersion string `json:"template_version"`
+	InputHash       string `json:"input_hash"`
+	Status          string `json:"status"`
+	Devices         []struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	} `json:"devices"`
 }
 
-// PlanAndGenerate links a validated plan to the existing vendor Ansible renderer.
-// It records generation evidence only; it never runs a device command.
+// PlanAndGenerate links a validated plan to native configuration artifacts.
+// It records render-only evidence; it never runs a device command.
 func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {
@@ -125,31 +127,31 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 		result.GenerationStatus = "UNSUPPORTED"
 		return service.recordPlanGeneration(result)
 	}
-	generator, ok := service.generator.(ports.VendorArtifactGenerator)
+	generator, ok := service.generator.(ports.NativeArtifactGenerator)
 	if !ok {
-		return service.markGenerationUnavailable(result, "vendor Ansible generator is not configured")
+		return service.markGenerationUnavailable(result, "native configuration generator is not configured")
 	}
 	if strings.TrimSpace(service.artifactDirectory) == "" {
 		return service.markGenerationUnavailable(result, "artifact directory is not configured")
 	}
-	artifacts, err := generator.GenerateVendorAnsible(filtered, service.artifactDirectory)
+	artifacts, err := generator.GenerateNative(filtered, service.artifactDirectory)
 	if err != nil {
 		for index := range result.Tasks {
 			if result.Tasks[index].Status == "PLANNED" {
 				result.Tasks[index].Status = "FAILED"
-				result.Tasks[index].Reason = "vendor artifact generation failed"
+				result.Tasks[index].Reason = "native configuration generation failed"
 				result.Plan.Tasks[index].Status = "FAILED"
 				result.Plan.Tasks[index].Reason = result.Tasks[index].Reason
 			}
 		}
 		result.GenerationStatus = "FAILED"
 		result, auditErr := service.recordPlanGeneration(result)
-		return result, errors.Join(fmt.Errorf("generate planned vendor artifacts: %w", err), auditErr)
+		return result, errors.Join(fmt.Errorf("generate planned native configurations: %w", err), auditErr)
 	}
 
-	manifests := make(map[string]vendorManifestVersion)
+	manifests := make(map[string]nativeManifestVersion)
 	for _, artifact := range artifacts {
-		if artifact.Type != "ansible_vendor_manifest" {
+		if artifact.Type != "native_manifest" {
 			continue
 		}
 		site, _, _ := strings.Cut(artifact.Path, "/")
@@ -157,19 +159,19 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 		if err != nil {
 			return service.failPlanGeneration(result, err)
 		}
-		var manifest vendorManifestVersion
+		var manifest nativeManifestVersion
 		if err := json.Unmarshal(data, &manifest); err != nil {
-			return service.failPlanGeneration(result, fmt.Errorf("decode generated vendor manifest %q: %w", artifact.Path, err))
+			return service.failPlanGeneration(result, fmt.Errorf("decode generated native manifest %q: %w", artifact.Path, err))
 		}
-		if strings.TrimSpace(manifest.TemplateVersion) == "" || manifest.Status != "UNVERIFIED" || !protocol.IsSHA256(manifest.InputHash) || manifest.InputHash != artifact.InputHash {
-			return service.failPlanGeneration(result, fmt.Errorf("generated vendor manifest %q has invalid provenance", artifact.Path))
+		if strings.TrimSpace(manifest.TemplateVersion) == "" || manifest.Status != "rendered_unverified" || !protocol.IsSHA256(manifest.InputHash) || manifest.InputHash != artifact.InputHash {
+			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest %q has invalid provenance", artifact.Path))
 		}
 		manifests[site] = manifest
 	}
 
 	artifactsBySite := make(map[string][]protocol.Artifact)
 	for _, artifact := range artifacts {
-		if !isTaskConfigurationArtifact(artifact) {
+		if artifact.Type != "native_device_config" {
 			continue
 		}
 		if _, err := readGeneratedArtifact(service.artifactDirectory, artifact); err != nil {
@@ -185,13 +187,26 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			continue
 		}
 		manifest, exists := manifests[task.Site]
-		if !exists || !manifestContainsDevice(manifest, task.Device) || manifest.Methods[task.Device] != task.Method {
-			return service.failPlanGeneration(result, fmt.Errorf("generated vendor manifest does not match task %q", task.TaskID))
+		if !exists {
+			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest does not match task %q", task.TaskID))
 		}
 		version := manifest.TemplateVersion
+		devicePath := ""
+		for _, device := range manifest.Devices {
+			if device.Name == task.Device {
+				devicePath = device.Path
+				break
+			}
+		}
+		if devicePath == "" {
+			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest does not include device %q", task.Device))
+		}
 		for _, artifact := range artifactsBySite[task.Site] {
 			if artifact.InputHash != manifest.InputHash {
 				return service.failPlanGeneration(result, fmt.Errorf("generated artifact %q has a mismatched input hash", artifact.Path))
+			}
+			if artifact.Path != devicePath {
+				continue
 			}
 			format := generatedArtifactFormat(artifact.Path)
 			task.Artifacts = append(task.Artifacts, GeneratedArtifact{
@@ -203,7 +218,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			result.Plan.Tasks[index].Artifacts = append(result.Plan.Tasks[index].Artifacts, artifact.Path)
 		}
 		if len(task.Artifacts) == 0 || version == "" {
-			return service.failPlanGeneration(result, fmt.Errorf("generator returned no traceable artifacts for task %q", task.TaskID))
+			return service.failPlanGeneration(result, fmt.Errorf("generator returned no traceable native configuration for task %q", task.TaskID))
 		}
 		task.Status = "GENERATED"
 		result.Plan.Tasks[index].Status = "GENERATED"
@@ -226,15 +241,6 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 		}
 	}
 	return service.recordPlanGeneration(result)
-}
-
-func manifestContainsDevice(manifest vendorManifestVersion, device string) bool {
-	for _, name := range manifest.Devices {
-		if name == device {
-			return true
-		}
-	}
-	return false
 }
 
 func (service *Service) failPlanGeneration(result PlanGenerationResult, cause error) (PlanGenerationResult, error) {
@@ -269,7 +275,7 @@ func (service *Service) markGenerationUnavailable(result PlanGenerationResult, r
 func interfaceGeneratorSupport(device domain.Device) (domain.VendorProfile, string, string) {
 	profile, ok := domain.VendorProfileFor(device)
 	if !ok {
-		return domain.VendorProfile{}, "", fmt.Sprintf("no vendor Ansible generator for %s/%s", device.Vendor, device.Family)
+		return domain.VendorProfile{}, "", fmt.Sprintf("no native configuration profile for %s/%s", device.Vendor, device.Family)
 	}
 	method := strings.TrimSpace(device.Provisioning.Method)
 	if method == "" {
@@ -279,7 +285,7 @@ func interfaceGeneratorSupport(device domain.Device) (domain.VendorProfile, stri
 		return profile, method, fmt.Sprintf("method %q is not supported by the %s/%s profile", method, device.Vendor, device.Family)
 	}
 	if (profile.Family == "routeros" || profile.Family == "fortios") && !hasIPv4Interface(device.Network.Interfaces) {
-		return profile, method, "the existing vendor renderer requires at least one explicit IPv4 interface address"
+		return profile, method, "native configuration rendering requires at least one explicit IPv4 interface address"
 	}
 	if len(device.Network.Routes) > 0 || len(device.Network.NAT.Source) > 0 || len(device.Network.NAT.Destination) > 0 {
 		return profile, method, "the current plan models interface configuration only; static routes and NAT intent are unsupported"
@@ -294,17 +300,6 @@ func hasIPv4Interface(interfaces []domain.NetworkInterface) bool {
 		}
 	}
 	return false
-}
-
-func isTaskConfigurationArtifact(artifact protocol.Artifact) bool {
-	switch artifact.Type {
-	case "ansible_vendor_inventory", "ansible_requirements", "ansible_vendor_manifest":
-		return true
-	case "ansible_playbook":
-		return strings.HasSuffix(artifact.Path, "/vendor-playbook.yml")
-	default:
-		return false
-	}
 }
 
 func readGeneratedArtifact(root string, artifact protocol.Artifact) ([]byte, error) {

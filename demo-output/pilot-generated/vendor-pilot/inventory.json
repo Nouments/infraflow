@@ -58,6 +58,7 @@
       "vendor": "mikrotik",
       "family": "routeros",
       "model": "RB750Gr3",
+      "os_version": "7.x",
       "identity": {},
       "management": {
         "ipv4": "198.51.100.10"

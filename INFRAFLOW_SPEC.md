@@ -25,7 +25,7 @@ The provider currently implements:
 - YAML validation and semantic checks for infrastructure inputs;
 - deterministic planning and job persistence;
 - a separate persistent execution lifecycle connected to the existing scheduler, with task attempts, results, cancellation, recovery, and audit events;
-- generation of hash-verified Ansible, Terraform, and bootstrap artifact sets;
+- generation of hash-verified native configuration, Terraform data, and bootstrap artifact sets;
 - authenticated gRPC catalog and report services;
 - authenticated HTTP API for user sessions, planning jobs, admin-only execution tasks, agents, and audit events;
 - local SQLite-backed user accounts, session management, and RBAC.
@@ -48,7 +48,7 @@ The agent currently implements:
 
 - authenticated provider registration and heartbeat reporting;
 - hash-verified artifact download and local state storage;
-- processing of generated generic Ansible and Terraform artifacts in read-only validation mode;
+- processing of generated native configuration and Terraform artifacts without automatic device changes;
 - local structured logging and delayed synchronization to the provider when available.
 
 An Agent can use `provider.artifact_token_env` for a dedicated site-scoped gRPC
@@ -65,15 +65,26 @@ credentials do not establish device compatibility or grant execution authority.
 exercise four sites using the real Provider and Agent executables over loopback.
 The test verifies scoped transfer, output hashes, and persisted Agent reports.
 This is protocol/application evidence only: it does not start bootstrap
-services, execute Ansible/Terraform, or apply configuration to hardware. The
+services, validate Terraform, or apply configuration to hardware. The
 example's family labels are declarative metadata without exact model or OS
 version claims; bootstrap service artifacts remain disabled.
 
-### Ansible artifact semantics
+### Bootstrap, ZTP, and AutoInstall
 
-The generic `site.yml` is an inspection playbook that uses only `ansible.builtin.debug` to display declared inventory metadata. It is cataloged as `ansible_inspection_playbook`; the Agent stages and validates the artifact, but normal artifact processing does not run Ansible or configure a device. The optional local inspection command forces Ansible check mode.
+Ansible is not part of the architecture or a runtime/build dependency. Its
+generators, artifact contracts, CLI commands, and Agent runner are removed.
+Configuration generation uses native text renderers and does not apply output
+to devices.
 
-Vendor configuration is a separate `vendor-playbook.yml` artifact of type `ansible_playbook`, accompanied by collection requirements and a provenance manifest. These renderers support only their explicitly mapped intent, use an explicit mutation guard, and remain `UNVERIFIED` and manual-only. Successful rendering or YAML parsing is not evidence of playbook execution or device state.
+The provider currently emits generic DHCP, DNS, TFTP, PXE, and iPXE bootstrap
+contracts, and the Agent provides explicitly started experimental DHCPv4,
+read-only TFTP, and bootstrap HTTP services. These components do not yet
+constitute vendor-specific ZTP or AutoInstall. The roadmap prioritizes
+device-specific boot protocols, provisioning file formats, trust/authenticity,
+model and OS-version compatibility, isolated-lab testing, and verifiable
+completion reporting. Until those acceptance criteria are met, ZTP and
+AutoInstall capability remain unknown; generated artifacts are not proof of
+device provisioning.
 
 ### Observability
 
@@ -99,7 +110,8 @@ The following items are not treated as operationally supported by the current co
 - advanced Cisco IOS features (NAT, ACL, dynamic routing, switchport / VLANs);
 - automatic startup-config saving (`write memory`), pending a separate explicit save task;
 - remote network automation beyond controlled lab validation and repository tests;
-- bootstrap services that are not explicitly implemented and tested.
+- device-specific ZTP and AutoInstall flows, pending platform-specific
+  requirements, safe deployment controls, and isolated hardware/lab evidence.
 
 These remain in the roadmap and are tracked as planned, partial, or blocked depending on evidence.
 

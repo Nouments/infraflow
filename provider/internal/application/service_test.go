@@ -120,13 +120,13 @@ func (fakeGenerator) Generate(domain.Infrastructure, string) ([]protocol.Artifac
 	return []protocol.Artifact{{Type: "inventory"}, {Type: "topology"}}, nil
 }
 
-type failingVendorGenerator struct{}
+type failingNativeGenerator struct{}
 
-func (failingVendorGenerator) Generate(domain.Infrastructure, string) ([]protocol.Artifact, error) {
+func (failingNativeGenerator) Generate(domain.Infrastructure, string) ([]protocol.Artifact, error) {
 	return nil, errors.New("test generator failure")
 }
 
-func (failingVendorGenerator) GenerateVendorAnsible(domain.Infrastructure, string) ([]protocol.Artifact, error) {
+func (failingNativeGenerator) GenerateNative(domain.Infrastructure, string) ([]protocol.Artifact, error) {
 	return nil, errors.New("test generator failure")
 }
 
@@ -195,8 +195,8 @@ func TestPlanAndGenerateReturnsVerifiedArtifactProvenance(t *testing.T) {
 	if len(result.Tasks) != 1 || result.Tasks[0].Status != "GENERATED" || result.Tasks[0].Capability != domain.CapabilityUnverified || result.Tasks[0].Method != "ssh" {
 		t.Fatalf("unexpected per-task state: %#v", result.Tasks)
 	}
-	if len(result.Tasks[0].Artifacts) != 4 {
-		t.Fatalf("expected four vendor artifacts linked to the task: %#v", result.Tasks[0].Artifacts)
+	if len(result.Tasks[0].Artifacts) != 1 || result.Tasks[0].Artifacts[0].Type != "native_device_config" {
+		t.Fatalf("expected one native configuration linked to the task: %#v", result.Tasks[0].Artifacts)
 	}
 	for _, artifact := range result.Tasks[0].Artifacts {
 		if artifact.Site != "lab" || artifact.Device != "R1" || artifact.TaskID != result.Plan.Tasks[0].ID || artifact.TemplateVersion != "1" || artifact.Status != "GENERATED" {
@@ -264,7 +264,7 @@ func TestPlanAndGenerateReportsUnsupportedAndFailuresHonestly(t *testing.T) {
               ipv4_mode: dhcp
 `)
 	withoutGenerator, err := NewService(nil, nil, fakeGenerator{}, dependencies).PlanAndGenerate(input)
-	if err == nil || !strings.Contains(err.Error(), "vendor Ansible generator is not configured") {
+	if err == nil || !strings.Contains(err.Error(), "native configuration generator is not configured") {
 		t.Fatalf("missing vendor generator did not return an explicit error: %v", err)
 	}
 	if withoutGenerator.Plan.Lifecycle.Generated {
@@ -276,7 +276,7 @@ func TestPlanAndGenerateReportsUnsupportedAndFailuresHonestly(t *testing.T) {
 		t.Fatalf("invalid configuration was accepted: %#v, %v", invalid, err)
 	}
 
-	failed, err := NewService(nil, nil, failingVendorGenerator{}, dependencies).PlanAndGenerate(input)
+	failed, err := NewService(nil, nil, failingNativeGenerator{}, dependencies).PlanAndGenerate(input)
 	if err == nil || failed.GenerationStatus != "FAILED" || failed.Plan.Lifecycle.Generated || failed.Tasks[0].Status != "FAILED" {
 		t.Fatalf("generator failure was not represented honestly: %#v, %v", failed, err)
 	}
@@ -313,8 +313,8 @@ func TestPlanAndGenerateRejectsIntentOutsidePlannedInterfaceTask(t *testing.T) {
 	if result.GenerationStatus != "UNSUPPORTED" || result.Plan.Lifecycle.Generated || len(result.Tasks) != 1 || result.Tasks[0].Status != "UNSUPPORTED" {
 		t.Fatalf("route intent absent from the planned interface task was misreported: %#v", result)
 	}
-	if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "ansible", "vendor-playbook.yml")); !os.IsNotExist(err) {
-		t.Fatalf("unsupported route intent produced vendor artifacts: %v", err)
+	if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "native", "device-R1.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("unsupported route intent produced native artifacts: %v", err)
 	}
 }
 

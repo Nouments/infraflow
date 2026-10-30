@@ -26,7 +26,6 @@ func TestGenericProcessesSupportedArtifacts(t *testing.T) {
 func TestGenericStagesToolAndBootstrapArtifactsWithoutExecutingThem(t *testing.T) {
 	processor := Generic{}
 	for _, artifact := range []protocol.Artifact{
-		{Type: "ansible_inspection_playbook", Path: "lab/ansible/site.yml"},
 		{Type: "terraform_main", Path: "lab/terraform/main.tf"},
 		{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"},
 		{Type: "bootstrap_tftp", Path: "lab/bootstrap/tftp/config.json"},

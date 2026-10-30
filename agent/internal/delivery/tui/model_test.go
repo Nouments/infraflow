@@ -999,31 +999,17 @@ func TestToolRunnerInspectionScenarios(t *testing.T) {
 	if abs.status != "Absent" {
 		t.Fatalf("expected Absent with empty PATH, got %q", abs.status)
 	}
-	if !strings.Contains(abs.detail, "introuvables dans PATH") {
-		t.Fatalf("expected missing tools detail, got %q", abs.detail)
+	if !strings.Contains(abs.detail, "terraform introuvable dans PATH") {
+		t.Fatalf("expected Terraform-missing detail, got %q", abs.detail)
 	}
 
-	// 2. Only ansible-playbook present -> Dégradé
-	ansibleBin := filepath.Join(emptyBinDir, "ansible-playbook")
-	if err := os.WriteFile(ansibleBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	deg := inspectToolRunner()
-	if deg.status != "Dégradé" {
-		t.Fatalf("expected Dégradé with only ansible, got %q", deg.status)
-	}
-	if !strings.Contains(deg.detail, "terraform") {
-		t.Fatalf("expected missing terraform detail, got %q", deg.detail)
-	}
-
-	// 3. Both ansible-playbook and terraform present in PATH -> Détecté (non vérifié)
 	terraformBin := filepath.Join(emptyBinDir, "terraform")
 	if err := os.WriteFile(terraformBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	op := inspectToolRunner()
 	if op.status != "Détecté" {
-		t.Fatalf("expected 'Détecté' with both tools in PATH, got %q", op.status)
+		t.Fatalf("expected 'Détecté' with Terraform in PATH, got %q", op.status)
 	}
 	if !strings.Contains(op.detail, "fonctionnement non vérifié") {
 		t.Fatalf("expected unverified execution detail, got %q", op.detail)
@@ -1045,9 +1031,6 @@ func TestToolRunnerLabelCorrespondence(t *testing.T) {
 	}
 
 	// Detected tools
-	if err := os.WriteFile(filepath.Join(emptyBinDir, "ansible-playbook"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(emptyBinDir, "terraform"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

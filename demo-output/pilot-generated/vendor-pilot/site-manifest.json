@@ -5,44 +5,8 @@
   "status": "succeeded",
   "generator_version": "0.1.0",
   "template_version": "1",
-  "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+  "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
   "artifacts": [
-    {
-      "type": "ansible_inventory",
-      "path": "vendor-pilot/ansible/inventory.yml",
-      "size_bytes": 851,
-      "sha256": "b95ddd027b0dff7c42cc410704cad22c11bcce332204d126f2069c5a136e7264"
-    },
-    {
-      "type": "ansible_requirements",
-      "path": "vendor-pilot/ansible/requirements.yml",
-      "size_bytes": 225,
-      "sha256": "539eb4765ae0ede81a2859a00cfa32e31eded7922408f4abc7387dd7d53fee1e"
-    },
-    {
-      "type": "ansible_inspection_playbook",
-      "path": "vendor-pilot/ansible/site.yml",
-      "size_bytes": 544,
-      "sha256": "c6d4ed93a8603c892e7b619f939c5a84f8316cc1695c51bba69f4879449696c8"
-    },
-    {
-      "type": "ansible_vendor_inventory",
-      "path": "vendor-pilot/ansible/vendor-inventory.yml",
-      "size_bytes": 1310,
-      "sha256": "82abd9cf4a1b533d8c0781618fe8879f765441b6730515717dc50bd53593f3c1"
-    },
-    {
-      "type": "ansible_playbook",
-      "path": "vendor-pilot/ansible/vendor-playbook.yml",
-      "size_bytes": 2855,
-      "sha256": "0edadd867d2b373afd1915c88711e3da2414d4a7b613eae023c76e664ffe0b71"
-    },
-    {
-      "type": "ansible_vendor_manifest",
-      "path": "vendor-pilot/ansible/vendor-template.json",
-      "size_bytes": 544,
-      "sha256": "f064defadd56429e0f6b7236edd38043dad5b89eb3be2f976e27b26e16178dac"
-    },
     {
       "type": "bootstrap_dhcp",
       "path": "vendor-pilot/bootstrap/dhcp/config.json",
@@ -82,14 +46,38 @@
     {
       "type": "inventory",
       "path": "vendor-pilot/inventory.json",
-      "size_bytes": 1670,
-      "sha256": "1369386f4e037f0299656b67e933ad469729f8eddfbf134eac5c0530cc6226b8"
+      "size_bytes": 1697,
+      "sha256": "8eef32c9a0273fd1789a430d3457cd4ea7693ee9c1abdc75fe0957ef26113ede"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-CiscoR1.cfg",
+      "size_bytes": 86,
+      "sha256": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-FortiGate1.cfg",
+      "size_bytes": 289,
+      "sha256": "41665a8999a479b4e41e94ba264ba860957cbcce949d0293b6c22a6ad2b08c70"
+    },
+    {
+      "type": "native_device_config",
+      "path": "vendor-pilot/native/device-MikroTikR1.cfg",
+      "size_bytes": 98,
+      "sha256": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0"
+    },
+    {
+      "type": "native_manifest",
+      "path": "vendor-pilot/native/native-manifest.json",
+      "size_bytes": 1340,
+      "sha256": "cb4003433413e0c5aabd0f39f5a017caf62a97ab66d7f8911b452c09ae38e2c1"
     },
     {
       "type": "terraform_locals",
       "path": "vendor-pilot/terraform/locals.tf",
       "size_bytes": 1895,
-      "sha256": "e4231b2556eb55c0ea20e2b85360700976b79200ffa17ebc8775cf9f1a3dd59e"
+      "sha256": "96d418c93786b97ce7608f629bb66eedc4437037c1662dc6792ce63a96497d2d"
     },
     {
       "type": "terraform_main",
@@ -137,15 +125,10 @@
       "type": "generation_report",
       "path": "vendor-pilot/generation-report.json",
       "size_bytes": 423,
-      "sha256": "904593f46e3c17b88d83216b24434a89820cd27df0e446fa46c9801722cb8a32"
+      "sha256": "2f62ca504d0bdf651fa610ac55eb4a215574fe26d3d51046db5b645ab3e95b18"
     }
   ],
   "capabilities": [
-    {
-      "feature": "ansible_inspection",
-      "status": "generated",
-      "evidence": "inspection playbook only; no Ansible process was executed"
-    },
     {
       "feature": "autoinstall",
       "status": "unknown",
@@ -172,13 +155,13 @@
       "evidence": "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet."
     },
     {
-      "feature": "site_artifact_generation",
-      "status": "generated"
+      "feature": "native_configuration_rendering",
+      "status": "unverified",
+      "evidence": "text-only output; command syntax and physical-device behavior were not validated"
     },
     {
-      "feature": "vendor_ansible_rendering",
-      "status": "unverified",
-      "evidence": "rendered from an unverified profile; no equipment execution was performed"
+      "feature": "site_artifact_generation",
+      "status": "generated"
     },
     {
       "feature": "ztp",

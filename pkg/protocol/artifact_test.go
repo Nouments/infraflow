@@ -34,21 +34,8 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !IsSHA256(SHA256([]byte("test"))) || IsSHA256("short") {
 		t.Fatal("SHA-256 validation failed")
 	}
-	if !ValidArtifactPath("lab", Artifact{Type: "ansible_inventory", Path: "lab/ansible/inventory.yml"}) || !ValidArtifactPath("lab", Artifact{Type: "ansible_inspection_playbook", Path: "lab/ansible/site.yml"}) {
-		t.Fatal("expected valid Ansible artifact paths")
-	}
-	if ValidArtifactPath("lab", Artifact{Type: "ansible_playbook", Path: "lab/ansible/site.yml"}) {
-		t.Fatal("generic inspection playbook must not use the vendor configuration artifact type")
-	}
-	for _, artifact := range []Artifact{
-		{Type: "ansible_vendor_inventory", Path: "lab/ansible/vendor-inventory.yml"},
-		{Type: "ansible_playbook", Path: "lab/ansible/vendor-playbook.yml"},
-		{Type: "ansible_requirements", Path: "lab/ansible/requirements.yml"},
-		{Type: "ansible_vendor_manifest", Path: "lab/ansible/vendor-template.json"},
-	} {
-		if !ValidArtifactPath("lab", artifact) {
-			t.Errorf("expected valid vendor artifact path: %#v", artifact)
-		}
+	if ValidArtifactPath("lab", Artifact{Type: "unknown_tool_artifact", Path: "lab/tool/output.yml"}) {
+		t.Fatal("unknown tool artifact types must remain rejected")
 	}
 	if !ValidArtifactPath("lab", Artifact{Type: "terraform_locals", Path: "lab/terraform/locals.tf"}) || !ValidArtifactPath("lab", Artifact{Type: "terraform_tfvars_example", Path: "lab/terraform/terraform.tfvars.example"}) {
 		t.Fatal("expected valid Terraform artifact paths")

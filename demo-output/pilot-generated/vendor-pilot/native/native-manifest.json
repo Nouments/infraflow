@@ -1,0 +1,39 @@
+{
+  "template_version": "1",
+  "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+  "status": "rendered_unverified",
+  "execution_mode": "render-only; review manually; no device connection or execution",
+  "warnings": [
+    "command syntax and behavior were not validated against a physical device",
+    "vendor family profiles do not certify compatibility with the reported model or software version",
+    "only hostname, IPv4 interface, and static-route intent is rendered; NAT and other intent are rejected",
+    "generated files are inert text and are not automatically applied"
+  ],
+  "devices": [
+    {
+      "name": "CiscoR1",
+      "family": "iosxe",
+      "model": "isr-1100",
+      "compatibility": "unknown",
+      "path": "vendor-pilot/native/device-CiscoR1.cfg",
+      "status": "rendered_unverified"
+    },
+    {
+      "name": "FortiGate1",
+      "family": "fortios",
+      "model": "unspecified",
+      "compatibility": "unknown",
+      "path": "vendor-pilot/native/device-FortiGate1.cfg",
+      "status": "rendered_unverified"
+    },
+    {
+      "name": "MikroTikR1",
+      "family": "routeros",
+      "model": "RB750Gr3",
+      "os_version": "7.x",
+      "compatibility": "unknown",
+      "path": "vendor-pilot/native/device-MikroTikR1.cfg",
+      "status": "rendered_unverified"
+    }
+  ]
+}

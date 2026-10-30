@@ -1,5 +1,13 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
+> Mise à jour du 2026-10-29 : ce journal contient le relevé historique des
+> changements de génération, mais ses évaluations antérieures ne sont pas un
+> score courant après la décision de retirer Ansible. Les générateurs,
+> artefacts, runners et commandes Ansible ont été supprimés. La priorité
+> d’architecture est désormais le ZTP et l’AutoInstall par constructeur; les
+> contrats bootstrap existants ne sont pas encore des workflows ZTP/AIA
+> vérifiés.
+
 ## État
 
 - Date : 2026-10-29
@@ -27,7 +35,8 @@
 |---|---|---|---|
 | YAML mono-site/multisite et validation réseau | Implémenté, testé | Tests `config`; les formes `site` et `sites`, liens uniques, préfixes qui se chevauchent et next-hops sont testés | Routage récursif, VLAN, protocoles dynamiques et routage inter-sites non modélisés |
 | Cisco, MikroTik, Fortinet natifs | Partiel, testé | Tests générateurs et `generate-all` du pilote produisent trois artefacts natifs hashés | Famille seulement; pas de matrice modèle/version ni de validation syntaxique constructeur |
-| Ansible | Partiel, testé par structure | Cisco static routes générées et relues depuis le YAML écrit; argspec vérifié dans la source officielle `cisco.ios` 11.5.1 | `ansible-playbook` non exécuté; aucun test lab/appareil |
+| Ansible | Retiré | Code, contrats d’artefacts, CLI, exécution Agent et rendu Provider supprimés | Les fichiers historiques de démonstration sont supprimés et l’architecture n’en dépend plus |
+| ZTP / AutoInstall | Non implémenté comme workflow constructeur | Artefacts bootstrap génériques et services DHCP/TFTP/HTTP existants | Protocoles, formats, confiance, modèle/version et résultats de provisioning spécifiques restent à concevoir et valider |
 | ZTP / AutoInstall | Absent comme flux constructeur | Bootstrap générique existant, non présenté comme ZTP validé | Prérequis et procédures exactes par plateforme/modèle/version manquants |
 | Catalogue matériel local | Partiel | Catalogue YAML embarqué et contrôles de ressources locales existants | Pas de synchroniseur; aucune ressource exacte et aucun droit de redistribution établis |
 | Multisite / Agents | Implémenté sur le périmètre actuel | Tests d’intégration Provider-Agent et gardes de manifestes/site de la suite complète | Capacité maximale de génération fixe; la couverture future dépend de manifestes publiés |
@@ -40,14 +49,16 @@
 |---|---:|---:|---|
 | A. Contrat YAML et validation réseau | 1,5 | 8,5 | Mono/multisite, identifiants, interfaces, liens uniques, préfixes et next-hops directement connectés testés; fonctions L2/L3 avancées absentes |
 | B. Générateurs natifs et routage | 2,0 | 4,5 | Trois profils rendent hostname, IPv4 et routes statiques; modèle/version et syntaxe restent non certifiés, VLAN/OSPF refusés |
-| C. Ansible, ZTP et AutoInstall | 1,5 | 4,5 | Interfaces et routes statiques Cisco rendues avec module versionné; playbook non exécuté, flux ZTP/AutoInstall constructeur absents |
+| C. Provisioning ZTP et AutoInstall | 1,5 | À rebaseliner | La génération bootstrap actuelle ne constitue pas un workflow ZTP/AutoInstall et aucun outil d’automatisation externe n’est retenu |
 | D. Mono-site, multisite et Agents | 1,5 | 8,0 | Publication indépendante, manifestes hashés, succès partiel et isolation Agent/site testés |
 | E. Catalogue matériel local | 1,0 | 3,0 | Catalogue local embarqué présent, mais peu fourni; aucune synchronisation ni ressource binaire vérifiée |
 | F. Sécurité et intégrité | 1,0 | 8,5 | Autorisation par site, validation des chemins, checksums et publication atomique couverts |
 | G. Tests et preuves | 1,0 | 8,5 | Suite Go et pilotes reproductibles réussis; pas de preuve constructeur/matériel |
 | H. Documentation et reproductibilité | 0,5 | 8,5 | Limites et commandes documentées; support reste à réduire à des matrices certifiées |
 
-Calcul : `(8,5×1,5 + 4,5×2 + 4,5×1,5 + 8×1,5 + 3×1 + 8,5×1 + 8,5×1 + 8,5×0,5) / 10 = 6,48`.
+Le score de 6,48/10 ci-dessous appartient au cycle antérieur à la suppression
+d’Ansible et n’est pas repris comme évaluation du périmètre actuel. Un nouveau
+score devra être établi selon les critères d’acceptation ZTP/AutoInstall.
 
 ## Fichiers modifiés ce cycle
 
@@ -60,8 +71,8 @@ Calcul : `(8,5×1,5 + 4,5×2 + 4,5×1,5 + 8×1,5 + 3×1 + 8,5×1 + 8,5×1 + 8,5�
 - `internal/adapters/generation/generator_test.go`
 - `internal/adapters/generation/native.go`
 - `internal/adapters/generation/native_test.go`
-- `internal/adapters/generation/vendor_ansible.go`
-- `internal/adapters/generation/vendor_ansible_test.go`
+- `internal/adapters/generation/vendor_ansible.go` (supprimé)
+- `internal/adapters/generation/vendor_ansible_test.go` (supprimé)
 - `current_step.md`
 
 ## Vérifications réellement exécutées
@@ -74,8 +85,8 @@ Calcul : `(8,5×1,5 + 4,5×2 + 4,5×1,5 + 8×1,5 + 3×1 + 8,5×1 + 8,5×1 + 8,5�
 - `make test-scripts` : réussi, contrôles de préflight Cisco passés.
 - CLI : validation du pilote réussie (`1 site`, `3 devices`); `generate-all` a produit les manifestes racine/site et trois configs natives dans un répertoire temporaire, puis ce répertoire a été supprimé.
 - `git diff --check` : réussi.
-- Source officielle taguée `ansible-collections/cisco.ios` `v11.5.1` : argspec `dest` CIDR, `address_families`, `next_hops`, `forward_router_address`, `interface` et `distance_metric` vérifié.
-- Vérificateurs externes : `ansible-playbook` et `terraform` ne sont pas installés; leurs validations syntaxiques n’ont donc pas été exécutées.
+- Après retrait, aucune exécution ou validation Ansible n’est requise par le projet.
+- Vérificateur Terraform : `terraform` doit être vérifié séparément avant d’annoncer une validation de ses artefacts.
 
 ## Blocages et prochaine action
 

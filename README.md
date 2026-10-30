@@ -24,14 +24,13 @@ go test ./...
 go run ./provider/cmd validate -f examples/infra.yaml
 go run ./provider/cmd plan -f examples/infra.yaml
 go run ./provider/cmd generate -f examples/infra.yaml -out ./provider-data
-go run ./provider/cmd generate-ansible -f examples/infra.yaml -out ./ansible-output
 go run ./provider/cmd generate-terraform -f examples/infra.yaml -out ./terraform-output
 go run ./provider/cmd generate-bootstrap -f examples/infra.yaml -out ./bootstrap-output
 go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the supported artifact catalog (inventory, topology, Ansible, Terraform, native device configuration, and bootstrap DHCP/DNS/TFTP/PXE/iPXE data) with one combined manifest; it does not contact infrastructure or apply a plan.
+`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the supported artifact catalog (inventory, topology, Terraform data, native device configuration, and bootstrap DHCP/DNS/TFTP/PXE/iPXE data) with one combined manifest; it does not contact infrastructure or apply a plan.
 
 The YAML parser accepts either `site` or `sites`, based on which top-level key
 is present, and rejects documents containing both. Network validation rejects
@@ -132,7 +131,7 @@ entries distinguish official URL references from files actually available
 locally. See
 [`internal/adapters/catalog/README.md`](internal/adapters/catalog/README.md).
 
-Generic Ansible generation produces an inventory and `site.yml` that only prints declared device metadata. Its catalog type is `ansible_inspection_playbook`; it is not a vendor configuration or evidence of device execution. Vendor-specific playbooks are separate `ansible_playbook` artifacts named `vendor-playbook.yml`, marked `UNVERIFIED` and manual-only. Cisco IOS-XE static routes use `cisco.ios.ios_static_routes` with the pinned `cisco.ios` 11.5.1 schema. These playbooks require an explicit `--check` preview or `INFRAFLOW_APPLY=true` for mutation and have not been validated on a lab device.
+Ansible is not part of the InfraFlow architecture: there is no Ansible generator, artifact contract, runner, or CLI command. The project focus is device-specific ZTP and AutoInstall workflows. Today, the provider emits generic static DHCP/DNS/TFTP/PXE/iPXE bootstrap contracts and native text configurations; these are not yet complete vendor ZTP/AutoInstall flows, are not automatically applied, and remain unverified against physical devices.
 
 ### Four-site Agent synchronization demo
 
@@ -234,7 +233,7 @@ provider:
 
 This scenario proves local generation, authenticated transfer, hash checks,
 and report acceptance only. Agent status `completed` means supported artifact
-processing/staging; it does not mean Ansible or Terraform ran, a bootstrap
+processing/staging; it does not mean Terraform ran, a bootstrap
 service started, or a network device was configured or verified. The demo does
 not perform any network/device operation.
 
@@ -374,9 +373,9 @@ Focused service checks are available as `make test-provider` and `make test-agen
 - [x] Provider gRPC artifact streaming/state API, planning-job HTTP API, authenticated agent registration/heartbeat, and independent configured agent client
 - [x] Generic dependency-aware scheduler primitives (retry, timeout, cancellation, concurrency, and locks)
 - [x] Side-effect-free desired/observed reconciliation with deterministic drift paths and state hashes
-- [x] Generic Ansible inventory and inspection playbook generation (without execution)
 - [x] Generic data-only Terraform configuration generation (without provider or apply)
 - [x] Generic DHCP/DNS/TFTP/PXE/iPXE bootstrap artifact generation (without agent execution)
+- [x] Removal of Ansible generation and execution surfaces; ZTP/AutoInstall remain the next provisioning focus
 - [x] Provider SQLite user accounts, bcrypt passwords, expiring sessions, and admin/user authorization
 - [x] Linux TUI client for authenticated planning jobs and agent state
 - [x] Provider Fiber web console for planning jobs, agents, audit events, technical logs, and admin user access

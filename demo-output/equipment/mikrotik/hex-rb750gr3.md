@@ -11,7 +11,7 @@
 
 ## Template targets
 
-The current pilot renders an Ansible RouterOS API task, not a native `.rsc` file. Create distinct RouterOS 6 and RouterOS 7 render targets only after the actual router release is collected. The demo must supply explicit interface bindings and addresses. Do not assume WAN/LAN roles from port numbers or infer live configuration from the product datasheet.
+The current pilot emits a text-only RouterOS configuration, not a native `.rsc`/`.auto.rsc` AutoInstall artifact. Create distinct RouterOS 6 and RouterOS 7 provisioning targets only after the actual router release is collected. The demo must supply explicit interface bindings and addresses. Do not assume WAN/LAN roles from port numbers or infer live configuration from the product datasheet.
 
 `.auto.rsc` is an upload-triggered execution path, not a harmless file extension. It must remain opt-in, use an approved transfer path, and include a plan to retrieve and inspect `.auto.log`. Do not generate reset or Netinstall commands as part of ordinary configuration generation.
 

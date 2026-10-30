@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
   "status": "succeeded",
-  "input_hash": "ac703f1ffdf7120e5e528d0107f23187cf6d37a1c8781e93375218c5f1ac71fd",
+  "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
   "sites": [
     {
       "site_id": "vendor-pilot",
       "site_name": "vendor-pilot",
       "status": "succeeded",
-      "artifact_count": 23,
+      "artifact_count": 21,
       "site_manifest_path": "vendor-pilot/site-manifest.json",
-      "site_manifest_sha256": "bd64166dfceac234e52df4341cc520bd8dc49a96c0cf1777a3fb903ca2c2d8f3",
+      "site_manifest_sha256": "aa97ae1b424d77efe12ab0a7e71f0a9da1a0fb337e2d19743df1fc5981ad429b",
       "generation_report_path": "vendor-pilot/generation-report.json"
     }
   ]
