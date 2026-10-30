@@ -244,8 +244,10 @@ The same API exposes a separate admin-only execution lifecycle at
 results, and is connected to the existing dependency scheduler. The Provider
 registers two operational task executors: `artifact.verify` for read-only
 cryptographic artifact verification, and `cisco.ios.configure` for strictly
-validated Cisco IOS hostname and Ethernet interface configuration over SSH with
-running-config read-back verification. Unsupported task types are rejected. Execution
+validated Cisco IOS hostname and Ethernet interface configuration over SSH.
+The Cisco executor reads the requested running-config state before mutation,
+reports it separately, and verifies the post-apply read-back; it does not
+persist startup-config. Unsupported task types are rejected. Execution
 is never inferred from planning or artifact generation; execution records can be
 inspected and cancelled by administrators via the web console and the Linux TUI.
 Live Cisco/GNS3 validation remains **NON EXÉCUTÉ** until an authorized, reachable

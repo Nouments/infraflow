@@ -61,6 +61,7 @@ type CiscoIOSConfigureResult struct {
 	ExecutedAt       string           `json:"executed_at"`
 	Status           string           `json:"status"`
 	RequestedChanges RequestedChanges `json:"requested_changes"`
+	PreviousChanges  ObservedChanges  `json:"previous_changes"`
 	ObservedChanges  ObservedChanges  `json:"observed_changes"`
 	Verified         bool             `json:"verified"`
 	Warnings         []string         `json:"warnings,omitempty"`
@@ -303,6 +304,12 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
 	}
 
+	previous, err := e.readRunningConfig(ctx, session, params)
+	if err != nil {
+		safeMsg := fmt.Sprintf("preflight read-back failed: %s; no configuration changes were requested", sanitizeErrorWithCreds(err, creds))
+		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+	}
+
 	// 5. Enter configuration mode
 	if _, err := session.RunCommand(ctx, "configure terminal"); err != nil {
 		safeMsg := fmt.Sprintf("enter configure terminal failed: %s", observability.Redact(err.Error()))
@@ -433,10 +440,11 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 			Hostname:   params.Hostname,
 			Interfaces: params.Interfaces,
 		},
+		PreviousChanges: previous,
 		ObservedChanges: observed,
 		Verified:        true,
 		Warnings: []string{
-			"Configuration was applied to running-config and verified; startup-config was not persisted (write memory disabled by policy)",
+			"Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (write memory disabled by policy)",
 		},
 	})
 	if err != nil {
@@ -452,59 +460,72 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 
 // verifyRunningConfig reads the active configuration from the device and compares it to requested changes.
 func (e *CiscoIOSConfigureExecutor) verifyRunningConfig(ctx context.Context, session CiscoIOSSession, params CiscoIOSConfigureParameters) (ObservedChanges, error) {
+	observed, err := e.readRunningConfig(ctx, session, params)
+	if err != nil {
+		return observed, err
+	}
+	if err := compareRunningConfig(params, observed); err != nil {
+		return observed, err
+	}
+	return observed, nil
+}
+
+func (e *CiscoIOSConfigureExecutor) readRunningConfig(ctx context.Context, session CiscoIOSSession, params CiscoIOSConfigureParameters) (ObservedChanges, error) {
 	observed := ObservedChanges{
 		Interfaces: make([]ObservedInterfaceConfig, 0, len(params.Interfaces)),
 	}
 
-	// Verify hostname if requested
+	// Read hostname when it is part of the requested state.
 	if params.Hostname != "" {
 		output, err := session.RunCommand(ctx, "show running-config | include ^hostname")
 		if err != nil {
 			return observed, fmt.Errorf("read hostname: %w", err)
 		}
-		actualHostname := parseHostnameFromOutput(output)
-		observed.Hostname = actualHostname
-		if !strings.EqualFold(actualHostname, params.Hostname) {
-			return observed, fmt.Errorf("hostname mismatch: requested %q, observed %q", params.Hostname, actualHostname)
-		}
+		observed.Hostname = parseHostnameFromOutput(output)
 	}
 
-	// Verify each interface
 	for _, reqIface := range params.Interfaces {
 		output, err := session.RunCommand(ctx, "show running-config interface "+reqIface.Name)
 		if err != nil {
 			return observed, fmt.Errorf("read interface %s running-config: %w", reqIface.Name, err)
 		}
+		observed.Interfaces = append(observed.Interfaces, parseInterfaceFromRunningConfig(reqIface.Name, output))
+	}
+	return observed, nil
+}
 
-		obsIface := parseInterfaceFromRunningConfig(reqIface.Name, output)
-		observed.Interfaces = append(observed.Interfaces, obsIface)
+func compareRunningConfig(params CiscoIOSConfigureParameters, observed ObservedChanges) error {
+	if params.Hostname != "" && !strings.EqualFold(observed.Hostname, params.Hostname) {
+		return fmt.Errorf("hostname mismatch: requested %q, observed %q", params.Hostname, observed.Hostname)
+	}
 
-		// Compare Description
+	for index, reqIface := range params.Interfaces {
+		if index >= len(observed.Interfaces) {
+			return fmt.Errorf("interface %s is missing from read-back", reqIface.Name)
+		}
+		obsIface := observed.Interfaces[index]
 		if reqIface.Description != "" {
 			if obsIface.Description != reqIface.Description {
-				return observed, fmt.Errorf("interface %s description mismatch: requested %q, observed %q", reqIface.Name, reqIface.Description, obsIface.Description)
+				return fmt.Errorf("interface %s description mismatch: requested %q, observed %q", reqIface.Name, reqIface.Description, obsIface.Description)
 			}
 		} else {
 			if obsIface.Description != "" {
-				return observed, fmt.Errorf("interface %s expected no description, observed %q", reqIface.Name, obsIface.Description)
+				return fmt.Errorf("interface %s expected no description, observed %q", reqIface.Name, obsIface.Description)
 			}
 		}
 
-		// Compare IPv4 Address and Subnet Mask
 		if reqIface.IPv4CIDR != "" {
 			reqIP, reqMask := cidrToIPAndMask(reqIface.IPv4CIDR)
 			if obsIface.IPv4Address != reqIP || obsIface.SubnetMask != reqMask {
-				return observed, fmt.Errorf("interface %s ipv4 mismatch: requested %s %s, observed %s %s", reqIface.Name, reqIP, reqMask, obsIface.IPv4Address, obsIface.SubnetMask)
+				return fmt.Errorf("interface %s ipv4 mismatch: requested %s %s, observed %s %s", reqIface.Name, reqIP, reqMask, obsIface.IPv4Address, obsIface.SubnetMask)
 			}
 		}
 
-		// Compare AdminState
 		if obsIface.AdminState != reqIface.AdminState {
-			return observed, fmt.Errorf("interface %s admin_state mismatch: requested %s, observed %s", reqIface.Name, reqIface.AdminState, obsIface.AdminState)
+			return fmt.Errorf("interface %s admin_state mismatch: requested %s, observed %s", reqIface.Name, reqIface.AdminState, obsIface.AdminState)
 		}
 	}
-
-	return observed, nil
+	return nil
 }
 
 // Retryable always returns false because a failed command may have partially changed the router.

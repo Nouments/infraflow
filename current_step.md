@@ -1,5 +1,31 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
+## Campagne de complétion et tests (2026-10-30)
+
+- Commit de départ : `710b7ee5163acb3760c1e7043d7fa8589ca4fad3` sur `develop`;
+  worktree propre au démarrage.
+- Changement livré dans ce cycle : l’exécuteur Cisco SSH lit maintenant
+  l’état courant des ressources demandées avant d’entrer en configuration.
+  Une erreur de prélecture arrête le traitement avant toute mutation. Le
+  rapport structuré distingue l’état préexistant de l’état post-application,
+  lequel reste soumis à une lecture et une comparaison réussies.
+- Limite conservée : aucune nouvelle capacité ZTP/AutoInstall, RouterOS API
+  ou FortiOS API n’a été déclarée ou intégrée pendant cette campagne. Le
+  protocole Cisco ZTP consulté propose un URL HTTP dans l’exemple option 67;
+  HTTPS pour la cible retenue n’a pas été vérifié et le choix TLS-only reste
+  bloquant pour la génération.
+- Vérifications : `go test ./...`, `go test -race ./...`, `go vet ./...`,
+  `go test -cover ./...`, `go build ./provider/cmd ./agent/cmd`,
+  `make fmt-check`, `bash scripts/cisco-ios-preflight_test.sh`,
+  et le test multisite ciblé ont réussi. La couverture globale des statements
+  est de 66,1 % (`go tool cover` sur le profil agrégé).
+- Le test race a échoué une première fois sous charge concurrente dans le test
+  de limite de sortie SSH (timeout au lieu de l’erreur attendue); il a réussi
+  isolément puis dans le rejeu complet `go test -race ./...`. Aucun résultat
+  matériel/virtuel : IOS XE, CHR et FortiGate VM n’ont pas été contactés.
+- Le compte rendu détaillé de cette campagne est
+  [docs/COMPLETION_AND_TEST_REPORT.md](docs/COMPLETION_AND_TEST_REPORT.md).
+
 > Mise à jour du 2026-10-29 : ce journal contient le relevé historique des
 > changements de génération, mais ses évaluations antérieures ne sont pas un
 > score courant après la décision de retirer Ansible. Les générateurs,

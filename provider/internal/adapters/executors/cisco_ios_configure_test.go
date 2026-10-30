@@ -20,6 +20,7 @@ import (
 
 type mockCiscoSession struct {
 	responses     map[string]string
+	sequences     map[string][]string
 	errors        map[string]error
 	recordedCmds  []string
 	initialPrompt string
@@ -50,6 +51,10 @@ func (s *mockCiscoSession) RunCommand(ctx context.Context, command string) (stri
 	s.recordedCmds = append(s.recordedCmds, clean)
 	if err, exists := s.errors[clean]; exists {
 		return s.responses[clean], err
+	}
+	if sequence := s.sequences[clean]; len(sequence) > 0 {
+		s.sequences[clean] = sequence[1:]
+		return sequence[0], nil
 	}
 	if resp, exists := s.responses[clean]; exists {
 		return resp, nil
@@ -487,6 +492,68 @@ rtr-core-01#`
 	}
 }
 
+func TestCiscoIOSConfigureReadsBeforeApplyAndReportsPreviousState(t *testing.T) {
+	session := standardMockSession()
+	readCommand := "show running-config interface GigabitEthernet0/0"
+	session.sequences = map[string][]string{
+		readCommand: {
+			"interface GigabitEthernet0/0\n description Existing uplink\n ip address 10.0.0.2 255.255.255.252\n shutdown\nRouter#",
+			session.responses[readCommand],
+		},
+	}
+	executor, _, _ := setupTestExecutor(session, nil)
+	validated, err := executor.ValidateParameters(json.RawMessage(validTaskPayload()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Execute(context.Background(), domain.ExecutionTask{Parameters: validated})
+	if err != nil || result.Status != domain.ExecutionTaskSucceeded {
+		t.Fatalf("expected apply and read-back verification, got result=%#v err=%v", result, err)
+	}
+	var report CiscoIOSConfigureResult
+	if err := json.Unmarshal(result.Output, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Verified || len(report.PreviousChanges.Interfaces) != 1 ||
+		report.PreviousChanges.Interfaces[0].IPv4Address != "10.0.0.2" ||
+		report.PreviousChanges.Interfaces[0].AdminState != "down" ||
+		report.ObservedChanges.Interfaces[0].IPv4Address != "10.0.0.1" {
+		t.Fatalf("report must distinguish preflight and verified post-apply state: %#v", report)
+	}
+	preflightIndex, configureIndex := -1, -1
+	for index, command := range session.recordedCmds {
+		if command == readCommand && preflightIndex == -1 {
+			preflightIndex = index
+		}
+		if command == "configure terminal" {
+			configureIndex = index
+		}
+	}
+	if preflightIndex < 0 || configureIndex <= preflightIndex {
+		t.Fatalf("configuration began before preflight completed: %#v", session.recordedCmds)
+	}
+}
+
+func TestCiscoIOSConfigurePreflightFailurePreventsMutation(t *testing.T) {
+	session := standardMockSession()
+	session.errors["show running-config interface GigabitEthernet0/0"] = errors.New("read timeout")
+	executor, _, _ := setupTestExecutor(session, nil)
+	validated, err := executor.ValidateParameters(json.RawMessage(validTaskPayload()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Execute(context.Background(), domain.ExecutionTask{Parameters: validated})
+	if err == nil || result.Status != domain.ExecutionTaskFailed ||
+		!strings.Contains(result.Error, "preflight read-back failed") {
+		t.Fatalf("expected preflight failure, got result=%#v err=%v", result, err)
+	}
+	for _, command := range session.recordedCmds {
+		if command == "configure terminal" || command == "hostname rtr-core-01" {
+			t.Fatalf("mutating command %q ran after preflight failed: %#v", command, session.recordedCmds)
+		}
+	}
+}
+
 func TestCiscoIOSConfigureOversizedOutputCannotSucceed(t *testing.T) {
 	session := standardMockSession()
 	session.errors["show running-config interface GigabitEthernet0/0"] = ErrOutputTooLarge
@@ -495,8 +562,10 @@ func TestCiscoIOSConfigureOversizedOutputCannotSucceed(t *testing.T) {
 	if err == nil || result.Status != domain.ExecutionTaskFailed || len(result.Output) != 0 {
 		t.Fatalf("oversized verification output was accepted: result=%+v err=%v", result, err)
 	}
-	if !strings.Contains(result.Error, "exceeds the configured limit") || !strings.Contains(result.Error, "must be re-read") {
-		t.Fatalf("oversized output error did not explain failure and required read-back: %s", result.Error)
+	if !strings.Contains(result.Error, "exceeds the configured limit") ||
+		!strings.Contains(result.Error, "preflight read-back failed") ||
+		strings.Contains(strings.Join(session.recordedCmds, "\n"), "configure terminal") {
+		t.Fatalf("oversized preflight must fail before mutation and explain why: %s; commands=%v", result.Error, session.recordedCmds)
 	}
 }
 
