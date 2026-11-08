@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "service": "dns",
+  "enabled": false,
+  "site": "vendor-pilot",
+  "zone": "vendor-pilot.infraflow.local",
+  "ttl": 60,
+  "records": [
+    {
+      "name": "ciscor1.vendor-pilot.infraflow.local",
+      "type": "A",
+      "value": "192.0.2.10",
+      "ttl": 60
+    },
+    {
+      "name": "fortigate1.vendor-pilot.infraflow.local",
+      "type": "A",
+      "value": "203.0.113.10",
+      "ttl": 60
+    },
+    {
+      "name": "mikrotikr1.vendor-pilot.infraflow.local",
+      "type": "A",
+      "value": "198.51.100.10",
+      "ttl": 60
+    }
+  ],
+  "reverse_records": [
+    {
+      "name": "10.100.51.198.in-addr.arpa",
+      "type": "PTR",
+      "value": "mikrotikr1.vendor-pilot.infraflow.local",
+      "ttl": 60
+    },
+    {
+      "name": "10.113.0.203.in-addr.arpa",
+      "type": "PTR",
+      "value": "fortigate1.vendor-pilot.infraflow.local",
+      "ttl": 60
+    },
+    {
+      "name": "10.2.0.192.in-addr.arpa",
+      "type": "PTR",
+      "value": "ciscor1.vendor-pilot.infraflow.local",
+      "ttl": 60
+    }
+  ]
+}
+

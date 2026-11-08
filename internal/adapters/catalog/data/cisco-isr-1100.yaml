@@ -1,0 +1,25 @@
+id: cisco.isr-1100
+manufacturer: Cisco
+product: Cisco ISR 1100 Series
+model: isr-1100
+category: router
+operating_systems:
+  - name: ios-xe
+    versions: []
+    compatibility_state: unknown
+interfaces: []
+interfaces_state: unknown
+features: []
+features_state: unknown
+template_ids:
+  - infraflow.cisco.iosxe.isr-1100.interfaces.v1
+documentation:
+  - title: Cisco 1000 Series Integrated Services Routers
+    url: https://www.cisco.com/c/en/us/products/routers/1100-series-integrated-services-routers-isr/index.html
+    local: ""
+    status: reference_only
+images: []
+source: https://www.cisco.com/c/en/us/products/routers/1100-series-integrated-services-routers-isr/index.html
+checked_at: "2026-10-26"
+validation_status: partial
+validation_notes: "Official Cisco product-family URL was reachable on 2026-10-26. Exact ISR 1100 SKU, supported IOS XE versions, interfaces, and hardware capabilities were not verified from the retrieved source. No datasheet or image was downloaded. The listed template is a local rendering template, not evidence of hardware validation."

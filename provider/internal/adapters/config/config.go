@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"infraflow/pkg/observability"
+	"infraflow/pkg/protocol"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -21,19 +23,27 @@ const (
 )
 
 type Config struct {
-	ListenAddress         string        `yaml:"listen_address"`
-	APIListenAddress      string        `yaml:"api_listen_address,omitempty"`
-	WebUIEnabled          bool          `yaml:"web_ui_enabled,omitempty"`
-	ArtifactDirectory     string        `yaml:"artifact_directory"`
-	DatabasePath          string        `yaml:"database_path,omitempty"`
-	TokenEnv              string        `yaml:"token_env"`
-	AdminUsername         string        `yaml:"admin_username,omitempty"`
-	AdminCredentialFile   string        `yaml:"admin_credential_file,omitempty"`
-	AdminCredentialScript string        `yaml:"admin_credential_script,omitempty"`
-	SessionTTLMinutes     int           `yaml:"session_ttl_minutes,omitempty"`
-	ChunkSize             int           `yaml:"chunk_size"`
-	Logging               LoggingConfig `yaml:"logging,omitempty"`
-	TLS                   TLSConfig     `yaml:"tls"`
+	ListenAddress         string            `yaml:"listen_address"`
+	APIListenAddress      string            `yaml:"api_listen_address,omitempty"`
+	WebUIEnabled          bool              `yaml:"web_ui_enabled,omitempty"`
+	ArtifactDirectory     string            `yaml:"artifact_directory"`
+	DatabasePath          string            `yaml:"database_path,omitempty"`
+	TokenEnv              string            `yaml:"token_env"`
+	AgentCredentials      []AgentCredential `yaml:"agent_credentials,omitempty"`
+	AdminUsername         string            `yaml:"admin_username,omitempty"`
+	AdminCredentialFile   string            `yaml:"admin_credential_file,omitempty"`
+	AdminCredentialScript string            `yaml:"admin_credential_script,omitempty"`
+	SessionTTLMinutes     int               `yaml:"session_ttl_minutes,omitempty"`
+	ChunkSize             int               `yaml:"chunk_size"`
+	Logging               LoggingConfig     `yaml:"logging,omitempty"`
+	TLS                   TLSConfig         `yaml:"tls"`
+	KnownHostsFile        string            `yaml:"known_hosts_file,omitempty"`
+}
+
+type AgentCredential struct {
+	AgentID  string `yaml:"agent_id"`
+	SiteID   string `yaml:"site_id"`
+	TokenEnv string `yaml:"token_env"`
 }
 
 type LoggingConfig struct {
@@ -72,6 +82,7 @@ func Load(path string) (Config, error) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return Config{}, fmt.Errorf("provider config must contain exactly one YAML document")
 	}
+	applyEnvironment(&config)
 	if config.ChunkSize == 0 {
 		config.ChunkSize = defaultChunk
 	}
@@ -95,7 +106,11 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("configure local provider logs: %w", err)
 	}
 	if config.Logging.Directory == "" {
-		config.Logging.Directory = defaults.Directory
+		if os.Getenv("INFRAFLOW_PROVIDER_DATA") != "" {
+			config.Logging.Directory = filepath.Join(config.ArtifactDirectory, "logs")
+		} else {
+			config.Logging.Directory = defaults.Directory
+		}
 	}
 	if config.Logging.Level == "" {
 		config.Logging.Level = defaults.Level
@@ -115,12 +130,57 @@ func Load(path string) (Config, error) {
 	return config, nil
 }
 
+func applyEnvironment(config *Config) {
+	setIfPresent("INFRAFLOW_PROVIDER_LISTEN_ADDRESS", &config.ListenAddress)
+	setIfPresent("INFRAFLOW_PROVIDER_API_LISTEN_ADDRESS", &config.APIListenAddress)
+	setIfPresent("INFRAFLOW_PROVIDER_TOKEN_ENV", &config.TokenEnv)
+	setIfPresent("INFRAFLOW_PROVIDER_TLS_CERTIFICATE", &config.TLS.CertificateFile)
+	setIfPresent("INFRAFLOW_PROVIDER_TLS_KEY", &config.TLS.KeyFile)
+	setIfPresent("INFRAFLOW_PROVIDER_LOG_DIRECTORY", &config.Logging.Directory)
+	setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
+	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
+	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", &config.AdminCredentialScript)
+	setIfPresent("INFRAFLOW_PROVIDER_KNOWN_HOSTS_FILE", &config.KnownHostsFile)
+	if dataDirectory := strings.TrimSpace(os.Getenv("INFRAFLOW_PROVIDER_DATA")); dataDirectory != "" {
+		config.ArtifactDirectory = dataDirectory
+		config.DatabasePath = filepath.Join(dataDirectory, ".infraflow-users.sqlite3")
+		config.AdminCredentialFile = filepath.Join(dataDirectory, ".infraflow-admin-password")
+		config.AdminCredentialScript = filepath.Join(dataDirectory, "get-admin-password.sh")
+		setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
+		setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
+		setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_SCRIPT", &config.AdminCredentialScript)
+	}
+}
+
+func setIfPresent(name string, destination *string) {
+	if value, exists := os.LookupEnv(name); exists && strings.TrimSpace(value) != "" {
+		*destination = value
+	}
+}
+
 func (config Config) Validate() error {
 	if strings.TrimSpace(config.ArtifactDirectory) == "" {
 		return fmt.Errorf("artifact_directory must be set")
 	}
 	if strings.TrimSpace(config.TokenEnv) == "" {
 		return fmt.Errorf("token_env must name the environment variable holding the token")
+	}
+	seenAgentIDs := make(map[string]struct{}, len(config.AgentCredentials))
+	seenAgentSites := make(map[string]struct{}, len(config.AgentCredentials))
+	for _, credential := range config.AgentCredentials {
+		if !protocol.ValidSiteName(credential.AgentID) || len(credential.AgentID) > 128 ||
+			!protocol.ValidSiteName(credential.SiteID) || len(credential.SiteID) > 128 ||
+			strings.TrimSpace(credential.TokenEnv) == "" || strings.ContainsAny(credential.TokenEnv, "\r\n") {
+			return fmt.Errorf("agent_credentials require valid agent_id, site_id, and token_env values")
+		}
+		if _, exists := seenAgentIDs[credential.AgentID]; exists {
+			return fmt.Errorf("duplicate agent credential for %q", credential.AgentID)
+		}
+		seenAgentIDs[credential.AgentID] = struct{}{}
+		if _, exists := seenAgentSites[credential.SiteID]; exists {
+			return fmt.Errorf("site_id %q is assigned to multiple Agents", credential.SiteID)
+		}
+		seenAgentSites[credential.SiteID] = struct{}{}
 	}
 	if strings.TrimSpace(config.DatabasePath) == "" {
 		return fmt.Errorf("database_path must be set")

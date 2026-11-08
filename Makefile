@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check test test-race test-provider test-agent vet build build-provider build-agent
+.PHONY: fmt fmt-check test test-race test-scripts test-provider test-agent vet build build-provider build-agent
 
 fmt:
 	gofmt -w $(shell find agent internal pkg provider -name '*.go')
@@ -11,6 +11,9 @@ test:
 
 test-race:
 	go test -race ./...
+
+test-scripts:
+	bash scripts/cisco-ios-preflight_test.sh
 
 test-provider:
 	go test ./provider/...

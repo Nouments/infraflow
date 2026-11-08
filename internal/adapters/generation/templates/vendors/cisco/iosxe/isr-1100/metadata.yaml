@@ -1,0 +1,15 @@
+id: infraflow.cisco.iosxe.isr-1100.interfaces.v1
+version: "1"
+manufacturer: cisco
+model: isr-1100
+os_family: ios-xe
+os_versions: []
+features:
+  - interfaces.ipv4_static
+  - interfaces.admin_state
+variables:
+  - interfaces.name
+  - interfaces.ipv4
+  - interfaces.enabled
+status: render-only
+source: "InfraFlow local template; not validated against a physical ISR 1100"

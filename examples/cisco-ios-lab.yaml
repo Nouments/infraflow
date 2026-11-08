@@ -1,0 +1,12 @@
+sites:
+  - name: cisco-lab
+    devices:
+      - id: R1
+        name: R1
+        role: router
+        vendor: cisco
+        family: ios
+        model: iosv
+        management:
+          # Documentation-only TEST-NET address; replace with the isolated GNS3 management IP.
+          ipv4: 192.0.2.10

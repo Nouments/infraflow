@@ -15,7 +15,7 @@ import (
 const artifactPrefix = "/artifacts/"
 const bootstrapPrefix = "/infraflow/"
 
-const maxServedArtifactBytes = int64(8 << 30)
+const maxServedArtifactBytes = int64(protocol.MaxArtifactBytes)
 
 // Store is intentionally narrower than the agent state store. The HTTP
 // service can only open already validated artifacts and cannot write state.
@@ -95,6 +95,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.Header().Set("Content-Type", contentType(artifact.Path))
+	copyLimit := maxServedArtifactBytes
+	var buffered []byte
+	bufferedArtifact := false
 	if seeker, ok := file.(io.Seeker); ok {
 		size, err := seeker.Seek(0, io.SeekEnd)
 		if err != nil || size > maxServedArtifactBytes {
@@ -106,12 +109,29 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		writer.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+		copyLimit = size
+	} else {
+		buffered, err = io.ReadAll(io.LimitReader(file, maxServedArtifactBytes+1))
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if int64(len(buffered)) > maxServedArtifactBytes {
+			writer.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		bufferedArtifact = true
+		writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(buffered)))
 	}
 	if request.Method == http.MethodHead {
 		writer.WriteHeader(http.StatusOK)
 		return
 	}
-	if _, err := io.Copy(writer, io.LimitReader(file, maxServedArtifactBytes)); err != nil {
+	if bufferedArtifact {
+		_, _ = writer.Write(buffered)
+		return
+	}
+	if _, err := io.Copy(writer, io.LimitReader(file, copyLimit)); err != nil {
 		return
 	}
 }
@@ -125,8 +145,7 @@ func artifactForPath(relativePath string) (protocol.Artifact, bool) {
 		return protocol.Artifact{}, false
 	}
 	for _, artifactType := range []string{
-		"inventory", "topology", "ansible_inventory", "ansible_playbook",
-		"ansible_vendor_inventory", "ansible_requirements", "ansible_vendor_manifest",
+		"inventory", "topology", "native_device_config", "native_manifest",
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
 		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",

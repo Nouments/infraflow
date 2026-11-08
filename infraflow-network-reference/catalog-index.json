@@ -1,0 +1,113 @@
+{
+  "name": "InfraFlow Network Reference",
+  "version": "1.0.0",
+  "language": "fr",
+  "offline": true,
+  "vendors": [
+    "cisco-ios",
+    "cisco-iosxe",
+    "mikrotik-routeros7",
+    "fortinet-fortios"
+  ],
+  "documents": [
+    {
+      "path": "01-fondamentaux-reseau.md",
+      "topics": [
+        "osi",
+        "tcp-ip",
+        "ipv4",
+        "ipv6",
+        "vlan",
+        "routing",
+        "ospf",
+        "bgp",
+        "nat",
+        "dhcp",
+        "dns",
+        "firewall",
+        "qos",
+        "ha"
+      ]
+    },
+    {
+      "path": "02-methodologie-configuration.md",
+      "topics": [
+        "design",
+        "change-management",
+        "troubleshooting",
+        "secrets"
+      ]
+    },
+    {
+      "path": "cisco/README.md",
+      "vendor": "cisco",
+      "topics": [
+        "ios",
+        "iosxe",
+        "interfaces",
+        "vlan",
+        "dhcp",
+        "ospf",
+        "bgp",
+        "nat",
+        "acl",
+        "qos",
+        "ztp",
+        "autoinstall"
+      ]
+    },
+    {
+      "path": "mikrotik/README.md",
+      "vendor": "mikrotik",
+      "topics": [
+        "routeros7",
+        "bridge",
+        "vlan",
+        "dhcp",
+        "ospf",
+        "bgp",
+        "nat",
+        "firewall",
+        "queues"
+      ]
+    },
+    {
+      "path": "fortinet/README.md",
+      "vendor": "fortinet",
+      "topics": [
+        "fortios",
+        "interfaces",
+        "vlan",
+        "dhcp",
+        "ospf",
+        "bgp",
+        "firewall-policy",
+        "vip",
+        "fortiztp"
+      ]
+    },
+    {
+      "path": "labs/README.md",
+      "topics": [
+        "lab",
+        "multi-vendor",
+        "ospf",
+        "nat",
+        "troubleshooting"
+      ]
+    },
+    {
+      "path": "07-glossaire.md",
+      "topics": [
+        "glossary",
+        "terminology"
+      ]
+    }
+  ],
+  "rules": {
+    "never_assume_model_compatibility": true,
+    "never_mix_vendor_cli": true,
+    "unknown_answer": "NON_DOCUMENTE",
+    "examples_are_production_configs": false
+  }
+}

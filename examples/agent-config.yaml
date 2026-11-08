@@ -4,10 +4,10 @@ agent:
   capabilities:
     - inventory
     - topology
-  state_directory: ./agent-data
+  state_directory: /var/lib/infraflow-agent
 
 provider:
-  address: 127.0.0.1:8443
+  address: localhost:8443
   api_address: http://127.0.0.1:8080
   token_env: INFRAFLOW_AGENT_TOKEN
   tls:

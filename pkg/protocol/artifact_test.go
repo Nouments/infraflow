@@ -31,26 +31,56 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 			t.Errorf("accepted invalid artifact path %q", path)
 		}
 	}
+
 	if !IsSHA256(SHA256([]byte("test"))) || IsSHA256("short") {
 		t.Fatal("SHA-256 validation failed")
 	}
-	if !ValidArtifactPath("lab", Artifact{Type: "ansible_inventory", Path: "lab/ansible/inventory.yml"}) || !ValidArtifactPath("lab", Artifact{Type: "ansible_playbook", Path: "lab/ansible/site.yml"}) {
-		t.Fatal("expected valid Ansible artifact paths")
-	}
-	for _, artifact := range []Artifact{
-		{Type: "ansible_vendor_inventory", Path: "lab/ansible/vendor-inventory.yml"},
-		{Type: "ansible_playbook", Path: "lab/ansible/vendor-playbook.yml"},
-		{Type: "ansible_requirements", Path: "lab/ansible/requirements.yml"},
-		{Type: "ansible_vendor_manifest", Path: "lab/ansible/vendor-template.json"},
-	} {
-		if !ValidArtifactPath("lab", artifact) {
-			t.Errorf("expected valid vendor artifact path: %#v", artifact)
-		}
+	if ValidArtifactPath("lab", Artifact{Type: "unknown_tool_artifact", Path: "lab/tool/output.yml"}) {
+		t.Fatal("unknown tool artifact types must remain rejected")
 	}
 	if !ValidArtifactPath("lab", Artifact{Type: "terraform_locals", Path: "lab/terraform/locals.tf"}) || !ValidArtifactPath("lab", Artifact{Type: "terraform_tfvars_example", Path: "lab/terraform/terraform.tfvars.example"}) {
 		t.Fatal("expected valid Terraform artifact paths")
 	}
 	if !ValidArtifactPath("lab", Artifact{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"}) || !ValidArtifactPath("lab", Artifact{Type: "bootstrap_ipxe_script", Path: "lab/bootstrap/pxe/ipxe/bootstrap.ipxe"}) {
 		t.Fatal("expected valid bootstrap artifact paths")
+	}
+	if !ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: "lab/native/device-edge-west-1.cfg"}) {
+		t.Fatal("expected valid stable native device artifact path")
+	}
+	for _, path := range []string{"lab/native/device-../escape.cfg", "lab/native/device-a/b.cfg", "lab/native/device-.cfg"} {
+		if ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: path}) {
+			t.Errorf("accepted invalid native device artifact path %q", path)
+		}
+	}
+
+}
+
+func TestValidSiteArtifactMetadataRequiresCompleteRenderOnlyProvenance(t *testing.T) {
+	inputHash := SHA256([]byte("input"))
+	artifact := SiteArtifact{
+		Type: "native_device_config", Path: "lab/native/device-r1.cfg",
+		SiteID: "site-lab", DeviceID: "r1", Vendor: "cisco", Family: "iosxe",
+		Model: "C9300", OSVersion: "17.6.4", Format: "text/plain",
+		TemplateID: "infraflow.cisco.iosxe.native", TemplateVersion: "1",
+		InputHash: inputHash, GenerationStatus: "rendered_unverified",
+		CompatibilityStatus: "unknown", DocumentationReferences: []string{},
+	}
+	if !ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("expected complete render-only metadata to validate")
+	}
+
+	artifact.CompatibilityStatus = "compatible"
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must not accept a compatibility claim from render-only metadata")
+	}
+	artifact.CompatibilityStatus = "unknown"
+	artifact.Type = "inventory"
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must not accept device provenance on a non-device artifact")
+	}
+	artifact.Type = "native_device_config"
+	artifact.InputHash = SHA256([]byte("different input"))
+	if ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
+		t.Fatal("must reject provenance tied to a different input")
 	}
 }

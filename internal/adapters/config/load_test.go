@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,6 +36,44 @@ func TestParseValidInfrastructure(t *testing.T) {
 	}
 	if len(infrastructure.Sites) != 1 || len(infrastructure.Sites[0].Devices) != 2 {
 		t.Fatalf("unexpected parsed infrastructure: %#v", infrastructure)
+	}
+}
+
+func TestMultiSiteReferenceExamplePassesBusinessValidation(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "examples", "multisite-preparation.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := Parse(data)
+	if err != nil {
+		t.Fatalf("multisite example failed parser and business validation: %v", err)
+	}
+	if len(infrastructure.Sites) != 4 {
+		t.Fatalf("parsed %d sites, want 4", len(infrastructure.Sites))
+	}
+	if got := infrastructure.Sites[1].Devices[0].OSVersion; got != "7.x" {
+		t.Fatalf("RouterOS version declaration was not preserved: %q", got)
+	}
+}
+
+func TestParseRejectsDuplicateStableSiteIDsIncludingNameFallback(t *testing.T) {
+	input := `sites:
+  - name: site-a
+    id: shared
+  - name: site-b
+    id: shared
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "duplicate site id shared") {
+		t.Fatalf("expected duplicate stable site id to be rejected, got %v", err)
+	}
+	fallbackCollision := `sites:
+  - name: site-a
+    id: site-b
+  - name: site-b
+`
+	if _, err := Parse([]byte(fallbackCollision)); err == nil || !strings.Contains(err.Error(), "duplicate site id site-b") {
+		t.Fatalf("expected explicit/fallback site id collision to be rejected, got %v", err)
 	}
 }
 
@@ -218,6 +258,287 @@ func TestParseSingleSiteAndEndpointForm(t *testing.T) {
 	}
 }
 
+func TestParseRejectsInvalidTopologyIdentifiers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "site id",
+			input: "sites:\n  - name: lab\n    id: 'bad id'\n",
+			want:  "id must be a valid identifier",
+		},
+		{
+			name:  "device name",
+			input: "sites:\n  - name: lab\n    devices:\n      - name: 'bad device'\n",
+			want:  "device name must be a valid identifier",
+		},
+		{
+			name:  "device id",
+			input: "sites:\n  - name: lab\n    devices:\n      - name: R1\n        id: 'bad id'\n",
+			want:  "device id must be a valid identifier",
+		},
+		{
+			name: "link id",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+      - name: SW1
+    links:
+      - id: "bad id"
+        a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`,
+			want: "link id must be a valid identifier",
+		},
+		{
+			name: "link interface",
+			input: `sites:
+  - name: lab
+    devices:
+      - name: R1
+      - name: SW1
+    links:
+      - a: R1:bad interface
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`,
+			want: "endpoint interface must be a valid identifier",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse([]byte(test.input))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected error containing %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestParseRejectsDanglingAndAddressInconsistentLinks(t *testing.T) {
+	base := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/30
+      - name: SW1
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.2/30
+    links:
+      - id: transit
+        a: R1:Gi1
+        b: SW1:Gi1
+        network: 10.0.0.0/30
+`
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "unknown interface",
+			input: strings.Replace(base, "a: R1:Gi1", "a: R1:Gi9", 1),
+			want:  "endpoint references unknown interface Gi9 on device R1",
+		},
+		{
+			name:  "address outside link subnet",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.2/30", "ipv4_address: 10.0.1.2/30", 1),
+			want:  "endpoint address 10.0.1.2 is outside link network 10.0.0.0/30",
+		},
+		{
+			name:  "network address assigned",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.1/30", "ipv4_address: 10.0.0.0/30", 1),
+			want:  "network and broadcast addresses cannot be assigned",
+		},
+		{
+			name:  "duplicate interface address",
+			input: strings.Replace(base, "ipv4_address: 10.0.0.2/30", "ipv4_address: 10.0.0.1/30", 1),
+			want:  "IPv4 address 10.0.0.1 duplicates",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse([]byte(test.input))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected error containing %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestParseRejectsUnreachableStaticRouteNextHops(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+            - name: Gi2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 198.51.100.254
+              interface: Gi1
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "route next_hop must be inside a static IPv4 prefix on interface Gi1") {
+		t.Fatalf("expected unreachable interface-bound next hop to be rejected, got %v", err)
+	}
+
+	input = strings.Replace(input, "              interface: Gi1\n", "", 1)
+	if _, err := Parse([]byte(input)); err != nil {
+		t.Fatalf("next hop reachable through a configured static interface should be accepted: %v", err)
+	}
+	input = strings.Replace(input, "198.51.100.254", "203.0.113.254", 1)
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "route next_hop must be reachable through a configured static IPv4 interface") {
+		t.Fatalf("expected next hop unreachable through all static interfaces to be rejected, got %v", err)
+	}
+}
+
+func TestParseRejectsNonHostRouteNextHops(t *testing.T) {
+	base := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: NEXT_HOP
+              interface: Gi1
+`
+	for _, nextHop := range []string{"192.0.2.1", "192.0.2.0", "192.0.2.255"} {
+		t.Run(nextHop, func(t *testing.T) {
+			input := strings.Replace(base, "NEXT_HOP", nextHop, 1)
+			if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "route next_hop must be inside a static IPv4 prefix on interface Gi1") {
+				t.Fatalf("expected unusable next hop %s to be rejected, got %v", nextHop, err)
+			}
+		})
+	}
+}
+
+func TestParseRejectsNonCanonicalStaticRouteDestination(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+          routes:
+            - destination: 203.0.113.17/24
+              next_hop: 192.0.2.2
+              interface: Gi1
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "route destination must be a canonical IPv4 network CIDR") {
+		t.Fatalf("expected non-network route destination to be rejected, got %v", err)
+	}
+}
+
+func TestParseRejectsOverlappingConnectedNetworks(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/24
+            - name: Gi2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 10.0.0.129/25
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "interfaces R1:Gi2 and R1:Gi1 have overlapping networks") {
+		t.Fatalf("expected overlapping connected networks to be rejected, got %v", err)
+	}
+}
+
+func TestParseRequiresLinkEndpointPrefixToMatchPointToPointNetwork(t *testing.T) {
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.1/24
+      - name: R2
+        network:
+          interfaces:
+            - name: Gi1
+              role: transit
+              ipv4_mode: static
+              ipv4_address: 10.0.0.2/30
+    links:
+      - a: R1:Gi1
+        b: R2:Gi1
+        network: 10.0.0.0/30
+`
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "endpoint interface prefix 10.0.0.0/24 does not match link network 10.0.0.0/30") {
+		t.Fatalf("expected mismatched link prefix to be rejected, got %v", err)
+	}
+}
+
+func TestParseRejectsReusedOrRepeatedLinkEndpoints(t *testing.T) {
+	base := `sites:
+  - name: lab
+    devices:
+      - name: R1
+      - name: R2
+      - name: R3
+    links:
+      - id: first
+        a: ENDPOINT_A
+        b: ENDPOINT_B
+        network: 10.0.0.0/30
+      - id: second
+        a: R1:Gi1
+        b: R3:Gi1
+        network: 10.0.0.4/30
+`
+	repeated := strings.Replace(base, "ENDPOINT_B", "R1:Gi1", 1)
+	repeated = strings.Replace(repeated, "ENDPOINT_A", "R1:Gi1", 1)
+	if _, err := Parse([]byte(repeated)); err == nil || !strings.Contains(err.Error(), "two distinct device interfaces") {
+		t.Fatalf("expected repeated endpoint in one link to be rejected, got %v", err)
+	}
+
+	reused := strings.Replace(base, "ENDPOINT_A", "R1:Gi1", 1)
+	reused = strings.Replace(reused, "ENDPOINT_B", "R2:Gi1", 1)
+	if _, err := Parse([]byte(reused)); err == nil || !strings.Contains(err.Error(), "endpoint R1:Gi1 is already assigned") {
+		t.Fatalf("expected interface reuse across links to be rejected, got %v", err)
+	}
+}
+
 func TestParseRejectsUnknownFields(t *testing.T) {
 	_, err := Parse([]byte("sites:\n  - name: lab\n    surprise: true\n"))
 	if err == nil || !strings.Contains(err.Error(), "field surprise not found") {
@@ -229,6 +550,13 @@ func TestParseRejectsMultipleDocuments(t *testing.T) {
 	_, err := Parse([]byte(validYAML + "---\nsites: []\n"))
 	if err == nil || !strings.Contains(err.Error(), "exactly one YAML document") {
 		t.Fatalf("expected multiple-document error, got %v", err)
+	}
+}
+
+func TestParseRejectsBothSiteFormsEvenWhenSitesIsEmpty(t *testing.T) {
+	input := "site:\n  name: lab\nsites: []\n"
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "either 'site' or 'sites', not both") {
+		t.Fatalf("expected both top-level forms to be rejected, got %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"infraflow/internal/infrastructure/security"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 	infrav1 "infraflow/pkg/protocol/infraflow/v1"
 )
@@ -26,7 +28,24 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 		Type: "inventory", Path: "lab/inventory.json",
 		InputHash: protocol.SHA256([]byte("input")), OutputHash: protocol.SHA256(data),
 	}
-	server := &fakeAgentProvider{token: token, artifact: artifact, data: data}
+	manifestData, err := json.Marshal(protocol.SiteManifest{
+		SchemaVersion: 1, SiteID: "agent-01", SiteName: "lab", Status: "succeeded",
+		GeneratorVersion: "test", TemplateVersion: "test", InputHash: artifact.InputHash,
+		Artifacts: []protocol.SiteArtifact{{
+			Type: artifact.Type, Path: artifact.Path, SizeBytes: int64(len(data)), SHA256: artifact.OutputHash,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := protocol.Artifact{
+		Type: "site_manifest", Path: "lab/site-manifest.json",
+		InputHash: artifact.InputHash, OutputHash: protocol.SHA256(manifestData),
+	}
+	server := &fakeAgentProvider{
+		token: token, artifact: artifact, data: data,
+		manifest: manifest, manifestData: manifestData,
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +73,13 @@ func TestAgentCLIComposesAdaptersAndReports(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("agent run failed with %d: %s", code, stderr.String())
 	}
-	if server.report == nil || server.report.AgentId != "agent-01" || len(server.report.Artifacts) != 1 || server.report.Artifacts[0].Status != protocol.StatusCompleted {
+	if server.report == nil || server.report.AgentId != "agent-01" || len(server.report.Artifacts) != 2 {
 		t.Fatalf("provider did not receive completed agent state: %#v", server.report)
+	}
+	for _, result := range server.report.Artifacts {
+		if result.Status != protocol.StatusCompleted {
+			t.Fatalf("provider received incomplete agent state: %#v", server.report)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(output, "lab", "inventory.json")); err != nil {
 		t.Fatalf("agent artifact missing: %v", err)
@@ -73,6 +97,14 @@ func TestAgentCLIHasNoProviderImplementationCommand(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := Run([]string{"generate"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
 		t.Fatalf("agent must not expose provider commands: %d %q", code, stderr.String())
+	}
+}
+
+func TestLegacyAnsibleExecutionCommandIsUnknown(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"execute-ansible"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("removed execution command was not rejected: code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -184,7 +216,7 @@ func TestServeTFTPRejectsDisabledConfiguration(t *testing.T) {
 }
 
 func TestToolCommandsRequireExplicitSiteAndDirectory(t *testing.T) {
-	for _, command := range []string{"execute-ansible", "validate-terraform"} {
+	for _, command := range []string{"validate-terraform"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		if code := Run([]string{command}, &stdout, &stderr); code != 2 {
@@ -194,7 +226,7 @@ func TestToolCommandsRequireExplicitSiteAndDirectory(t *testing.T) {
 }
 
 func TestToolCommandsRejectMissingArtifactsAndInvalidTimeouts(t *testing.T) {
-	for _, command := range []string{"execute-ansible", "validate-terraform"} {
+	for _, command := range []string{"validate-terraform"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		if code := Run([]string{command, "-directory", t.TempDir(), "-site", "lab"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "read ") {
@@ -237,6 +269,115 @@ func TestTUIRejectsMissingCredentialsAndInvalidEndpoint(t *testing.T) {
 	}
 }
 
+func TestTUIConfigValidation(t *testing.T) {
+	t.Setenv("INFRAFLOW_TUI_PASSWORD", "secret-password")
+
+	// 1. Missing config file -> rejected with code 2
+	var stdout, stderr bytes.Buffer
+	nonexistentPath := filepath.Join(t.TempDir(), "nonexistent-agent.yaml")
+	code := Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for nonexistent config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "secret-password") {
+		t.Fatalf("stderr leaked secret password: %q", stderr.String())
+	}
+
+	// 2. Malformed config file -> rejected with code 2
+	invalidConfigFile := filepath.Join(t.TempDir(), "invalid-agent.yaml")
+	if err := os.WriteFile(invalidConfigFile, []byte("agent: [invalid yaml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", invalidConfigFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for invalid yaml, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+
+	// 3. Incomplete agent config missing required fields -> rejected with code 2
+	incompleteConfigFile := filepath.Join(t.TempDir(), "incomplete-agent.yaml")
+	if err := os.WriteFile(incompleteConfigFile, []byte("agent:\n  id: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", incompleteConfigFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for incomplete agent config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "load config") {
+		t.Fatalf("stderr should report load config error: %q", stderr.String())
+	}
+
+	// 4. Unknown field in TUI config -> rejected with code 2
+	unknownFieldFile := filepath.Join(t.TempDir(), "unknown-field-agent.yaml")
+	unknownYAML := "agent:\n  id: \"agent-01\"\n  state_directory: \"/tmp\"\n  unknown_field: \"invalid\"\nprovider:\n  address: \"127.0.0.1:8080\"\n  token_env: \"TOKEN\"\n  tls:\n    enabled: false\n"
+	if err := os.WriteFile(unknownFieldFile, []byte(unknownYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr.Reset()
+	code = Run([]string{"tui", "-address", "http://127.0.0.1:8080", "-username", "admin", "-config", unknownFieldFile}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("expected code 2 for unknown field in TUI config, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("stderr should report unknown field error: %q", stderr.String())
+	}
+}
+
+func TestCLIModesConfigValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	nonexistentPath := filepath.Join(tempDir, "missing.yaml")
+
+	malformedPath := filepath.Join(tempDir, "malformed.yaml")
+	if err := os.WriteFile(malformedPath, []byte("agent: [syntax error"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	unknownFieldPath := filepath.Join(tempDir, "unknown-field.yaml")
+	unknownYAML := "agent:\n  id: \"agent-01\"\n  state_directory: \"/tmp\"\n  unknown_extra_field: \"should_fail\"\nprovider:\n  address: \"127.0.0.1:8080\"\n  token_env: \"TOKEN\"\n  tls:\n    enabled: false\n"
+	if err := os.WriteFile(unknownFieldPath, []byte(unknownYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Mode 'run'
+	// 1a. Missing file
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"run", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "open agent config") {
+		t.Fatalf("run mode did not reject missing file: code=%d, stderr=%q", code, stderr.String())
+	}
+	// 1b. Malformed YAML
+	stderr.Reset()
+	code = Run([]string{"run", "-config", malformedPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "decode agent config") {
+		t.Fatalf("run mode did not reject malformed YAML: code=%d, stderr=%q", code, stderr.String())
+	}
+	// 1c. Unknown field
+	stderr.Reset()
+	code = Run([]string{"run", "-config", unknownFieldPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("run mode did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
+	}
+
+	// 2. Mode 'validate-terraform' with -config
+	stderr.Reset()
+	code = Run([]string{"validate-terraform", "-directory", tempDir, "-site", "lab", "-config", nonexistentPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "load process logging configuration") {
+		t.Fatalf("validate-terraform did not reject missing config: code=%d, stderr=%q", code, stderr.String())
+	}
+	stderr.Reset()
+	code = Run([]string{"validate-terraform", "-directory", tempDir, "-site", "lab", "-config", unknownFieldPath}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "not found in type") {
+		t.Fatalf("validate-terraform did not reject unknown field: code=%d, stderr=%q", code, stderr.String())
+	}
+}
+
 func TestInterfaceAddressValidation(t *testing.T) {
 	if !interfaceHasIPv4Address("lo", net.ParseIP("127.0.0.1")) {
 		t.Fatal("loopback IP was not found on the loopback interface")
@@ -246,17 +387,10 @@ func TestInterfaceAddressValidation(t *testing.T) {
 	}
 }
 
-func TestToolCommandsRunProviderGeneratedArtifacts(t *testing.T) {
+func TestTerraformValidationRunsOnExpectedArtifacts(t *testing.T) {
 	stateDirectory := t.TempDir()
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/inventory.yml", "all:\n  children:\n    network:\n      hosts:\n        R1:\n          ansible_host: 192.0.2.10\n")
-	writeCLIArtifact(t, stateDirectory, "lab/ansible/site.yml", `[{"name":"Inspect declared InfraFlow devices","hosts":"network","gather_facts":false,"tasks":[{"name":"Display declared device metadata","ansible.builtin.debug":{"msg":"device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"}}]}]`)
-	installCLITool(t, "ansible-playbook")
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if code := Run([]string{"execute-ansible", "-directory", stateDirectory, "-site", "lab"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "--check") {
-		t.Fatalf("execute-ansible did not run in check mode: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-
 	for filename, contents := range map[string]string{
 		"versions.tf":  `terraform { required_version = ">= 1.4.0" }`,
 		"providers.tf": `# no providers`,
@@ -277,10 +411,14 @@ func TestToolCommandsRunProviderGeneratedArtifacts(t *testing.T) {
 
 type fakeAgentProvider struct {
 	infrav1.UnimplementedAgentProviderServer
-	token    string
-	artifact protocol.Artifact
-	data     []byte
-	report   *infrav1.AgentStateReport
+	token        string
+	artifact     protocol.Artifact
+	data         []byte
+	manifest     protocol.Artifact
+	manifestData []byte
+	report       *infrav1.AgentStateReport
+	logBatches   []*infrav1.AgentLogBatch
+	releasePath  string
 }
 
 func (server *fakeAgentProvider) authorize(ctx context.Context) error {
@@ -295,20 +433,38 @@ func (server *fakeAgentProvider) ListArtifacts(ctx context.Context, _ *infrav1.E
 	if err := server.authorize(ctx); err != nil {
 		return nil, err
 	}
-	return &infrav1.ArtifactCatalog{Artifacts: []*infrav1.ArtifactRecord{{
-		Type: server.artifact.Type, Path: server.artifact.Path,
-		InputHash: server.artifact.InputHash, OutputHash: server.artifact.OutputHash,
-	}}}, nil
+	artifacts := make([]*infrav1.ArtifactRecord, 0, 2)
+	if server.artifact.Path != "" {
+		artifacts = append(artifacts, artifactRecord(server.artifact))
+	}
+	if server.manifest.Path != "" {
+		artifacts = append(artifacts, artifactRecord(server.manifest))
+	}
+	return &infrav1.ArtifactCatalog{Artifacts: artifacts}, nil
 }
 
 func (server *fakeAgentProvider) DownloadArtifact(request *infrav1.DownloadRequest, stream grpc.ServerStreamingServer[infrav1.ArtifactChunk]) error {
 	if err := server.authorize(stream.Context()); err != nil {
 		return err
 	}
-	if err := stream.Send(&infrav1.ArtifactChunk{Path: server.artifact.Path, OutputHash: server.artifact.OutputHash, Data: server.data}); err != nil {
+	artifact, data := server.artifact, server.data
+	if request.GetPath() == server.manifest.Path {
+		artifact, data = server.manifest, server.manifestData
+	}
+	if request.GetPath() != artifact.Path || artifact.Path == "" {
+		return status.Error(codes.NotFound, "artifact not found")
+	}
+	if err := stream.Send(&infrav1.ArtifactChunk{Path: artifact.Path, OutputHash: artifact.OutputHash, Data: data}); err != nil {
 		return err
 	}
-	return stream.Send(&infrav1.ArtifactChunk{Path: server.artifact.Path, OutputHash: server.artifact.OutputHash, Offset: uint64(len(server.data)), Eof: true})
+	return stream.Send(&infrav1.ArtifactChunk{Path: artifact.Path, OutputHash: artifact.OutputHash, Offset: uint64(len(data)), Eof: true})
+}
+
+func artifactRecord(artifact protocol.Artifact) *infrav1.ArtifactRecord {
+	return &infrav1.ArtifactRecord{
+		Type: artifact.Type, Path: artifact.Path,
+		InputHash: artifact.InputHash, OutputHash: artifact.OutputHash,
+	}
 }
 
 func (server *fakeAgentProvider) ReportState(ctx context.Context, report *infrav1.AgentStateReport) (*infrav1.ReportAck, error) {
@@ -325,6 +481,16 @@ func (server *fakeAgentProvider) ReportLogs(ctx context.Context, batch *infrav1.
 	}
 	if batch.GetAgentId() != "agent-01" {
 		return nil, status.Error(codes.FailedPrecondition, "agent identity mismatch")
+	}
+	server.logBatches = append(server.logBatches, batch)
+	if server.releasePath != "" {
+		for _, encoded := range batch.GetEventsJson() {
+			var event observability.Event
+			if json.Unmarshal(encoded, &event) == nil && event.Event == "process.output" {
+				_ = os.WriteFile(server.releasePath, nil, 0o600)
+				break
+			}
+		}
 	}
 	return &infrav1.AgentLogAck{AcceptedCount: uint32(len(batch.GetEventsJson()))}, nil
 }

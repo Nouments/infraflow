@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,19 +15,19 @@ import (
 	"time"
 
 	"infraflow/internal/infrastructure/safefs"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"gopkg.in/yaml.v3"
 )
 
 const (
-	defaultTimeout   = 5 * time.Minute
-	maxTimeout       = 30 * time.Minute
-	maxArtifactBytes = 16 << 20
-	maxOutputBytes   = 64 << 10
-	debugMessage     = "device={{ inventory_hostname }} vendor={{ hostvars[inventory_hostname].infraflow_vendor | default('unknown') }} model={{ hostvars[inventory_hostname].infraflow_model | default('unknown') }}"
+	defaultTimeout     = 5 * time.Minute
+	maxTimeout         = 30 * time.Minute
+	maxArtifactBytes   = 16 << 20
+	maxOutputBytes     = 64 << 10
+	maxOutputLineBytes = 8 << 10
 )
 
 var sensitiveOutputPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)`)
@@ -39,41 +38,52 @@ type Result struct {
 	Output string
 }
 
-type ansibleInventory struct {
-	All struct {
-		Children struct {
-			Network struct {
-				Hosts map[string]ansibleHost `yaml:"hosts"`
-			} `yaml:"network"`
-		} `yaml:"children"`
-	} `yaml:"all"`
+type ProcessResult struct {
+	Command   string
+	Started   time.Time
+	Finished  time.Time
+	Duration  time.Duration
+	ExitCode  int
+	Status    string
+	Stdout    string
+	Stderr    string
+	Output    string
+	Error     string
+	Truncated bool
 }
 
-type ansibleHost struct {
-	AnsibleHost     string `yaml:"ansible_host,omitempty"`
-	InfraflowVendor string `yaml:"infraflow_vendor,omitempty"`
-	InfraflowFamily string `yaml:"infraflow_family,omitempty"`
-	InfraflowModel  string `yaml:"infraflow_model,omitempty"`
-	InfraflowRole   string `yaml:"infraflow_role,omitempty"`
+type ProcessOutput struct {
+	Stream    string
+	Text      string
+	Started   bool
+	Truncated bool
 }
 
-type ansiblePlay struct {
-	Name        string        `yaml:"name"`
-	Hosts       string        `yaml:"hosts"`
-	GatherFacts bool          `yaml:"gather_facts"`
-	Tasks       []ansibleTask `yaml:"tasks"`
-}
+type OutputObserver func(ProcessOutput)
 
-type ansibleTask struct {
-	Name  string `yaml:"name"`
-	Debug struct {
-		Msg string `yaml:"msg"`
-	} `yaml:"ansible.builtin.debug"`
+func (result ProcessResult) Combined() string {
+	if result.Stdout == "" {
+		return result.Stderr
+	}
+	if result.Stderr == "" {
+		return result.Stdout
+	}
+	return result.Stdout + result.Stderr
 }
 
 type cappedBuffer struct {
 	mu        sync.Mutex
 	buffer    bytes.Buffer
+	truncated bool
+}
+
+type processOutputWriter struct {
+	stream    string
+	buffer    *cappedBuffer
+	observer  OutputObserver
+	notifyMu  *sync.Mutex
+	mu        sync.Mutex
+	pending   []byte
 	truncated bool
 }
 
@@ -103,68 +113,70 @@ func (buffer *cappedBuffer) String() string {
 	return value
 }
 
-func RunAnsible(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
-	result := Result{Tool: "ansible"}
-	if ctx == nil {
-		return result, fmt.Errorf("Ansible context is required")
+func (buffer *cappedBuffer) Truncated() bool {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.truncated
+}
+
+func (writer *processOutputWriter) Write(data []byte) (int, error) {
+	if _, err := writer.buffer.Write(data); err != nil {
+		return 0, err
 	}
-	if !protocol.ValidSiteName(site) {
-		return result, fmt.Errorf("invalid site name")
+	if writer.observer == nil {
+		return len(data), nil
 	}
-	timeout, err := checkedTimeout(timeout)
-	if err != nil {
-		return result, err
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	for _, value := range data {
+		if value == '\n' {
+			if len(writer.pending) < maxOutputLineBytes-64 {
+				writer.pending = append(writer.pending, value)
+			} else {
+				writer.truncated = true
+			}
+			writer.emitPending()
+			continue
+		}
+		if len(writer.pending) < maxOutputLineBytes-64 {
+			writer.pending = append(writer.pending, value)
+		} else {
+			writer.truncated = true
+		}
 	}
-	inventoryData, err := readArtifact(stateDirectory, filepath.ToSlash(filepath.Join(site, "ansible", "inventory.yml")))
-	if err != nil {
-		return result, fmt.Errorf("read Ansible inventory: %w", err)
+	return len(data), nil
+}
+
+func (writer *processOutputWriter) Flush() {
+	if writer.observer == nil {
+		return
 	}
-	playbookData, err := readArtifact(stateDirectory, filepath.ToSlash(filepath.Join(site, "ansible", "site.yml")))
-	if err != nil {
-		return result, fmt.Errorf("read Ansible playbook: %w", err)
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if len(writer.pending) > 0 || writer.truncated {
+		writer.emitPending()
 	}
-	if err := validateAnsibleInventory(inventoryData); err != nil {
-		return result, err
+}
+
+func (writer *processOutputWriter) emitPending() {
+	text := string(writer.pending)
+	lineTruncated := writer.truncated
+	if lineTruncated {
+		text = strings.TrimSuffix(text, "\n") + "[output line truncated]\n"
 	}
-	if err := validateAnsiblePlaybook(playbookData); err != nil {
-		return result, err
-	}
-	workDirectory, err := os.MkdirTemp("", "infraflow-ansible-")
-	if err != nil {
-		return result, fmt.Errorf("create Ansible workspace: %w", err)
-	}
-	defer os.RemoveAll(workDirectory)
-	if err := os.WriteFile(filepath.Join(workDirectory, "inventory.yml"), inventoryData, 0o600); err != nil {
-		return result, fmt.Errorf("stage Ansible inventory: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(workDirectory, "site.yml"), playbookData, 0o600); err != nil {
-		return result, fmt.Errorf("stage Ansible playbook: %w", err)
-	}
-	configPath := filepath.Join(workDirectory, "ansible.cfg")
-	if err := os.WriteFile(configPath, []byte("[defaults]\nhost_key_checking = True\nretry_files_enabled = False\ninterpreter_python = auto_silent\n"), 0o600); err != nil {
-		return result, fmt.Errorf("write isolated Ansible config: %w", err)
-	}
-	homeDirectory := filepath.Join(workDirectory, "home")
-	localTemp := filepath.Join(workDirectory, "tmp")
-	if err := os.MkdirAll(homeDirectory, 0o700); err != nil {
-		return result, fmt.Errorf("create Ansible home directory: %w", err)
-	}
-	if err := os.MkdirAll(localTemp, 0o700); err != nil {
-		return result, fmt.Errorf("create Ansible temp directory: %w", err)
-	}
-	result.Steps = append(result.Steps, "ansible-playbook --check (debug-only playbook)")
-	output, err := runCommand(ctx, timeout, workDirectory, []string{
-		"PATH=" + os.Getenv("PATH"), "HOME=" + homeDirectory, "ANSIBLE_CONFIG=" + configPath,
-		"ANSIBLE_LOCAL_TEMP=" + localTemp, "ANSIBLE_NOCOLOR=1", "ANSIBLE_RETRY_FILES_ENABLED=False",
-	}, "ansible-playbook", "--inventory", "inventory.yml", "--limit", "network", "--check", "--forks", "1", "--timeout", "10", "site.yml")
-	result.Output = output
-	if err != nil {
-		return result, fmt.Errorf("run read-only Ansible playbook: %w", err)
-	}
-	return result, nil
+	text = observability.Redact(text)
+	writer.notifyMu.Lock()
+	writer.observer(ProcessOutput{Stream: writer.stream, Text: text, Truncated: lineTruncated})
+	writer.notifyMu.Unlock()
+	writer.pending = writer.pending[:0]
+	writer.truncated = false
 }
 
 func RunTerraform(ctx context.Context, stateDirectory, site string, timeout time.Duration) (Result, error) {
+	return RunTerraformWithOutput(ctx, stateDirectory, site, timeout, nil)
+}
+
+func RunTerraformWithOutput(ctx context.Context, stateDirectory, site string, timeout time.Duration, observer OutputObserver) (Result, error) {
 	result := Result{Tool: "terraform"}
 	if ctx == nil {
 		return result, fmt.Errorf("Terraform context is required")
@@ -211,7 +223,7 @@ func RunTerraform(ctx context.Context, stateDirectory, site string, timeout time
 	} {
 		result.Steps = append(result.Steps, "terraform "+strings.Join(step, " "))
 		arguments := append([]string{"-chdir=" + workDirectory, step[0]}, step[1:]...)
-		output, err := runCommand(ctx, timeout, workDirectory, environment, "terraform", arguments...)
+		output, err := runCommandWithOutput(ctx, timeout, workDirectory, environment, observer, "terraform", arguments...)
 		if output != "" {
 			if result.Output != "" {
 				result.Output += "\n"
@@ -249,62 +261,6 @@ func readArtifact(root, relativePath string) ([]byte, error) {
 		return nil, fmt.Errorf("artifact exceeds %d bytes", maxArtifactBytes)
 	}
 	return data, nil
-}
-
-func validateAnsibleInventory(data []byte) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	var inventory ansibleInventory
-	if err := decoder.Decode(&inventory); err != nil {
-		return fmt.Errorf("invalid Ansible inventory: %w", err)
-	}
-	if err := requireSingleYAMLDocument(decoder); err != nil {
-		return fmt.Errorf("invalid Ansible inventory: %w", err)
-	}
-	if len(inventory.All.Children.Network.Hosts) == 0 {
-		return fmt.Errorf("Ansible inventory must contain at least one network host")
-	}
-	for name, host := range inventory.All.Children.Network.Hosts {
-		if !protocol.ValidSiteName(name) {
-			return fmt.Errorf("Ansible inventory contains an unsafe host name")
-		}
-		if host.AnsibleHost != "" && net.ParseIP(host.AnsibleHost).To4() == nil {
-			return fmt.Errorf("Ansible inventory host %q has an invalid ansible_host address", name)
-		}
-	}
-	return nil
-}
-
-func validateAnsiblePlaybook(data []byte) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	var plays []ansiblePlay
-	if err := decoder.Decode(&plays); err != nil {
-		return fmt.Errorf("invalid Ansible playbook: %w", err)
-	}
-	if err := requireSingleYAMLDocument(decoder); err != nil {
-		return fmt.Errorf("invalid Ansible playbook: %w", err)
-	}
-	if len(plays) != 1 || plays[0].Hosts != "network" || plays[0].GatherFacts || len(plays[0].Tasks) == 0 {
-		return fmt.Errorf("Ansible runner only accepts the generated network inspection playbook")
-	}
-	for _, task := range plays[0].Tasks {
-		if task.Debug.Msg != debugMessage {
-			return fmt.Errorf("Ansible runner only accepts the generated debug task; mutating or dynamic tasks are blocked")
-		}
-	}
-	return nil
-}
-
-func requireSingleYAMLDocument(decoder *yaml.Decoder) error {
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("multiple YAML documents are not allowed")
-		}
-		return err
-	}
-	return nil
 }
 
 func validateTerraformFile(filename string, data []byte) error {
@@ -352,28 +308,86 @@ func validateTerraformFile(filename string, data []byte) error {
 }
 
 func runCommand(parent context.Context, timeout time.Duration, directory string, environment []string, executable string, arguments ...string) (string, error) {
+	result, err := runCommandDetailed(parent, timeout, directory, environment, executable, arguments...)
+	return result.Combined(), err
+}
+
+func runCommandDetailed(parent context.Context, timeout time.Duration, directory string, environment []string, executable string, arguments ...string) (ProcessResult, error) {
+	return runCommandDetailedWithOutput(parent, timeout, directory, environment, nil, executable, arguments...)
+}
+
+func runCommandWithOutput(parent context.Context, timeout time.Duration, directory string, environment []string, observer OutputObserver, executable string, arguments ...string) (string, error) {
+	result, err := runCommandDetailedWithOutput(parent, timeout, directory, environment, observer, executable, arguments...)
+	return result.Combined(), err
+}
+
+func runCommandDetailedWithOutput(parent context.Context, timeout time.Duration, directory string, environment []string, observer OutputObserver, executable string, arguments ...string) (ProcessResult, error) {
+	result := ProcessResult{Command: executable, Started: time.Now().UTC()}
 	commandPath, err := exec.LookPath(executable)
 	if err != nil {
-		return "", fmt.Errorf("%s is not installed or not on PATH", executable)
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s is not installed or not on PATH", executable)
+		result.Finished = time.Now().UTC()
+		result.Duration = result.Finished.Sub(result.Started)
+		return result, fmt.Errorf("%s is not installed or not on PATH", executable)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, commandPath, arguments...)
 	command.Dir = directory
 	command.Env = environment
-	output := &cappedBuffer{}
-	command.Stdout = output
-	command.Stderr = output
-	err = command.Run()
+	stdout := &cappedBuffer{}
+	stderr := &cappedBuffer{}
+	var notifyMu sync.Mutex
+	stdoutWriter := &processOutputWriter{stream: "stdout", buffer: stdout, observer: observer, notifyMu: &notifyMu}
+	stderrWriter := &processOutputWriter{stream: "stderr", buffer: stderr, observer: observer, notifyMu: &notifyMu}
+	command.Stdout = stdoutWriter
+	command.Stderr = stderrWriter
+	notifyMu.Lock()
+	if err := command.Start(); err != nil {
+		notifyMu.Unlock()
+		result.Finished = time.Now().UTC()
+		result.Duration = result.Finished.Sub(result.Started)
+		if ctx.Err() != nil {
+			result.Status = "timeout"
+			result.Error = ctx.Err().Error()
+			return result, ctx.Err()
+		}
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s failed to start", executable)
+		return result, fmt.Errorf("%s failed to start", executable)
+	}
+	if observer != nil {
+		observer(ProcessOutput{Started: true})
+	}
+	notifyMu.Unlock()
+	err = command.Wait()
+	stdoutWriter.Flush()
+	stderrWriter.Flush()
+	result.Finished = time.Now().UTC()
+	result.Duration = result.Finished.Sub(result.Started)
+	result.Stdout = stdout.String()
+	result.Stderr = stderr.String()
+	result.Output = result.Combined()
+	result.Truncated = stdout.Truncated() || stderr.Truncated()
 	if ctx.Err() != nil {
-		return output.String(), fmt.Errorf("%s", ctx.Err())
+		result.Status = "timeout"
+		result.Error = ctx.Err().Error()
+		return result, fmt.Errorf("%s", ctx.Err())
 	}
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
-			return output.String(), fmt.Errorf("%s failed with exit code %d", executable, exitError.ExitCode())
+			result.ExitCode = exitError.ExitCode()
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("%s failed with exit code %d", executable, exitError.ExitCode())
+			return result, fmt.Errorf("%s failed with exit code %d", executable, exitError.ExitCode())
 		}
-		return output.String(), fmt.Errorf("%s failed", executable)
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s failed", executable)
+		return result, fmt.Errorf("%s failed", executable)
 	}
-	return output.String(), nil
+	result.Status = "completed"
+	result.ExitCode = 0
+	return result, nil
 }

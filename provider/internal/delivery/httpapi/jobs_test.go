@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,9 +11,13 @@ import (
 	"time"
 
 	configadapter "infraflow/internal/adapters/config"
+	coregeneration "infraflow/internal/adapters/generation"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
+	"infraflow/provider/internal/adapters/executors"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
@@ -177,7 +182,7 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 	}
 	_, err = service.IngestAgentLogs("agent-01", []observability.Event{{
 		ID: "event-01", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "ERROR",
-		Event: "process.exit", Message: "exit code 7", Service: "agent", Source: "process-runner",
+		Event: "process.exit", Message: "token=secret-value", Service: "agent", Source: "process-runner",
 		AgentID: "agent-01", SiteID: "site-01", RunID: "run-01", TaskID: "task-01",
 	}})
 	if err != nil {
@@ -193,6 +198,7 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 		{path: "/api/v1/logs?run_id=run-01&level=ERROR", want: http.StatusOK},
 		{path: "/api/v1/logs/runs/run-01", want: http.StatusOK},
 		{path: "/api/v1/logs?limit=0", want: http.StatusBadRequest},
+		{path: "/api/v1/logs?since=not-a-timestamp", want: http.StatusBadRequest},
 	} {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
 		request.Header.Set("Authorization", "Bearer "+userToken)
@@ -201,8 +207,8 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 		if response.Code != test.want {
 			t.Errorf("GET %s returned %d, want %d: %s", test.path, response.Code, test.want, response.Body.String())
 		}
-		if test.want == http.StatusOK && !strings.Contains(response.Body.String(), "event-01") {
-			t.Errorf("log result missing from %s: %s", test.path, response.Body.String())
+		if test.want == http.StatusOK && (!strings.Contains(response.Body.String(), "event-01") || !strings.Contains(response.Body.String(), "[REDACTED]") || strings.Contains(response.Body.String(), "secret-value")) {
+			t.Errorf("log response missing the redacted event contract for %s: %s", test.path, response.Body.String())
 		}
 	}
 
@@ -212,6 +218,115 @@ func TestTechnicalLogAPIRequiresAdminAndFiltersByRun(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("non-admin user read technical logs: %d %s", response.Code, response.Body.String())
+	}
+
+	created := authRequest(t, handler, http.MethodPost, "/api/v1/users", `{"username":"reader","password":"reader password 123","role":"user"}`, userToken)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create regular user returned %d: %s", created.Code, created.Body.String())
+	}
+	login := authRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":"reader","password":"reader password 123"}`, "")
+	var userSession struct {
+		Token string `json:"token"`
+	}
+	if login.Code != http.StatusOK || json.Unmarshal(login.Body.Bytes(), &userSession) != nil || userSession.Token == "" {
+		t.Fatalf("regular user login failed: %d %s", login.Code, login.Body.String())
+	}
+	for _, path := range []string{"/api/v1/logs", "/api/v1/logs/stream", "/api/v1/logs/runs/run-01"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer "+userSession.Token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Errorf("regular user accessed %s: status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestTechnicalLogStreamProducesSSEFramesAndStopsOnContextCancel(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{Logs: logs})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-02", SiteID: "site-02"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.IngestAgentLogs("agent-02", []observability.Event{{
+		ID: "event-02", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), Level: "WARN",
+		Event: "process.exit", Message: "token=secret-stream", Service: "agent", Source: "process-runner",
+		AgentID: "agent-02", SiteID: "site-02", RunID: "run-02", TaskID: "task-02",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentToken := strings.Repeat("s", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream?limit=10", nil)
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	ctx, cancel := context.WithCancel(request.Context())
+	request = request.WithContext(ctx)
+	response := httptest.NewRecorder()
+
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		cancel()
+	}()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("stream returned %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "event: log") {
+		t.Fatalf("stream did not emit SSE log events: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "id: event-02") || !strings.Contains(response.Body.String(), `"event_id":"event-02"`) {
+		t.Fatalf("SSE frame does not match its id and JSON event_id contract: %s", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "secret-stream") || !strings.Contains(response.Body.String(), "[REDACTED]") {
+		t.Fatalf("SSE exposed an unredacted secret: %s", response.Body.String())
+	}
+
+	resumed := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream?limit=10", nil)
+	resumed.Header.Set("Authorization", "Bearer "+userToken)
+	resumed.Header.Set("Last-Event-ID", "event-02")
+	resumeContext, cancelResume := context.WithCancel(resumed.Context())
+	resumed = resumed.WithContext(resumeContext)
+	resumeResponse := httptest.NewRecorder()
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		cancelResume()
+	}()
+	handler.ServeHTTP(resumeResponse, resumed)
+	if resumeResponse.Code != http.StatusOK || strings.Contains(resumeResponse.Body.String(), "event: log") {
+		t.Fatalf("Last-Event-ID did not resume after the existing event: status=%d body=%s", resumeResponse.Code, resumeResponse.Body.String())
+	}
+}
+
+func TestTechnicalLogAPIReportsUnavailableStoreRatherThanEmptyResult(t *testing.T) {
+	root := t.TempDir()
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, nil, application.Dependencies{})
+	agentToken := strings.Repeat("u", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), `"events":[]`) {
+		t.Fatalf("unavailable log store was represented as an empty successful page: status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	streamRequest := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream", nil)
+	streamRequest.Header.Set("Authorization", "Bearer "+userToken)
+	streamResponse := httptest.NewRecorder()
+	handler.ServeHTTP(streamResponse, streamRequest)
+	if streamResponse.Code != http.StatusOK || !strings.Contains(streamResponse.Body.String(), "event: error") || !strings.Contains(streamResponse.Body.String(), "log_store_unavailable") {
+		t.Fatalf("SSE did not signal storage failure: status=%d body=%s", streamResponse.Code, streamResponse.Body.String())
 	}
 }
 
@@ -298,6 +413,266 @@ func TestJobAPIRejectsUnauthorizedAndMalformedRequests(t *testing.T) {
 	handler.ServeHTTP(response, missing)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("missing job returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+type httpExecutionExecutor struct{}
+
+func (httpExecutionExecutor) Type() string { return "test.operation" }
+
+func (httpExecutionExecutor) ValidateParameters(parameters json.RawMessage) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(parameters, &object); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), parameters...), nil
+}
+
+func (httpExecutionExecutor) Execute(context.Context, domain.ExecutionTask) (ports.ExecutionResult, error) {
+	return ports.ExecutionResult{Status: domain.ExecutionTaskSucceeded, Output: json.RawMessage(`{"test_result":"ok"}`)}, nil
+}
+
+func (httpExecutionExecutor) Retryable(error) bool { return false }
+
+func TestExecutionAPIRequiresAdminAndExposesLifecycle(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, []ports.ExecutionExecutor{httpExecutionExecutor{}}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := executionService.Close(ctx); err != nil {
+			t.Errorf("close execution service: %v", err)
+		}
+	})
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	agentToken := strings.Repeat("e", security.MinAgentTokenBytes)
+	handler, adminToken := newUserSessionHandler(t, root, agentToken, service)
+	providerHandler := handler.(*Handler)
+	providerHandler.SetExecutionService(executionService)
+	operator, err := providerHandler.authenticator.CreateUser(t.Context(), "operator", "operator password 123", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorSession, err := providerHandler.authenticator.Login(t.Context(), operator.Username, "operator password 123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"tasks":[{"id":"task-one","type":"test.operation","parameters":{"operation":"inspect"}}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+adminToken)
+	request.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit returned %d: %s", response.Code, response.Body.String())
+	}
+	var submitted domain.Execution
+	if err := json.Unmarshal(response.Body.Bytes(), &submitted); err != nil || submitted.ID == "" {
+		t.Fatalf("invalid execution submission: %#v, %v", submitted, err)
+	}
+	completed, err := executionService.Wait(t.Context(), submitted.ID)
+	if err != nil || completed.Status != domain.ExecutionSucceeded || len(completed.Tasks[0].Attempts) != 1 {
+		t.Fatalf("execution did not complete: %#v, %v", completed, err)
+	}
+
+	replay := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	replay.Header.Set("Authorization", "Bearer "+adminToken)
+	replay.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	replayResponse := httptest.NewRecorder()
+	handler.ServeHTTP(replayResponse, replay)
+	var replayed domain.Execution
+	if replayResponse.Code != http.StatusOK || json.Unmarshal(replayResponse.Body.Bytes(), &replayed) != nil || replayed.ID != submitted.ID {
+		t.Fatalf("idempotent replay changed execution: %d %s", replayResponse.Code, replayResponse.Body.String())
+	}
+	conflicting := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(`{"tasks":[{"id":"task-one","type":"test.operation","parameters":{"operation":"different"}}]}`))
+	conflicting.Header.Set("Authorization", "Bearer "+adminToken)
+	conflicting.Header.Set("Idempotency-Key", "execution-http-key-0001")
+	conflictResponse := httptest.NewRecorder()
+	handler.ServeHTTP(conflictResponse, conflicting)
+	if conflictResponse.Code != http.StatusConflict {
+		t.Fatalf("idempotency key was reused for a different request: %d %s", conflictResponse.Code, conflictResponse.Body.String())
+	}
+
+	for _, test := range []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/executions?status=succeeded&type=test.operation&limit=1&offset=0", http.StatusOK},
+		{http.MethodGet, "/api/v1/executions/" + submitted.ID, http.StatusOK},
+		{http.MethodPost, "/api/v1/executions/" + submitted.ID + "/cancel", http.StatusConflict},
+		{http.MethodGet, "/api/v1/executions/exec-missing", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/executions?limit=101", http.StatusBadRequest},
+	} {
+		result := authRequest(t, handler, test.method, test.path, "", adminToken)
+		if result.Code != test.want {
+			t.Errorf("%s %s returned %d, want %d: %s", test.method, test.path, result.Code, test.want, result.Body.String())
+		}
+	}
+
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/executions", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated list returned %d", unauthenticated.Code)
+	}
+	for _, token := range []string{agentToken, operatorSession.Token} {
+		for _, route := range []struct{ method, path, body string }{
+			{http.MethodPost, "/api/v1/executions", body},
+			{http.MethodGet, "/api/v1/executions", ""},
+			{http.MethodGet, "/api/v1/executions/" + submitted.ID, ""},
+			{http.MethodPost, "/api/v1/executions/" + submitted.ID + "/cancel", ""},
+		} {
+			result := authRequest(t, handler, route.method, route.path, route.body, token)
+			if result.Code != http.StatusForbidden {
+				t.Errorf("non-admin %s %s returned %d, want forbidden", route.method, route.path, result.Code)
+			}
+		}
+	}
+}
+
+func TestExecutionAPIRejectsUnsupportedTypesAndMissingIdempotency(t *testing.T) {
+	root := t.TempDir()
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executionService.Close(context.Background()) })
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	handler, adminToken := newUserSessionHandler(t, root, strings.Repeat("u", security.MinAgentTokenBytes), service)
+	handler.(*Handler).SetExecutionService(executionService)
+
+	for _, test := range []struct {
+		key  string
+		want int
+	}{
+		{"", http.StatusBadRequest},
+		{"execution-http-key-unsupported", http.StatusConflict},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(`{"tasks":[{"id":"task-one","type":"network.ssh","parameters":{}}]}`))
+		request.Header.Set("Authorization", "Bearer "+adminToken)
+		if test.key != "" {
+			request.Header.Set("Idempotency-Key", test.key)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.want {
+			t.Errorf("unsupported submission key=%q returned %d, want %d: %s", test.key, response.Code, test.want, response.Body.String())
+		}
+	}
+	stored, err := executions.List()
+	if err != nil || len(stored) != 0 {
+		t.Fatalf("unsupported operation was persisted: %#v, %v", stored, err)
+	}
+}
+
+func TestExecutionAPIRunsArtifactVerifyTaskSuccessfully(t *testing.T) {
+	root := t.TempDir()
+	infraYAML := []byte("sites:\n  - name: lab\n    devices:\n      - name: R1\n        vendor: cisco\n        model: ios-xe\n")
+	infra, err := configadapter.Parse(infraYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactsDir := root + "/artifacts"
+	if _, err := coregeneration.Generate(infra, artifactsDir); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := filesystem.NewJobStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executions, err := filesystem.NewExecutionStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactRepo := filesystem.NewArtifactRepository(artifactsDir)
+	verifier, err := executors.NewArtifactVerifyExecutor(artifactRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionService, err := application.NewExecutionService(executions, events, []ports.ExecutionExecutor{verifier}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executionService.Close(context.Background()) })
+
+	service := application.NewServiceWithJobs(nil, nil, nil, jobs, application.Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}})
+	handler, adminToken := newUserSessionHandler(t, root, strings.Repeat("a", security.MinAgentTokenBytes), service)
+	handler.(*Handler).SetExecutionService(executionService)
+
+	// 1. Submit artifact.verify task via POST /api/v1/executions
+	body := `{"tasks":[{"id":"verify-1","type":"artifact.verify","parameters":{"path":"lab/inventory.json"}}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+adminToken)
+	request.Header.Set("Idempotency-Key", "verify-http-key-0001")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit returned %d: %s", response.Code, response.Body.String())
+	}
+
+	var submitted domain.Execution
+	if err := json.Unmarshal(response.Body.Bytes(), &submitted); err != nil || submitted.ID == "" {
+		t.Fatalf("failed to decode submitted execution: %#v, %v", submitted, err)
+	}
+
+	// 2. Wait for completion
+	completed, err := executionService.Wait(t.Context(), submitted.ID)
+	if err != nil || completed.Status != domain.ExecutionSucceeded {
+		t.Fatalf("execution did not succeed: %#v, %v", completed, err)
+	}
+
+	// 3. Inspect through GET /api/v1/executions/:id
+	getResult := authRequest(t, handler, http.MethodGet, "/api/v1/executions/"+submitted.ID, "", adminToken)
+	if getResult.Code != http.StatusOK {
+		t.Fatalf("get execution returned %d: %s", getResult.Code, getResult.Body.String())
+	}
+	var fetched domain.Execution
+	if err := json.Unmarshal(getResult.Body.Bytes(), &fetched); err != nil {
+		t.Fatalf("decode fetched execution: %v", err)
+	}
+	if fetched.Status != domain.ExecutionSucceeded || len(fetched.Tasks) != 1 || fetched.Tasks[0].Status != domain.ExecutionTaskSucceeded {
+		t.Fatalf("unexpected fetched execution: %#v", fetched)
+	}
+
+	var output executors.ArtifactVerificationResult
+	if err := json.Unmarshal(fetched.Tasks[0].Result, &output); err != nil {
+		t.Fatalf("decode verification result: %v", err)
+	}
+	if !output.Verified || output.Path != "lab/inventory.json" || output.ActualHash == "" || output.ActualHash != output.OutputHash {
+		t.Fatalf("invalid verification output: %#v", output)
 	}
 }
 

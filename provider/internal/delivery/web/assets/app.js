@@ -4,6 +4,11 @@
   let jobs = [];
   let agents = [];
   let events = [];
+  let technicalLogs = [];
+  let technicalLogsPage = { next: "", previous: "" };
+  let technicalLogsStream = null;
+  let technicalLogCursor = "";
+  let technicalLogsGeneration = 0;
   let editorConfig = { sites: [] };
   let selectedSiteIndex = 0;
   let selectedResource = null;
@@ -96,6 +101,15 @@
     refreshData();
   }
 
+  let executions = [];
+  let executionPage = { total: 0, offset: 0, limit: 20 };
+  let executionFilter = "";
+  let executionDetail = null;
+  let executionDetailLoading = false;
+  let executionCancelConfirm = false;
+  let executionCancelInflight = false;
+  const EXEC_PAGE_SIZE = 20;
+
   function selectView(name) {
     const labels = {
       overview: "Infrastructure overview",
@@ -103,13 +117,17 @@
       jobs: "Plans & jobs",
       agents: "Registered agents",
       activity: "Audit trail",
+      logs: "Technical logs",
+      executions: "Execution records",
+      "execution-detail": "Execution detail",
       users: "Access management",
     };
+    stopTechnicalLogsStream();
     document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
     $(`#${name}-view`)?.classList.remove("hidden");
-    document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
+    document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name || (name === "execution-detail" && item.dataset.view === "executions")));
     $("#page-title").textContent = labels[name] || labels.overview;
-    $("#view-label").textContent = name.toUpperCase();
+    $("#view-label").textContent = (name === "execution-detail" ? "EXECUTIONS" : name).toUpperCase();
     if (name === "editor") {
       renderEditor();
       if (!editorInitialized) {
@@ -119,7 +137,206 @@
     }
     if (name === "agents") loadAgents();
     if (name === "activity") loadEvents();
+    if (name === "logs") loadTechnicalLogs();
+    if (name === "executions") loadExecutions();
     if (name === "users") loadUsers();
+  }
+
+  function stopTechnicalLogsStream() {
+    technicalLogsGeneration += 1;
+    if (technicalLogsStream) {
+      technicalLogsStream.abort();
+      technicalLogsStream = null;
+    }
+    const status = $("#logs-stream-status");
+    if (status && !$("#logs-view")?.classList.contains("hidden")) setTechnicalLogsState("Disconnected");
+  }
+
+  function setTechnicalLogsState(state, message = "") {
+    const status = $("#logs-stream-status");
+    const error = $("#logs-error");
+    if (status) status.textContent = state;
+    if (error) error.textContent = message;
+    const empty = $("#logs-empty");
+    if (empty) empty.classList.toggle("hidden", technicalLogs.length > 0 || Boolean(message) || state === "Loading");
+  }
+
+  function logMessageFromEntry(entry) {
+    return [entry.message, entry.error, entry.line, entry.event].find((value) => value && String(value).trim()) || "—";
+  }
+
+  function renderTechnicalLogs() {
+    const table = $("#logs-table");
+    table.replaceChildren();
+    $("#logs-empty").classList.toggle("hidden", technicalLogs.length > 0);
+    technicalLogs.forEach((entry) => {
+      const row = node("tr");
+      const level = node("td");
+      level.append(statusTag(entry.level || "info"));
+      row.append(
+        node("td", "mono", entry.event_id || "—"),
+        node("td", "mono", entry.timestamp ? formatDate(entry.timestamp) : "—"),
+        level,
+        node("td", "mono", entry.service || "—"),
+        node("td", "mono", entry.run_id || "—"),
+        node("td", "mono", logMessageFromEntry(entry)),
+      );
+      table.append(row);
+    });
+    $("#logs-older").disabled = !technicalLogsPage.previous;
+    $("#logs-newer").disabled = !technicalLogsPage.next;
+  }
+
+  function technicalLogsQuery() {
+    const params = new URLSearchParams();
+    const query = $("#logs-query")?.value?.trim() || "";
+    const runID = $("#logs-run-id")?.value?.trim() || "";
+    const level = $("#logs-level")?.value || "";
+    if (query) params.set("q", query);
+    if (runID) params.set("run_id", runID);
+    if (level) params.set("level", level);
+    params.set("limit", "100");
+    return params;
+  }
+
+  async function loadTechnicalLogs() {
+    if (currentUser?.role !== "admin") return;
+    stopTechnicalLogsStream();
+    const generation = technicalLogsGeneration;
+    technicalLogCursor = "";
+    technicalLogsPage = { next: "", previous: "" };
+    $("#logs-page-state").textContent = "Latest page";
+    setTechnicalLogsState("Loading");
+    const params = technicalLogsQuery();
+    try {
+      const result = await request(`/logs?${params.toString()}`);
+      if (generation !== technicalLogsGeneration || $("#logs-view").classList.contains("hidden")) return;
+      if (!Array.isArray(result.events)) throw new Error("Invalid technical logs response.");
+      technicalLogs = result.events;
+      technicalLogsPage = { next: result.next || "", previous: result.previous || "" };
+      technicalLogCursor = technicalLogs.at(-1)?.event_id || "";
+      setTechnicalLogsState("Connecting");
+      renderTechnicalLogs();
+      connectTechnicalLogs(generation, params);
+    } catch (error) {
+      if (generation !== technicalLogsGeneration) return;
+      setTechnicalLogsState("Error", error.message || "Unable to load technical logs.");
+    }
+  }
+
+  async function loadTechnicalLogsPage(direction) {
+    const cursor = direction === "older" ? technicalLogsPage.previous : technicalLogsPage.next;
+    if (!cursor || currentUser?.role !== "admin") return;
+    stopTechnicalLogsStream();
+    const generation = technicalLogsGeneration;
+    setTechnicalLogsState("Loading");
+    const params = technicalLogsQuery();
+    params.set(direction === "older" ? "before" : "after", cursor);
+    try {
+      const result = await request(`/logs?${params.toString()}`);
+      if (generation !== technicalLogsGeneration || $("#logs-view").classList.contains("hidden")) return;
+      if (!Array.isArray(result.events)) throw new Error("Invalid technical logs response.");
+      technicalLogs = result.events;
+      technicalLogsPage = { next: result.next || "", previous: result.previous || "" };
+      technicalLogCursor = technicalLogs.at(-1)?.event_id || "";
+      $("#logs-page-state").textContent = technicalLogsPage.next ? "Historical page" : "Latest page";
+      renderTechnicalLogs();
+      if (technicalLogsPage.next) setTechnicalLogsState("Disconnected");
+      else {
+        setTechnicalLogsState("Connecting");
+        connectTechnicalLogs(generation, technicalLogsQuery());
+      }
+    } catch (error) {
+      if (generation === technicalLogsGeneration) setTechnicalLogsState("Error", error.message || "Unable to load technical logs.");
+    }
+  }
+
+  function consumeTechnicalLogFrame(frame) {
+    const decoded = window.InfraFlowLogStream.decodeFrame(frame);
+    if (decoded.type === "reset") {
+      technicalLogCursor = "";
+      return;
+    }
+    if (decoded.type === "error") throw new Error("Log stream reported a server error.");
+    if (decoded.type !== "log") return;
+    technicalLogCursor = decoded.cursor;
+    technicalLogs = window.InfraFlowLogStream.prependUnique(technicalLogs, decoded.entry, 100);
+    renderTechnicalLogs();
+  }
+
+  function waitBeforeReconnect(delay, signal) {
+    return new Promise((resolve) => {
+      if (signal.aborted) { resolve(); return; }
+      let timer;
+      const finish = () => {
+        window.clearTimeout(timer);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      timer = window.setTimeout(finish, delay);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
+  function technicalLogsViewActive(generation) {
+    return generation === technicalLogsGeneration && currentUser?.role === "admin" && !$("#logs-view").classList.contains("hidden");
+  }
+
+  async function connectTechnicalLogs(generation, baseParams) {
+    let retryDelay = 500;
+    let hasConnected = false;
+    while (technicalLogsViewActive(generation)) {
+      const controller = new AbortController();
+      technicalLogsStream = controller;
+      setTechnicalLogsState(hasConnected ? "Reconnecting" : "Connecting");
+      let shouldRetry = false;
+      try {
+        const headers = new Headers({ Authorization: `Bearer ${token.value}` });
+        if (technicalLogCursor) headers.set("Last-Event-ID", technicalLogCursor);
+        const response = await fetch(`/api/v1/logs/stream?${baseParams.toString()}`, { headers, signal: controller.signal });
+        if (!response.ok) {
+          if (response.status === 401) {
+            token.value = "";
+            currentUser = null;
+            showLogin("Your session expired. Please sign in again.");
+            setTechnicalLogsState("Error", "Session expired; sign in again.");
+            return;
+          }
+          if (response.status === 403 || response.status < 500) {
+            setTechnicalLogsState("Error", response.status === 403 ? "Administrator access is required." : `Log stream request failed (${response.status}).`);
+            return;
+          }
+          throw new Error("Log stream is temporarily unavailable.");
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Log stream reader is unavailable.");
+        hasConnected = true;
+        retryDelay = 500;
+        setTechnicalLogsState("Connected");
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (technicalLogsViewActive(generation)) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parsed = window.InfraFlowLogStream.splitFrames(buffer);
+          buffer = parsed.remainder;
+          parsed.frames.forEach(consumeTechnicalLogFrame);
+        }
+        if (!technicalLogsViewActive(generation)) return;
+        throw new Error("Log stream disconnected.");
+      } catch (error) {
+        if (controller.signal.aborted || !technicalLogsViewActive(generation)) return;
+        setTechnicalLogsState("Reconnecting", error.message === "Log stream reported a server error." ? error.message : "Log stream disconnected; reconnecting.");
+        shouldRetry = true;
+      } finally {
+        if (!shouldRetry && technicalLogsStream === controller) technicalLogsStream = null;
+      }
+      if (!shouldRetry) return;
+      await waitBeforeReconnect(retryDelay, controller.signal);
+      if (technicalLogsStream === controller) technicalLogsStream = null;
+      retryDelay = Math.min(retryDelay * 2, 10000);
+    }
   }
 
   function formatDate(value) {
@@ -915,9 +1132,47 @@
     const action = control?.dataset.action;
     if (action === "new-plan") selectView("editor");
     if (action === "refresh") refreshData();
+    if (action === "refresh-logs") loadTechnicalLogs();
+    if (action === "refresh-executions") loadExecutions();
     if (action === "cancel-job" || action === "retry-job") changeJob(control.dataset.id, action === "cancel-job" ? "cancel" : "retry");
     if (action === "toggle-user") toggleUser(control.dataset.id, control.dataset.disabled === "true");
+    const execFilter = event.target.closest("[data-exec-filter]");
+    if (execFilter) {
+      executionFilter = execFilter.dataset.execFilter;
+      executionPage.offset = 0;
+      document.querySelectorAll(".exec-filter-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.execFilter === executionFilter));
+      loadExecutions();
+    }
+    const execView = event.target.closest("[data-exec-id]");
+    if (execView) {
+      loadExecutionDetail(execView.dataset.execId);
+    }
   });
+
+  $("#exec-prev")?.addEventListener("click", () => {
+    if (executionPage.offset > 0) {
+      executionPage.offset = Math.max(0, executionPage.offset - EXEC_PAGE_SIZE);
+      loadExecutions();
+    }
+  });
+  $("#exec-next")?.addEventListener("click", () => {
+    if (executionPage.offset + EXEC_PAGE_SIZE < executionPage.total) {
+      executionPage.offset += EXEC_PAGE_SIZE;
+      loadExecutions();
+    }
+  });
+  $("#exec-back")?.addEventListener("click", () => {
+    executionDetail = null;
+    executionCancelConfirm = false;
+    executionCancelInflight = false;
+    selectView("executions");
+  });
+
+  $("#logs-apply")?.addEventListener("click", () => {
+    loadTechnicalLogs();
+  });
+  $("#logs-older")?.addEventListener("click", () => loadTechnicalLogsPage("older"));
+  $("#logs-newer")?.addEventListener("click", () => loadTechnicalLogsPage("newer"));
 
   async function changeJob(id, operation) {
     try {
@@ -1000,4 +1255,230 @@
     } catch (error) { showNotice(error.message, true); }
     finally { button.disabled = false; }
   });
+  async function loadExecutions() {
+    if (currentUser?.role !== "admin") return;
+    const table = $("#exec-table");
+    const empty = $("#exec-empty");
+    const loading = $("#exec-loading");
+    table.replaceChildren();
+    empty.classList.add("hidden");
+    loading.classList.remove("hidden");
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", String(EXEC_PAGE_SIZE));
+      params.set("offset", String(executionPage.offset));
+      if (executionFilter) params.set("status", executionFilter);
+      const result = await request(`/executions?${params.toString()}`);
+      executions = result.items || [];
+      executionPage.total = result.total || 0;
+      executionPage.limit = result.limit || EXEC_PAGE_SIZE;
+      loading.classList.add("hidden");
+      renderExecutions();
+    } catch (error) {
+      loading.classList.add("hidden");
+      showNotice(error.message, true);
+    }
+  }
+
+  function renderExecutions() {
+    const table = $("#exec-table");
+    const empty = $("#exec-empty");
+    table.replaceChildren();
+    empty.classList.toggle("hidden", executions.length > 0);
+    executions.forEach((exec) => {
+      const row = node("tr");
+      const idCell = node("td", "mono");
+      const link = node("button", "row-action");
+      link.textContent = exec.id;
+      link.dataset.execId = exec.id;
+      link.type = "button";
+      idCell.append(link);
+      const statusCell = node("td");
+      statusCell.append(statusTag(exec.status));
+      row.append(
+        idCell,
+        statusCell,
+        node("td", "mono", String((exec.tasks || []).length)),
+        node("td", "", formatDate(exec.created_at)),
+        node("td", "", formatDate(exec.updated_at)),
+        node("td", ""),
+      );
+      table.append(row);
+    });
+    const pageInfo = $("#exec-page-info");
+    if (executionPage.total > 0) {
+      const start = executionPage.offset + 1;
+      const end = Math.min(executionPage.offset + executions.length, executionPage.total);
+      pageInfo.textContent = `${start}\u2013${end} of ${executionPage.total}`;
+    } else {
+      pageInfo.textContent = "";
+    }
+    $("#exec-prev").disabled = executionPage.offset <= 0;
+    $("#exec-next").disabled = executionPage.offset + EXEC_PAGE_SIZE >= executionPage.total;
+  }
+
+  async function loadExecutionDetail(id) {
+    executionDetail = null;
+    executionCancelConfirm = false;
+    executionCancelInflight = false;
+    selectView("execution-detail");
+    $("#exec-detail-content").replaceChildren();
+    $("#exec-detail-loading").classList.remove("hidden");
+    try {
+      executionDetail = await request(`/executions/${encodeURIComponent(id)}`);
+      $("#exec-detail-loading").classList.add("hidden");
+      renderExecutionDetail();
+    } catch (error) {
+      $("#exec-detail-loading").classList.add("hidden");
+      showNotice(error.message, true);
+    }
+  }
+
+  function renderExecutionDetail() {
+    const container = $("#exec-detail-content");
+    container.replaceChildren();
+    if (!executionDetail) return;
+    const exec = executionDetail;
+
+    const detail = node("div", "exec-detail");
+
+    const header = node("div", "exec-detail-header");
+    header.append(node("span", "exec-detail-id", exec.id));
+    const headerStatus = node("div");
+    headerStatus.append(statusTag(exec.status));
+    header.append(headerStatus);
+    detail.append(header);
+
+    const meta = node("div", "exec-detail-meta");
+    const metaItems = [
+      ["Created", formatDate(exec.created_at)],
+      ["Updated", formatDate(exec.updated_at)],
+    ];
+    if (exec.started_at) metaItems.push(["Started", formatDate(exec.started_at)]);
+    if (exec.finished_at) metaItems.push(["Finished", formatDate(exec.finished_at)]);
+    metaItems.forEach(([label, value]) => {
+      const item = node("dl", "exec-meta-item");
+      item.append(node("dt", "", label), node("dd", "", value || "\u2014"));
+      meta.append(item);
+    });
+    detail.append(meta);
+
+    if (exec.cancel_requested) {
+      detail.append(node("div", "exec-cancel-notice", "Cancellation requested; the Provider has not necessarily completed cancellation."));
+    }
+    if (exec.error) {
+      detail.append(node("div", "exec-error", exec.error));
+    }
+
+    const tasks = exec.tasks || [];
+    detail.append(node("h3", "exec-section-title", `Tasks (${tasks.length})`));
+    if (tasks.length === 0) {
+      detail.append(node("p", "muted", "No tasks in this execution."));
+    }
+    tasks.forEach((task) => {
+      const taskEl = node("div", "exec-task");
+      const taskHeader = node("div", "exec-task-header");
+      taskHeader.append(statusTag(task.status), node("span", "mono", task.id), node("span", "muted", task.type));
+      taskEl.append(taskHeader);
+      if (task.dependencies && task.dependencies.length > 0) {
+        taskEl.append(node("div", "exec-task-deps", "depends on: " + task.dependencies.join(", ")));
+      }
+      if (task.error) {
+        taskEl.append(node("div", "exec-task-error", task.error));
+      }
+      if (task.result && task.result.length > 2) {
+        taskEl.append(node("div", "exec-task-result", String(task.result)));
+      }
+      (task.attempts || []).forEach((attempt) => {
+        const attemptEl = node("div", "exec-attempt");
+        const dur = attempt.duration_ms > 0 ? `${attempt.duration_ms}ms` : "\u2014";
+        const attemptHeader = node("div", "exec-attempt-header");
+        attemptHeader.append(
+          node("span", "", `attempt ${attempt.number}`),
+          statusTag(attempt.status),
+          node("span", "muted", dur),
+        );
+        attemptEl.append(attemptHeader);
+        if (attempt.error) attemptEl.append(node("div", "exec-task-error", attempt.error));
+        taskEl.append(attemptEl);
+      });
+      detail.append(taskEl);
+    });
+
+    const events = exec.events || [];
+    detail.append(node("h3", "exec-section-title", `Events (${events.length})`));
+    if (events.length > 0) {
+      const eventList = node("div", "exec-event-list");
+      events.forEach((event) => {
+        const row = node("div", "exec-event");
+        row.append(
+          node("span", "", event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : "\u2014"),
+          node("span", "", event.action || "\u2014"),
+          statusTag(event.status || "unknown"),
+          node("span", "muted", [event.task_id ? `task=${event.task_id}` : "", event.error || ""].filter(Boolean).join(" ") || "\u2014"),
+        );
+        eventList.append(row);
+      });
+      detail.append(eventList);
+    } else {
+      detail.append(node("p", "muted", "No events recorded for this execution."));
+    }
+
+    const isTerminal = ["succeeded", "failed", "cancelled", "timed_out"].includes(exec.status);
+    if (!isTerminal && !executionCancelConfirm) {
+      const cancelBtn = node("button", "button button-danger", "Request cancellation");
+      cancelBtn.type = "button";
+      cancelBtn.addEventListener("click", () => {
+        executionCancelConfirm = true;
+        renderExecutionDetail();
+      });
+      detail.append(cancelBtn);
+    }
+    if (executionCancelConfirm && !executionCancelInflight) {
+      const bar = node("div", "exec-confirm-bar");
+      bar.append(node("span", "", "Cancel this execution?"));
+      const confirmBtn = node("button", "button button-danger", "Confirm cancellation");
+      confirmBtn.type = "button";
+      confirmBtn.addEventListener("click", () => cancelExecution(exec.id));
+      const abandonBtn = node("button", "button button-quiet", "Keep running");
+      abandonBtn.type = "button";
+      abandonBtn.addEventListener("click", () => {
+        executionCancelConfirm = false;
+        renderExecutionDetail();
+      });
+      bar.append(confirmBtn, abandonBtn);
+      detail.append(bar);
+    }
+    if (executionCancelInflight) {
+      detail.append(node("p", "muted", "Sending cancellation request\u2026"));
+    }
+
+    const refreshBtn = node("button", "button button-quiet", "Refresh");
+    refreshBtn.type = "button";
+    refreshBtn.style.marginTop = "12px";
+    refreshBtn.addEventListener("click", () => loadExecutionDetail(exec.id));
+    detail.append(refreshBtn);
+
+    container.append(detail);
+  }
+
+  async function cancelExecution(id) {
+    executionCancelInflight = true;
+    renderExecutionDetail();
+    try {
+      executionDetail = await request(`/executions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+      executionCancelInflight = false;
+      executionCancelConfirm = false;
+      if (executionDetail.cancel_requested && !["succeeded", "failed", "cancelled", "timed_out"].includes(executionDetail.status)) {
+        showNotice("Cancellation request accepted; waiting for the Provider's final state.");
+      } else {
+        showNotice("Provider returned the current execution state.");
+      }
+      renderExecutionDetail();
+    } catch (error) {
+      executionCancelInflight = false;
+      showNotice(error.message, true);
+      renderExecutionDetail();
+    }
+  }
 })();

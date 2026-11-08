@@ -175,10 +175,9 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			Vendor:        "cisco",
 			Family:        "iosxe",
 			Model:         model,
-			DefaultMethod: "netconf",
+			DefaultMethod: "ssh",
 			Methods: map[string]string{
-				"netconf": "iosxe NETCONF management path",
-				"ssh":     "IOS XE CLI management path",
+				"ssh": "IOS XE SSH management transport; configuration rendering is local only",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real Cisco IOS XE device execution or observed state recorded yet.",
@@ -190,8 +189,7 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			Model:         model,
 			DefaultMethod: "api",
 			Methods: map[string]string{
-				"api": "RouterOS API via community.routeros",
-				"ssh": "RouterOS SSH/CLI management path",
+				"api": "RouterOS API management transport; configuration rendering is local only",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet.",
@@ -204,7 +202,6 @@ func VendorProfileFor(device Device) (VendorProfile, bool) {
 			DefaultMethod: "https",
 			Methods: map[string]string{
 				"https": "FortiGate HTTPS API path",
-				"ssh":   "FortiOS SSH/CLI management path",
 			},
 			Status:   CapabilityUnverified,
 			Evidence: "Vendor family recognized; no real FortiGate/FortiOS lab verification or observed state recorded yet.",
@@ -278,6 +275,7 @@ type Device struct {
 	Vendor       string         `yaml:"vendor,omitempty" json:"vendor,omitempty"`
 	Family       string         `yaml:"family,omitempty" json:"family,omitempty"`
 	Model        string         `yaml:"model,omitempty" json:"model,omitempty"`
+	OSVersion    string         `yaml:"os_version,omitempty" json:"os_version,omitempty"`
 	Identity     Identity       `yaml:"identity,omitempty" json:"identity,omitempty"`
 	Management   Management     `yaml:"management,omitempty" json:"management,omitempty"`
 	Provisioning Provisioning   `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
@@ -311,6 +309,7 @@ type NetworkInterface struct {
 	NATSide     string `yaml:"nat_side,omitempty" json:"nat_side,omitempty"`
 	IPv4Mode    string `yaml:"ipv4_mode" json:"ipv4_mode"`
 	IPv4Address string `yaml:"ipv4_address,omitempty" json:"ipv4_address,omitempty"`
+	Enabled     *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 }
 
 type StaticRoute struct {

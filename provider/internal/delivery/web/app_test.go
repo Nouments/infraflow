@@ -51,9 +51,47 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	if strings.Contains(page.Body.String(), "Provider connected") {
 		t.Fatal("console must not claim provider connectivity without a live health signal")
 	}
+	// Verify dark color-scheme meta tag
+	if !strings.Contains(page.Body.String(), `color-scheme" content="dark"`) {
+		t.Fatal("console page must declare dark color scheme")
+	}
+	// Verify executions nav item exists
+	if !strings.Contains(page.Body.String(), `data-view="executions"`) {
+		t.Fatal("console page must contain executions navigation item")
+	}
+	// Verify executions view section exists
+	if !strings.Contains(page.Body.String(), `id="executions-view"`) {
+		t.Fatal("console page must contain executions view section")
+	}
+	// Verify execution detail view section exists
+	if !strings.Contains(page.Body.String(), `id="execution-detail-view"`) {
+		t.Fatal("console page must contain execution detail view section")
+	}
+	// Verify no fake execution data in the initial HTML
+	if strings.Contains(page.Body.String(), "fake-execution") || strings.Contains(page.Body.String(), "mock-execution") {
+		t.Fatal("console page must not contain fake execution data")
+	}
 	asset := fiberRequest(t, app, http.MethodGet, "/assets/app.js", nil, "")
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "/auth/login") {
 		t.Fatalf("console JavaScript was not served: %d %q", asset.Code, asset.Body.String())
+	}
+	// Verify executions JavaScript logic is present
+	if !strings.Contains(asset.Body.String(), "loadExecutions") {
+		t.Fatal("console JavaScript must include executions loading logic")
+	}
+	if !strings.Contains(asset.Body.String(), "cancelExecution") {
+		t.Fatal("console JavaScript must include execution cancellation logic")
+	}
+	cssAsset := fiberRequest(t, app, http.MethodGet, "/assets/app.css", nil, "")
+	if cssAsset.Code != http.StatusOK || !strings.Contains(cssAsset.Body.String(), "--canvas") {
+		t.Fatalf("console CSS was not served: %d %q", cssAsset.Code, cssAsset.Body.String())
+	}
+	if !strings.Contains(cssAsset.Body.String(), "--line") || !strings.Contains(cssAsset.Body.String(), "@media (max-width:") {
+		t.Fatal("console CSS must declare design tokens and responsive media queries")
+	}
+	streamAsset := fiberRequest(t, app, http.MethodGet, "/assets/log-stream.js", nil, "")
+	if streamAsset.Code != http.StatusOK || !strings.Contains(streamAsset.Body.String(), "decodeFrame") {
+		t.Fatalf("technical log stream JavaScript was not served: %d %q", streamAsset.Code, streamAsset.Body.String())
 	}
 	unauthorized := fiberRequest(t, app, http.MethodGet, "/api/v1/jobs", nil, "")
 	if unauthorized.Code != http.StatusUnauthorized {

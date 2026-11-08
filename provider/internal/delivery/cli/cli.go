@@ -11,13 +11,17 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	configadapter "infraflow/internal/adapters/config"
 	planningadapter "infraflow/internal/adapters/planning"
+	"infraflow/internal/infrastructure/security"
+	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
 	"infraflow/provider/internal/adapters/config"
+	"infraflow/provider/internal/adapters/executors"
 	"infraflow/provider/internal/adapters/filesystem"
 	"infraflow/provider/internal/adapters/generation"
 	"infraflow/provider/internal/adapters/sqlite"
@@ -55,7 +59,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "apply" {
 		return runApply(arguments[1:], stdout, stderr)
 	}
-	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-ansible" && command != "generate-terraform" && command != "generate-bootstrap" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
+	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-terraform" && command != "generate-bootstrap" && command != "generate-device-config" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
 		return 2
@@ -68,7 +72,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return 2
 	}
-	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-all" || command == "generate-ansible" || command == "generate-terraform" || command == "generate-bootstrap") && *outputPath == "" {
+	if flags.NArg() != 0 || *inputPath == "" || (command == "generate" || command == "generate-all" || command == "generate-terraform" || command == "generate-bootstrap" || command == "generate-device-config") && *outputPath == "" {
 		fmt.Fprintln(stderr, "infraflow-provider: command requires -f; generate commands also require -out")
 		return 2
 	}
@@ -121,15 +125,6 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		for _, artifact := range artifacts {
 			fmt.Fprintf(stdout, "generated and published %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
 		}
-	case "generate-ansible":
-		artifacts, err := service.GenerateAnsible(input, *outputPath)
-		if err != nil {
-			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
-			return 1
-		}
-		for _, artifact := range artifacts {
-			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
-		}
 	case "generate-terraform":
 		artifacts, err := service.GenerateTerraform(input, *outputPath)
 		if err != nil {
@@ -147,6 +142,15 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		}
 		for _, artifact := range artifacts {
 			fmt.Fprintf(stdout, "generated %s (sha256 %s)\n", artifact.Path, artifact.OutputHash)
+		}
+	case "generate-device-config":
+		artifacts, err := service.GenerateDeclarativeConfig(input, *outputPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 1
+		}
+		for _, artifact := range artifacts {
+			fmt.Fprintf(stdout, "generated %s (type %s, sha256 %s)\n", artifact.Path, artifact.Type, artifact.OutputHash)
 		}
 	}
 	return 0
@@ -335,6 +339,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	_ = bootstrapLogger.Close()
+	if err := ensureProviderRuntimeDirectories(settings); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize runtime directories: %v\n", err)
+		return 2
+	}
 	logger, err := observability.New(observability.Config{
 		Service: "provider", Directory: settings.Logging.Directory,
 		Level: settings.Logging.Level, Format: settings.Logging.Format,
@@ -388,6 +396,57 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
+	executionStore, err := filesystem.NewExecutionStore(settings.ArtifactDirectory)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize execution store: %v\n", err)
+		return 2
+	}
+	artifactRepo := filesystem.NewArtifactRepository(settings.ArtifactDirectory)
+	artifactVerifier, err := executors.NewArtifactVerifyExecutor(artifactRepo)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize artifact verifier: %v\n", err)
+		return 2
+	}
+
+	targetResolver := executors.NewArtifactInventoryDeviceResolver(settings.ArtifactDirectory)
+	credentialResolver := credentialstore.NewEnvDeviceCredentialResolver()
+	knownHostsPath := settings.KnownHostsFile
+	if knownHostsPath == "" {
+		knownHostsPath = filepath.Join(settings.ArtifactDirectory, ".ssh_known_hosts")
+	}
+	if _, statErr := os.Stat(knownHostsPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			_ = os.WriteFile(knownHostsPath, []byte("# InfraFlow SSH known_hosts\n"), 0o600)
+		}
+	}
+	hostKeyVerifier, err := executors.NewKnownHostsFileVerifier(knownHostsPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize host key verifier: %v\n", err)
+		return 2
+	}
+	sshTransport, err := executors.NewSSHIOSTransport(hostKeyVerifier, 10*time.Second, 15*time.Second)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize ssh transport: %v\n", err)
+		return 2
+	}
+	ciscoExecutor, err := executors.NewCiscoIOSConfigureExecutor(targetResolver, credentialResolver, sshTransport)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize cisco ios configure executor: %v\n", err)
+		return 2
+	}
+
+	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier, ciscoExecutor}, 4)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize execution service: %v\n", err)
+		return 2
+	}
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := executionService.Close(shutdownContext); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: stop executions: %v\n", err)
+		}
+	}()
 	logStore, err := observability.NewStore(settings.Logging.Directory, observability.DefaultCentralLogLimit)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
@@ -402,7 +461,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		ArtifactDirectory: settings.ArtifactDirectory,
 		Logs:              logStore,
 	}
-	service := application.NewServiceWithJobsAgentsEvents(filesystem.NewArtifactRepository(settings.ArtifactDirectory), reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
+	service := application.NewServiceWithJobsAgentsEvents(artifactRepo, reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
 		transportCredentials, err = credentials.NewServerTLSFromFile(settings.TLS.CertificateFile, settings.TLS.KeyFile)
@@ -411,7 +470,20 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	server, err := grpcapi.NewServer(service, os.Getenv(settings.TokenEnv), settings.ChunkSize, transportCredentials, logger)
+	agentCredentials := make([]grpcapi.AgentCredential, 0, len(settings.AgentCredentials))
+	for _, configured := range settings.AgentCredentials {
+		token := os.Getenv(configured.TokenEnv)
+		if len([]byte(token)) < security.MinAgentTokenBytes {
+			fmt.Fprintf(stderr, "infraflow-provider: agent token for %s must be set in %s and contain at least %d bytes\n", configured.AgentID, configured.TokenEnv, security.MinAgentTokenBytes)
+			return 2
+		}
+		agentCredentials = append(agentCredentials, grpcapi.AgentCredential{
+			AgentID: configured.AgentID, SiteID: configured.SiteID, Token: token,
+		})
+	}
+	server, err := grpcapi.NewServerWithAgentCredentials(
+		service, os.Getenv(settings.TokenEnv), agentCredentials, settings.ChunkSize, transportCredentials, logger,
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
@@ -455,6 +527,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		handler.SetLogger(logger)
+		handler.SetExecutionService(executionService)
 		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
@@ -527,6 +600,30 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func ensureProviderRuntimeDirectories(settings config.Config) error {
+	directories := []string{
+		settings.ArtifactDirectory,
+		settings.Logging.Directory,
+		filepath.Dir(settings.DatabasePath),
+		filepath.Dir(settings.AdminCredentialFile),
+		filepath.Dir(settings.AdminCredentialScript),
+	}
+	seen := make(map[string]struct{}, len(directories))
+	for _, directory := range directories {
+		if directory == "" {
+			continue
+		}
+		if _, exists := seen[directory]; exists {
+			continue
+		}
+		seen[directory] = struct{}{}
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return fmt.Errorf("create directory %q: %w", directory, err)
+		}
+	}
+	return nil
+}
+
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `InfraFlow Provider - declarative infrastructure planning
 
@@ -535,9 +632,9 @@ Usage:
   infraflow-provider plan -f <infra.yaml>
 	infraflow-provider generate -f <infra.yaml> -out <directory>
 	infraflow-provider generate-all -f <infra.yaml> -out <directory>
-	infraflow-provider generate-ansible -f <infra.yaml> -out <directory>
 	infraflow-provider generate-terraform -f <infra.yaml> -out <directory>
 	infraflow-provider generate-bootstrap -f <infra.yaml> -out <directory>
+	infraflow-provider generate-device-config -f <deployment.yaml> -out <directory>
 	infraflow-provider template-info -f <infra.yaml>
 	infraflow-provider capability-summary -f <infra.yaml>
 	infraflow-provider capability-matrix -f <infra.yaml>

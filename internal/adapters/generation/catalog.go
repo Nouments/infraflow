@@ -2,17 +2,26 @@ package generator
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 
 const maxManifestBytes = 1 << 20
+
+var (
+	ErrArtifactHashMismatch = errors.New("artifact output hash mismatch")
+	ErrArtifactTooLarge     = errors.New("artifact exceeds maximum artifact size")
+)
 
 func Catalog(root string) ([]Artifact, error) {
 	root, err := filepath.Abs(root)
@@ -70,6 +79,15 @@ func Catalog(root string) ([]Artifact, error) {
 		if err := decoder.Decode(&published); err != nil {
 			return nil, fmt.Errorf("decode manifest for %q: %w", entry.Name(), err)
 		}
+		if published.Status != "" && published.Status != "succeeded" {
+			return nil, fmt.Errorf("manifest for %q is not marked succeeded", entry.Name())
+		}
+		if !protocol.IsSHA256(published.InputHash) {
+			return nil, fmt.Errorf("manifest for %q has an invalid input hash", entry.Name())
+		}
+		if published.SiteID != "" && (!protocol.ValidSiteName(published.SiteID) || len(published.SiteID) > 128) {
+			return nil, fmt.Errorf("manifest for %q has an invalid site id", entry.Name())
+		}
 		var trailing any
 		if err := decoder.Decode(&trailing); err != io.EOF {
 			return nil, fmt.Errorf("manifest for %q contains trailing JSON", entry.Name())
@@ -78,7 +96,7 @@ func Catalog(root string) ([]Artifact, error) {
 			if !protocol.ValidArtifactPath(entry.Name(), artifact) {
 				return nil, fmt.Errorf("manifest for %q contains unsafe artifact path %q", entry.Name(), artifact.Path)
 			}
-			if !protocol.IsSHA256(artifact.OutputHash) || !protocol.IsSHA256(artifact.InputHash) {
+			if !protocol.IsSHA256(artifact.OutputHash) || !protocol.IsSHA256(artifact.InputHash) || artifact.InputHash != published.InputHash {
 				return nil, fmt.Errorf("artifact %q has invalid hash metadata", artifact.Path)
 			}
 			if _, exists := seenPaths[artifact.Path]; exists {
@@ -91,6 +109,28 @@ func Catalog(root string) ([]Artifact, error) {
 			}
 			if !artifactInfo.Mode().IsRegular() {
 				return nil, fmt.Errorf("artifact %q must be a regular file", artifact.Path)
+			}
+			if artifactInfo.Size() > protocol.MaxArtifactBytes {
+				return nil, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
+			}
+			artifactFile, err := safefs.OpenReadOnly(root, artifact.Path)
+			if err != nil {
+				return nil, fmt.Errorf("open artifact %q: %w", artifact.Path, err)
+			}
+			digest := sha256.New()
+			readBytes, readErr := io.Copy(digest, io.LimitReader(artifactFile, protocol.MaxArtifactBytes+1))
+			closeErr := artifactFile.Close()
+			if readErr != nil {
+				return nil, fmt.Errorf("read artifact %q: %w", artifact.Path, readErr)
+			}
+			if closeErr != nil {
+				return nil, fmt.Errorf("close artifact %q: %w", artifact.Path, closeErr)
+			}
+			if readBytes > protocol.MaxArtifactBytes {
+				return nil, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
+			}
+			if hex.EncodeToString(digest.Sum(nil)) != artifact.OutputHash {
+				return nil, fmt.Errorf("%w: %q", ErrArtifactHashMismatch, artifact.Path)
 			}
 			seenPaths[artifact.Path] = struct{}{}
 			artifacts = append(artifacts, artifact)
@@ -113,12 +153,23 @@ func ReadArtifact(root, artifactPath string) ([]byte, Artifact, error) {
 		if err != nil {
 			return nil, Artifact{}, fmt.Errorf("resolve artifact root: %w", err)
 		}
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		file, err := safefs.OpenReadOnly(root, artifact.Path)
 		if err != nil {
-			return nil, Artifact{}, fmt.Errorf("read artifact %q: %w", artifact.Path, err)
+			return nil, Artifact{}, fmt.Errorf("open artifact %q: %w", artifact.Path, err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, protocol.MaxArtifactBytes+1))
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, Artifact{}, fmt.Errorf("read artifact %q: %w", artifact.Path, readErr)
+		}
+		if closeErr != nil {
+			return nil, Artifact{}, fmt.Errorf("close artifact %q: %w", artifact.Path, closeErr)
+		}
+		if len(data) > protocol.MaxArtifactBytes {
+			return nil, Artifact{}, fmt.Errorf("%w of %d bytes: %q", ErrArtifactTooLarge, protocol.MaxArtifactBytes, artifact.Path)
 		}
 		if protocol.SHA256(data) != artifact.OutputHash {
-			return nil, Artifact{}, fmt.Errorf("artifact %q changed after catalog validation", artifact.Path)
+			return nil, Artifact{}, fmt.Errorf("%w: %q changed after catalog validation", ErrArtifactHashMismatch, artifact.Path)
 		}
 		return data, artifact, nil
 	}

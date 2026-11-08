@@ -327,18 +327,6 @@ func (service *Service) GenerateAll(input []byte, outputDirectory string) ([]pro
 	return generator.GenerateAll(infrastructure, outputDirectory)
 }
 
-func (service *Service) GenerateAnsible(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
-	infrastructure, err := service.Validate(input)
-	if err != nil {
-		return nil, err
-	}
-	generator, ok := service.generator.(ports.AnsibleArtifactGenerator)
-	if !ok {
-		return nil, fmt.Errorf("Ansible artifact generator is not configured")
-	}
-	return generator.GenerateAnsible(infrastructure, outputDirectory)
-}
-
 func (service *Service) GenerateTerraform(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {
@@ -361,6 +349,14 @@ func (service *Service) GenerateBootstrap(input []byte, outputDirectory string) 
 		return nil, fmt.Errorf("bootstrap artifact generator is not configured")
 	}
 	return generator.GenerateBootstrap(infrastructure, outputDirectory)
+}
+
+func (service *Service) GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]protocol.Artifact, error) {
+	generator, ok := service.generator.(ports.DeclarativeConfigGenerator)
+	if !ok {
+		return nil, fmt.Errorf("declarative device configuration generator is not configured")
+	}
+	return generator.GenerateDeclarativeConfig(input, outputDirectory)
 }
 
 func (service *Service) CreateJob(input []byte) (domain.Job, error) {

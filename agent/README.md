@@ -58,46 +58,50 @@ go run ./agent/cmd serve-bootstrap \
   -listen 192.168.100.1
 ```
 
-The agent can run its current read-only Ansible inspection and validate the
-current data-only Terraform declaration. The Ansible runner accepts only the
-generated debug task and forces check mode. Terraform rejects provider,
-resource, module, and data blocks, then runs `init -backend=false` and
-`validate`; it does not plan or apply infrastructure.
+The agent can validate the current data-only Terraform declaration. Terraform
+rejects provider, resource, module, and data blocks, then runs
+`init -backend=false` and `validate`; it does not plan or apply infrastructure.
 
 ```sh
-go run ./agent/cmd execute-ansible \
-  -directory /var/lib/infraflow-agent \
-  -site lab
-
 go run ./agent/cmd validate-terraform \
   -directory /var/lib/infraflow-agent \
-  -site lab
+  -site lab \
+  -config /etc/infraflow/agent.yaml
 ```
 
-Both commands require the corresponding provider-generated artifacts to have
-been downloaded by `agent run`. They time out and stage only the expected
-files in a temporary workspace. Install `ansible-playbook` and `terraform` on
-the agent host to use them.
+The command requires the provider-generated Terraform artifacts to have been
+downloaded by `agent run`. It times out and stages only the expected files in a
+temporary workspace. Install `terraform` on the agent host to use it. stdout
+and stderr are captured and displayed incrementally on their respective CLI
+streams, with bounded memory and secret redaction. `-config` is optional; when
+supplied, its configured agent identity, token, logger, outbox, and existing
+gRPC `ReportLogs` call are used to persist and synchronize process events. The
+agent must already be registered with the provider. Without `-config`, process
+output is local to the command and is not sent to the dashboard.
 
-The Linux TUI is a separate human client of the provider HTTP API:
+The Linux TUI is a separate human client of the provider HTTP API and local agent environment:
 
 ```sh
 export INFRAFLOW_TUI_PASSWORD="$(./provider-data/get-admin-password.sh)"
 go run ./agent/cmd tui \
   -address https://10.0.0.5:8080 \
   -username admin \
-  -ca-file /etc/infraflow/provider-ca.crt
+  -ca-file /etc/infraflow/provider-ca.crt \
+  [-config /etc/infraflow/agent.yaml]
 ```
 
-Use `r`, `j`, `a`, `e`, `h`, or `q` to refresh jobs, inspect jobs, agents, or
-recent backend-reported generation/execution/verification results, show help,
-or quit. Event inspection is admin-only. The server address and port are
-command-line editable. The TUI never displays the full session token or
-password. A generation result is not an execution or verification result.
+Use `o` for Overview, `j` for Jobs, `s` for local supervised Services, `a` for Agents (admin),
+`e` for Audit events (admin), `l` for Technical logs (admin), `x` for Executions (admin),
+`r` to refresh, `?` for help, or `q` to quit. In lists, use `↑`/`↓` to select/scroll. In the
+executions view, use `n`/`p` for pagination, `f` to cycle status filters, `Enter` to view
+tasks and attempts, and `c` then `y`/`n` to request audited cancellation. When the Provider
+is temporarily unreachable, the TUI operates in resilient offline mode, preserving cached data
+marked as `[Données en cache]` and displaying local runtime diagnostic without freezing.
+The TUI never displays tokens or passwords.
 
-Edit `examples/agent-config.yaml` for the provider host/port, optional loopback
-HTTP API address, site identity, local state directory, and TLS CA. When
-`provider.api_address` is configured, the agent registers and sends a heartbeat
-after its local artifact run. The HTTP registration path is loopback-only until
-an HTTPS API is implemented. Remote/cloud gRPC endpoints require TLS; the
+Edit `examples/agent-config.yaml` for local deployments. The Docker image
+overrides the provider host/port, API address, TLS CA path, agent identity, and
+state directory through the `INFRAFLOW_AGENT_*` environment variables. For a
+remote API, HTTPS certificate verification uses the configured provider CA;
+plain HTTP remains loopback-only. Remote gRPC endpoints also require TLS. The
 agent imports no provider Go package.

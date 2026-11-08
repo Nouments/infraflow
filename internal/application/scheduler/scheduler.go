@@ -20,6 +20,7 @@ const (
 	StatusRetrying  Status = "retrying"
 	StatusSuccess   Status = "success"
 	StatusFailed    Status = "failed"
+	StatusTimedOut  Status = "timed_out"
 	StatusCancelled Status = "cancelled"
 	StatusBlocked   Status = "blocked"
 )
@@ -240,7 +241,7 @@ func (scheduler *Scheduler) updateReady(status map[string]Status, results map[st
 		for _, dependency := range task.Dependencies {
 			switch status[dependency] {
 			case StatusSuccess:
-			case StatusFailed, StatusCancelled, StatusBlocked:
+			case StatusFailed, StatusTimedOut, StatusCancelled, StatusBlocked:
 				blocked = true
 			default:
 				allSuccess = false
@@ -303,22 +304,30 @@ func execute(parent context.Context, task Task) (result Result) {
 			taskContext, cancel = context.WithTimeout(parent, task.Timeout)
 		}
 		err := task.Action(taskContext)
+		taskContextErr := taskContext.Err()
 		cancel()
-		if err == nil {
-			result.Status = StatusSuccess
-			break
-		}
 		if parent.Err() != nil {
 			result.Status = StatusCancelled
 			result.Error = parent.Err().Error()
 			break
 		}
-		if taskContext.Err() == context.DeadlineExceeded {
+		timedOut := taskContextErr == context.DeadlineExceeded
+		if err == nil && !timedOut {
+			result.Status = StatusSuccess
+			break
+		}
+		if timedOut {
+			if err == nil {
+				err = errors.New("task deadline exceeded")
+			}
 			err = Retry(fmt.Errorf("task timeout: %w", err))
 		}
 		result.Error = limitError(err)
 		if !isRetryable(err) || attempt == policy.MaxAttempts {
 			result.Status = StatusFailed
+			if timedOut {
+				result.Status = StatusTimedOut
+			}
 			break
 		}
 		wait := backoff(policy, attempt)

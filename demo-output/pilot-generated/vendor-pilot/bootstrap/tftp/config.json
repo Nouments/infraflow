@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "service": "tftp",
+  "enabled": false,
+  "site": "vendor-pilot",
+  "root_directory": "tftp",
+  "read_only": true,
+  "allowed_files": [
+    {
+      "path": "undionly.kpxe",
+      "source": "agent_runtime"
+    },
+    {
+      "path": "ipxe.efi",
+      "source": "agent_runtime"
+    }
+  ]
+}
+

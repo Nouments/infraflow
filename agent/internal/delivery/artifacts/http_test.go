@@ -51,6 +51,61 @@ func (store sizedStore) OpenArtifact(string) (io.ReadCloser, error) {
 	return &sizedFile{size: store.size}, nil
 }
 
+type generatedReader struct{ remaining int64 }
+
+func (reader *generatedReader) Read(buffer []byte) (int, error) {
+	if reader.remaining == 0 {
+		return 0, io.EOF
+	}
+	count := len(buffer)
+	if int64(count) > reader.remaining {
+		count = int(reader.remaining)
+	}
+	reader.remaining -= int64(count)
+	return count, nil
+}
+
+type generatedStore struct{ size int64 }
+
+func (store generatedStore) OpenArtifact(string) (io.ReadCloser, error) {
+	return io.NopCloser(&generatedReader{remaining: store.size}), nil
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+type failingStore struct{}
+
+func (failingStore) OpenArtifact(string) (io.ReadCloser, error) {
+	return io.NopCloser(failingReader{}), nil
+}
+
+type byteCountResponse struct {
+	header       http.Header
+	statusCode   int
+	bytesWritten int64
+}
+
+func (response *byteCountResponse) Header() http.Header {
+	if response.header == nil {
+		response.header = make(http.Header)
+	}
+	return response.header
+}
+
+func (response *byteCountResponse) WriteHeader(statusCode int) {
+	response.statusCode = statusCode
+}
+
+func (response *byteCountResponse) Write(data []byte) (int, error) {
+	if response.statusCode == 0 {
+		response.statusCode = http.StatusOK
+	}
+	response.bytesWritten += int64(len(data))
+	return len(data), nil
+}
+
 func TestHandlerServesVerifiedArtifactsReadOnly(t *testing.T) {
 	handler, err := NewHandler(memoryStore{files: map[string][]byte{
 		"lab/bootstrap/dns/config.json":    []byte("{\"ok\":true}\n"),
@@ -180,6 +235,42 @@ func TestHandlerHeadMissingArtifactAndOversizedArtifact(t *testing.T) {
 	largeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodHead, "/artifacts/lab/inventory.json", nil))
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized artifact returned %d", response.Code)
+	}
+}
+
+func TestHandlerRejectsOversizedNonSeekableArtifact(t *testing.T) {
+	handler, err := NewHandler(generatedStore{size: maxServedArtifactBytes + 1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &byteCountResponse{}
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/artifacts/lab/inventory.json", nil))
+	if response.statusCode != http.StatusRequestEntityTooLarge || response.bytesWritten != 0 {
+		t.Fatalf("oversized stream was not rejected before writing: status=%d bytes=%d", response.statusCode, response.bytesWritten)
+	}
+}
+
+func TestHandlerAcceptsNonSeekableArtifactAtSizeLimit(t *testing.T) {
+	handler, err := NewHandler(generatedStore{size: maxServedArtifactBytes}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &byteCountResponse{}
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/artifacts/lab/inventory.json", nil))
+	if response.statusCode != http.StatusOK || response.bytesWritten != maxServedArtifactBytes || response.Header().Get("Content-Length") != "33554432" {
+		t.Fatalf("artifact at size limit was not served completely: status=%d bytes=%d headers=%v", response.statusCode, response.bytesWritten, response.Header())
+	}
+}
+
+func TestHandlerPropagatesNonSeekableReadFailureBeforeWriting(t *testing.T) {
+	handler, err := NewHandler(failingStore{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &byteCountResponse{}
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/artifacts/lab/inventory.json", nil))
+	if response.statusCode != http.StatusInternalServerError || response.bytesWritten != 0 {
+		t.Fatalf("read failure was not propagated before writing: status=%d bytes=%d", response.statusCode, response.bytesWritten)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,9 +49,6 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if arguments[0] == "serve-tftp" {
 		return runTFTPServer(arguments[1:], stdout, stderr)
 	}
-	if arguments[0] == "execute-ansible" {
-		return runAnsibleCheck(arguments[1:], stdout, stderr)
-	}
 	if arguments[0] == "validate-terraform" {
 		return runTerraformValidation(arguments[1:], stdout, stderr)
 	}
@@ -88,6 +86,10 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	_ = bootstrapLogger.Close()
+	if err := os.MkdirAll(settings.Agent.StateDirectory, 0o700); err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: create state directory %q: %v\n", settings.Agent.StateDirectory, err)
+		return 2
+	}
 	outbox, err := observability.NewOutbox(filepath.Join(settings.Logging.Directory, "pending-events.json"), observability.DefaultOutboxLimit)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: initialize local log outbox: %v\n", err)
@@ -120,11 +122,16 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-agent: persist startup event: %v\n", err)
 		return 2
 	}
+	artifactTokenEnv := settings.Provider.ArtifactTokenEnv
+	if artifactTokenEnv == "" {
+		artifactTokenEnv = settings.Provider.TokenEnv
+	}
 	providerClient, err := providergrpc.New(
 		settings.Provider.Address,
-		os.Getenv(settings.Provider.TokenEnv),
+		os.Getenv(artifactTokenEnv),
 		settings.Provider.TLS.Enabled,
 		settings.Provider.TLS.CAFile,
+		settings.Agent.ID,
 	)
 	if err != nil {
 		_ = logger.Emit(context.Background(), observability.Event{
@@ -137,7 +144,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	defer providerClient.Close()
 	var registry *providerhttp.Client
 	if settings.Provider.APIAddress != "" {
-		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv))
+		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv), settings.Provider.TLS.CAFile)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 			return 2
@@ -393,41 +400,13 @@ func runTFTPServer(arguments []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runAnsibleCheck(arguments []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("execute-ansible", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	directory := flags.String("directory", "", "agent state directory containing verified Ansible artifacts")
-	site := flags.String("site", "", "site identifier whose playbook should run")
-	timeout := flags.Duration("timeout", 5*time.Minute, "maximum Ansible execution time")
-	if err := flags.Parse(arguments); err != nil {
-		return 2
-	}
-	if flags.NArg() != 0 || *directory == "" || *site == "" {
-		fmt.Fprintln(stderr, "infraflow-agent: execute-ansible requires -directory and -site")
-		return 2
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	result, err := toolrunner.RunAnsible(ctx, *directory, *site, *timeout)
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
-		return 1
-	}
-	for _, step := range result.Steps {
-		fmt.Fprintln(stdout, step)
-	}
-	if result.Output != "" {
-		fmt.Fprintln(stdout, result.Output)
-	}
-	return 0
-}
-
 func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("validate-terraform", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	directory := flags.String("directory", "", "agent state directory containing verified Terraform artifacts")
 	site := flags.String("site", "", "site identifier whose Terraform files should be validated")
 	timeout := flags.Duration("timeout", 5*time.Minute, "maximum Terraform validation time")
+	configPath := flags.String("config", "", "agent configuration for local log persistence and provider synchronization")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -437,7 +416,32 @@ func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	result, err := toolrunner.RunTerraform(ctx, *directory, *site, *timeout)
+	output := newSynchronizedProcessOutput(stdout, stderr)
+	logSession, err := newProcessLogSession(*configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	if logSession != nil {
+		logSession.Start(ctx)
+	}
+	observer := func(processOutput toolrunner.ProcessOutput) {
+		output.Write(processOutput)
+		logSession.Observe(processOutput)
+	}
+	result, err := toolrunner.RunTerraformWithOutput(ctx, *directory, *site, *timeout, observer)
+	if output.Started() {
+		logSession.Complete("terraform-validation", err)
+	}
+	logSyncErr := logSession.Close()
+	if output.Err() != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: write process output: %v\n", output.Err())
+		return 1
+	}
+	if logSyncErr != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", logSyncErr)
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 1
@@ -445,10 +449,48 @@ func runTerraformValidation(arguments []string, stdout, stderr io.Writer) int {
 	for _, step := range result.Steps {
 		fmt.Fprintln(stdout, step)
 	}
-	if result.Output != "" {
-		fmt.Fprintln(stdout, result.Output)
-	}
 	return 0
+}
+
+type synchronizedProcessOutput struct {
+	mu      sync.Mutex
+	stdout  io.Writer
+	stderr  io.Writer
+	err     error
+	started bool
+}
+
+func newSynchronizedProcessOutput(stdout, stderr io.Writer) *synchronizedProcessOutput {
+	return &synchronizedProcessOutput{stdout: stdout, stderr: stderr}
+}
+
+func (output *synchronizedProcessOutput) Write(processOutput toolrunner.ProcessOutput) {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	if processOutput.Started {
+		output.started = true
+		return
+	}
+	if output.err != nil {
+		return
+	}
+	destination := output.stdout
+	if processOutput.Stream == "stderr" {
+		destination = output.stderr
+	}
+	_, output.err = io.WriteString(destination, processOutput.Text)
+}
+
+func (output *synchronizedProcessOutput) Started() bool {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.started
+}
+
+func (output *synchronizedProcessOutput) Err() error {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.err
 }
 
 func runTUI(arguments []string, stdout, stderr io.Writer) int {
@@ -458,6 +500,7 @@ func runTUI(arguments []string, stdout, stderr io.Writer) int {
 	caFile := flags.String("ca-file", "", "CA certificate file for the provider HTTPS API")
 	username := flags.String("username", "", "provider platform username")
 	passwordEnv := flags.String("password-env", "INFRAFLOW_TUI_PASSWORD", "environment variable containing the platform password")
+	configPath := flags.String("config", "", "optional agent YAML configuration file to inspect local agent state")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -470,12 +513,39 @@ func runTUI(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-agent: password environment variable %s is empty\n", *passwordEnv)
 		return 2
 	}
+	var agentInfo tui.AgentInfo
+	if *configPath != "" {
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: load config %q: %v\n", *configPath, observability.Redact(err.Error()))
+			return 2
+		}
+		agentInfo = tui.AgentInfo{
+			ID:              cfg.Agent.ID,
+			SiteID:          cfg.Agent.SiteID,
+			Capabilities:    cfg.Agent.Capabilities,
+			StateDirectory:  cfg.Agent.StateDirectory,
+			Configured:      true,
+			ConfigFile:      *configPath,
+			ProviderAddress: cfg.Provider.Address,
+			APIAddress:      cfg.Provider.APIAddress,
+			LogDirectory:    cfg.Logging.Directory,
+		}
+	} else if os.Getenv("INFRAFLOW_AGENT_ID") != "" {
+		agentInfo = tui.AgentInfo{
+			ID:              os.Getenv("INFRAFLOW_AGENT_ID"),
+			SiteID:          os.Getenv("INFRAFLOW_AGENT_SITE_ID"),
+			StateDirectory:  os.Getenv("INFRAFLOW_AGENT_DATA"),
+			Configured:      true,
+			ProviderAddress: *address,
+		}
+	}
 	client, err := providerhttp.NewUserClient(*address, *caFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 2
 	}
-	if err := tui.Run(context.Background(), os.Stdin, stdout, client, *username, password); err != nil {
+	if err := tui.RunWithAgent(context.Background(), os.Stdin, stdout, client, *username, password, agentInfo); err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 		return 1
 	}
@@ -493,7 +563,6 @@ Usage:
 	infraflow-agent serve-bootstrap -directory <state-dir> -interface <name> -listen <ipv4> [-port 80]
 	infraflow-agent serve-dhcp -config <dhcp-config.json> -interface <name> -listen <ipv4> [-port 67]
 	infraflow-agent serve-tftp -config <tftp-config.json> -root <bootstrap-dir> -interface <name> -listen <ipv4> [-port 69]
-	infraflow-agent execute-ansible -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent validate-terraform -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 

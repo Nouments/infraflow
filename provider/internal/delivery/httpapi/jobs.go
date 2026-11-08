@@ -14,6 +14,7 @@ import (
 
 	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/security"
+	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
 	"infraflow/provider/internal/application"
 	userdomain "infraflow/provider/internal/domain"
@@ -23,6 +24,7 @@ const maxRequestBytes = 2 << 20
 
 type Handler struct {
 	service       *application.Service
+	executions    *application.ExecutionService
 	agentToken    []byte
 	authenticator *application.Authenticator
 	logger        *observability.Logger
@@ -136,6 +138,10 @@ func NewHandler(service *application.Service, token string, authenticators ...*a
 
 func (handler *Handler) SetLogger(logger *observability.Logger) { handler.logger = logger }
 
+func (handler *Handler) SetExecutionService(executions *application.ExecutionService) {
+	handler.executions = executions
+}
+
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	started := time.Now()
 	statusWriter := &responseStatusWriter{ResponseWriter: writer}
@@ -229,6 +235,14 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.generatePlan(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/v1/executions" || strings.HasPrefix(request.URL.Path, "/api/v1/executions/") {
+		if identity.agent || identity.user.Role != userdomain.UserRoleAdmin {
+			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
+		handler.handleExecutions(writer, request, identity.user.ID)
 		return
 	}
 	if request.URL.Path == "/api/v1/agent/logs" {
@@ -740,6 +754,112 @@ func (handler *Handler) writeAgentError(writer http.ResponseWriter, err error) {
 		writeError(writer, http.StatusConflict, "agent identity is already bound to another site")
 	default:
 		writeError(writer, http.StatusInternalServerError, "agents are unavailable")
+	}
+}
+
+func (handler *Handler) handleExecutions(writer http.ResponseWriter, request *http.Request, actorID string) {
+	if handler.executions == nil {
+		writeError(writer, http.StatusServiceUnavailable, "execution service is not configured")
+		return
+	}
+	const executionsPath = "/api/v1/executions"
+	if request.URL.Path == executionsPath {
+		switch request.Method {
+		case http.MethodGet:
+			handler.listExecutions(writer, request)
+		case http.MethodPost:
+			handler.submitExecution(writer, request, actorID)
+		default:
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(request.URL.Path, executionsPath+"/"), "/")
+	if len(parts) == 1 && request.Method == http.MethodGet {
+		execution, err := handler.executions.Get(parts[0])
+		if err != nil {
+			handler.writeExecutionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, execution)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "cancel" && request.Method == http.MethodPost {
+		execution, err := handler.executions.Cancel(parts[0], actorID)
+		if err != nil {
+			handler.writeExecutionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, execution)
+		return
+	}
+	writeError(writer, http.StatusNotFound, "execution route not found")
+}
+
+func (handler *Handler) submitExecution(writer http.ResponseWriter, request *http.Request, actorID string) {
+	keys := request.Header.Values("Idempotency-Key")
+	if len(keys) != 1 || len(keys[0]) < 16 || len(keys[0]) > 128 {
+		writeError(writer, http.StatusBadRequest, "one Idempotency-Key header of 16 to 128 characters is required")
+		return
+	}
+	var input application.ExecutionRequest
+	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	execution, created, err := handler.executions.Submit(request.Context(), actorID, keys[0], input)
+	if err != nil {
+		handler.writeExecutionError(writer, err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusAccepted
+	}
+	writeJSON(writer, status, execution)
+}
+
+func (handler *Handler) listExecutions(writer http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	limit := 50
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "limit must be an integer between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
+	offset := 0
+	if raw := query.Get("offset"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "offset must be a non-negative integer")
+			return
+		}
+		offset = parsed
+	}
+	page, err := handler.executions.List(query.Get("status"), query.Get("type"), limit, offset)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, page)
+}
+
+func (handler *Handler) writeExecutionError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, application.ErrInvalidExecution):
+		writeError(writer, http.StatusBadRequest, err.Error())
+	case errors.Is(err, application.ErrExecutionUnsupported):
+		writeError(writer, http.StatusConflict, err.Error())
+	case errors.Is(err, application.ErrExecutionNotFound), errors.Is(err, os.ErrNotExist):
+		writeError(writer, http.StatusNotFound, "execution not found")
+	case errors.Is(err, application.ErrExecutionStateConflict), errors.Is(err, ports.ErrExecutionConflict), errors.Is(err, ports.ErrIdempotencyConflict):
+		writeError(writer, http.StatusConflict, err.Error())
+	case errors.Is(err, application.ErrExecutionServiceClosed):
+		writeError(writer, http.StatusServiceUnavailable, "execution service is shutting down")
+	default:
+		writeError(writer, http.StatusInternalServerError, "execution operation failed")
 	}
 }
 

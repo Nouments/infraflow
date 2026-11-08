@@ -3,12 +3,15 @@ package providerhttp
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -39,7 +42,7 @@ type Heartbeat struct {
 	QueueDepth   int      `json:"queue_depth"`
 }
 
-func New(address, token string) (*Client, error) {
+func New(address, token string, caFiles ...string) (*Client, error) {
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("API token must be at least %d bytes", security.MinAgentTokenBytes)
 	}
@@ -50,8 +53,23 @@ func New(address, token string) (*Client, error) {
 	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
 		return nil, fmt.Errorf("provider API HTTP address must be loopback-only")
 	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	if len(caFiles) > 1 {
+		return nil, fmt.Errorf("at most one provider API CA file may be configured")
+	}
+	if len(caFiles) == 1 && caFiles[0] != "" {
+		certificate, err := os.ReadFile(caFiles[0])
+		if err != nil {
+			return nil, fmt.Errorf("read provider API CA: %w", err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(certificate) {
+			return nil, fmt.Errorf("provider API CA file contains no valid certificates")
+		}
+		transport.TLSClientConfig.RootCAs = roots
+	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	return &Client{baseURL: parsed, token: token, http: &http.Client{Timeout: 10 * time.Second}}, nil
+	return &Client{baseURL: parsed, token: token, http: &http.Client{Timeout: 10 * time.Second, Transport: transport}}, nil
 }
 
 func (client *Client) Register(ctx context.Context, registration Registration) error {

@@ -1,188 +1,80 @@
 package tui
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"infraflow/agent/internal/adapters/providerhttp"
 )
 
-type Backend interface {
-	Login(context.Context, string, string) (providerhttp.UserSession, error)
-	Logout(context.Context) error
-	CurrentUser(context.Context) (providerhttp.User, error)
-	Jobs(context.Context) ([]providerhttp.JobSummary, error)
-	Agents(context.Context) ([]providerhttp.AgentSummary, error)
-	Events(context.Context) ([]providerhttp.EventSummary, error)
+// AgentInfo captures local agent configuration and runtime environment.
+type AgentInfo struct {
+	ID              string
+	SiteID          string
+	Capabilities    []string
+	StateDirectory  string
+	Configured      bool
+	ConfigFile      string
+	ProviderAddress string
+	APIAddress      string
+	LogDirectory    string
 }
 
-// Run starts the line-oriented Linux TUI. It deliberately uses standard
-// terminal input/output so it remains easy to operate over SSH and needs no
-// terminal framework or dashboard service.
+// Run authenticates with the existing Provider session, then starts the
+// asynchronous Bubble Tea interface used for all TUI views.
 func Run(ctx context.Context, input io.Reader, output io.Writer, backend Backend, username, password string) error {
+	return RunWithAgent(ctx, input, output, backend, username, password, AgentInfo{})
+}
+
+// RunWithAgent runs the TUI with optional local agent configuration.
+// If the Provider is initially unreachable but local agent configuration is available,
+// it launches in degraded local mode rather than abruptly crashing.
+func RunWithAgent(ctx context.Context, input io.Reader, output io.Writer, backend Backend, username, password string, agentInfo AgentInfo) error {
 	if backend == nil {
 		return fmt.Errorf("TUI backend is required")
 	}
+	var (
+		user    providerhttp.User
+		session providerhttp.UserSession
+		initErr error
+	)
 	session, err := backend.Login(ctx, username, password)
 	if err != nil {
-		return fmt.Errorf("TUI login failed: %w", err)
-	}
-	defer backend.Logout(context.Background())
-	user, err := backend.CurrentUser(ctx)
-	if err != nil {
-		return fmt.Errorf("load current user: %w", err)
-	}
-	if _, err := io.WriteString(output, "INFRAFLOW TUI\n\n"); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(output, "Server session: %s\nUser: %s (%s)\nSession expires: %s\n\n", maskedSession(session.Token), user.Username, user.Role, session.ExpiresAt.UTC().Format("2006-01-02 15:04:05 UTC")); err != nil {
-		return err
-	}
-	if err := refresh(ctx, output, backend, user.Role == "admin"); err != nil {
-		return err
-	}
-	if _, err := io.WriteString(output, "\nCommands: r refresh | j jobs | a agents | e events | q quit | h help\n> "); err != nil {
-		return err
-	}
-	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 1024), 64<<10)
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		initErr = fmt.Errorf("Provider authentication unavailable: %w", err)
+		user = providerhttp.User{
+			Username: username,
+			Role:     "user",
 		}
-		command := strings.ToLower(strings.TrimSpace(scanner.Text()))
-		switch command {
-		case "q", "quit", "exit":
-			return nil
-		case "", "r", "refresh":
-			if err := refresh(ctx, output, backend, user.Role == "admin"); err != nil {
-				return err
+	} else {
+		defer backend.Logout(context.Background())
+		user, err = backend.CurrentUser(ctx)
+		if err != nil {
+			initErr = fmt.Errorf("load current user: %w", err)
+			user = providerhttp.User{
+				Username: username,
+				Role:     "user",
 			}
-		case "j", "jobs":
-			if err := printJobs(ctx, output, backend); err != nil {
-				return err
-			}
-		case "a", "agents":
-			if user.Role != "admin" {
-				_, _ = io.WriteString(output, "Permission denied: admin role required.\n")
-			} else if err := printAgents(ctx, output, backend); err != nil {
-				return err
-			}
-		case "e", "events":
-			if user.Role != "admin" {
-				_, _ = io.WriteString(output, "Permission denied: admin role required.\n")
-			} else if err := printEvents(ctx, output, backend); err != nil {
-				return err
-			}
-		case "h", "help":
-			_, _ = io.WriteString(output, "Commands: r refresh | j jobs | a agents | e events | q quit | h help\n")
-		default:
-			_, _ = io.WriteString(output, "Unknown command. Use h for help.\n")
-		}
-		if _, err := io.WriteString(output, "> "); err != nil {
-			return err
 		}
 	}
-	return scanner.Err()
-}
 
-func refresh(ctx context.Context, output io.Writer, backend Backend, admin bool) error {
-	if err := printJobs(ctx, output, backend); err != nil {
-		return err
+	m := newModel(ctx, backend, user, session, agentInfo)
+	if initErr != nil {
+		m.loadError = initErr.Error()
 	}
-	if admin {
-		if err := printAgents(ctx, output, backend); err != nil {
-			return err
-		}
-		return printEvents(ctx, output, backend)
+
+	program := tea.NewProgram(
+		m,
+		tea.WithInput(input),
+		tea.WithOutput(output),
+		tea.WithAltScreen(),
+	)
+	if _, err := program.Run(); err != nil {
+		return fmt.Errorf("run InfraFlow TUI: %w", err)
 	}
 	return nil
 }
 
-func printEvents(ctx context.Context, output io.Writer, backend Backend) error {
-	events, err := backend.Events(ctx)
-	if err != nil {
-		return fmt.Errorf("load events: %w", err)
-	}
-	_, _ = io.WriteString(output, "\nRECENT RESULTS\n")
-	if len(events) == 0 {
-		_, _ = io.WriteString(output, "  no generation or execution results\n")
-		return nil
-	}
-	start := len(events) - 10
-	if start < 0 {
-		start = 0
-	}
-	for index := len(events) - 1; index >= start; index-- {
-		event := events[index]
-		var result struct {
-			PlanID             string `json:"plan_id"`
-			GenerationStatus   string `json:"generation_status"`
-			ExecutionStatus    string `json:"execution_status"`
-			VerificationStatus string `json:"verification_status"`
-		}
-		_ = json.Unmarshal(event.Payload, &result)
-		if _, err := fmt.Fprintf(output, "  %s %s generation=%s execution=%s verification=%s\n",
-			event.Timestamp.UTC().Format("2006-01-02 15:04:05"), event.Type,
-			valueOrUnknown(result.GenerationStatus), valueOrUnknown(result.ExecutionStatus), valueOrUnknown(result.VerificationStatus)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func valueOrUnknown(value string) string {
-	if value == "" {
-		return "not-reported"
-	}
-	return value
-}
-
-func printJobs(ctx context.Context, output io.Writer, backend Backend) error {
-	jobs, err := backend.Jobs(ctx)
-	if err != nil {
-		return fmt.Errorf("load jobs: %w", err)
-	}
-	_, _ = io.WriteString(output, "\nJOBS\n")
-	if len(jobs) == 0 {
-		_, _ = io.WriteString(output, "  no planning jobs\n")
-		return nil
-	}
-	for _, job := range jobs {
-		if _, err := fmt.Fprintf(output, "  %-24s %-10s %s\n", job.ID, job.Status, job.UpdatedAt.UTC().Format("2006-01-02 15:04:05")); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func printAgents(ctx context.Context, output io.Writer, backend Backend) error {
-	agents, err := backend.Agents(ctx)
-	if err != nil {
-		return fmt.Errorf("load agents: %w", err)
-	}
-	_, _ = io.WriteString(output, "\nAGENTS\n")
-	if len(agents) == 0 {
-		_, _ = io.WriteString(output, "  no registered agents\n")
-		return nil
-	}
-	for _, agent := range agents {
-		if _, err := fmt.Fprintf(output, "  %-24s %-10s site=%s queue=%d\n", agent.ID, agent.Status, agent.SiteID, agent.QueueDepth); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func maskedSession(token string) string {
-	if len(token) < 8 {
-		return "session"
-	}
-	return token[:4] + "..." + token[len(token)-4:]
-}
+var _ Backend = (*providerhttp.UserClient)(nil)

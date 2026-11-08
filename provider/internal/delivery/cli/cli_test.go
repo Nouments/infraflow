@@ -12,6 +12,7 @@ import (
 
 	coregeneration "infraflow/internal/adapters/generation"
 	"infraflow/internal/domain"
+	providerconfig "infraflow/provider/internal/adapters/config"
 )
 
 const inputYAML = `sites:
@@ -23,6 +24,31 @@ const inputYAML = `sites:
         vendor: cisco
         model: ios-xe
 `
+
+func TestEnsureProviderRuntimeDirectories(t *testing.T) {
+	root := t.TempDir()
+	settings := providerconfig.Config{
+		ArtifactDirectory:     filepath.Join(root, "artifacts"),
+		Logging:               providerconfig.LoggingConfig{Directory: filepath.Join(root, "logs", "provider")},
+		DatabasePath:          filepath.Join(root, "database", "users.sqlite3"),
+		AdminCredentialFile:   filepath.Join(root, "credentials", "admin-password"),
+		AdminCredentialScript: filepath.Join(root, "credentials", "get-admin-password.sh"),
+	}
+	if err := ensureProviderRuntimeDirectories(settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{
+		settings.ArtifactDirectory,
+		settings.Logging.Directory,
+		filepath.Dir(settings.DatabasePath),
+		filepath.Dir(settings.AdminCredentialFile),
+	} {
+		info, err := os.Stat(directory)
+		if err != nil || !info.IsDir() {
+			t.Errorf("runtime directory %q was not created: %v", directory, err)
+		}
+	}
+}
 
 func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	inputPath := writeInput(t, inputYAML)
@@ -51,15 +77,6 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputPath, "lab", "manifest.json")); err != nil {
 		t.Fatalf("provider manifest missing: %v", err)
 	}
-	ansibleOutput := filepath.Join(t.TempDir(), "ansible")
-	stdout.Reset()
-	stderr.Reset()
-	if code := Run([]string{"generate-ansible", "-f", inputPath, "-out", ansibleOutput}, &stdout, &stderr); code != 0 {
-		t.Fatalf("generate-ansible failed: %s", stderr.String())
-	}
-	if _, err := os.Stat(filepath.Join(ansibleOutput, "lab", "ansible", "inventory.yml")); err != nil {
-		t.Fatalf("Ansible inventory missing: %v", err)
-	}
 	terraformOutput := filepath.Join(t.TempDir(), "terraform")
 	stdout.Reset()
 	stderr.Reset()
@@ -77,6 +94,14 @@ func TestCommandsValidatePlanAndGenerate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(bootstrapOutput, "lab", "bootstrap", "dhcp", "config.json")); err != nil {
 		t.Fatalf("DHCP bootstrap configuration missing: %v", err)
+	}
+}
+
+func TestLegacyAnsibleGenerationCommandIsUnknown(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"generate-ansible"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("removed generation command was not rejected: code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -111,8 +136,79 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	if len(catalog) != 17 {
 		t.Fatalf("expected 17 complete artifacts in agent catalog, got %d", len(catalog))
 	}
-	if !strings.Contains(stdout.String(), "generated and published lab/ansible/site.yml") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
+	if strings.Contains(stdout.String(), "ansible") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
 		t.Fatalf("generate-all did not report tool artifacts as published: %s", stdout.String())
+	}
+}
+
+func TestGenerateDeviceConfigRunsVersionedCatalogTemplateFlow(t *testing.T) {
+	input := writeInput(t, `apiVersion: infraflow/v1
+kind: NetworkDeployment
+metadata:
+  name: demo-isr1100
+spec:
+  site: demo
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.0.2.1/24
+          enabled: true
+`)
+	output := filepath.Join(t.TempDir(), "generated")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"validate", "-f", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("validate rejected supported NetworkDeployment: %s", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 0 {
+		t.Fatalf("device configuration generation failed: %s", stderr.String())
+	}
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	if contents, err := os.ReadFile(configPath); err != nil || !strings.Contains(string(contents), "ip address 192.0.2.1 255.255.255.0") {
+		t.Fatalf("generated configuration missing expected interface: %q, %v", contents, err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "generation-report.json")); err != nil {
+		t.Fatalf("generation report missing: %v", err)
+	}
+}
+
+func TestGenerateDeviceConfigRejectsUnsupportedOSPFWithoutOutput(t *testing.T) {
+	input := writeInput(t, `apiVersion: infraflow/v1
+kind: NetworkDeployment
+metadata:
+  name: demo-isr1100-ospf
+spec:
+  site: demo
+  devices:
+    - name: R1
+      vendor: cisco
+      model: isr-1100
+      os: ios-xe
+      interfaces:
+        - name: GigabitEthernet0/0/0
+          ipv4: 192.0.2.1/24
+          enabled: true
+      routing:
+        ospf:
+          process_id: 10
+          router_id: 10.255.0.1
+          networks:
+            - prefix: 192.168.10.0/24
+              area: 0
+`)
+	output := filepath.Join(t.TempDir(), "generated")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "spec.devices[0].routing.ospf") {
+		t.Fatalf("unsupported OSPF request was not clearly rejected: code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "R1", "config.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("incompatible request left configuration behind: %v", err)
 	}
 }
 
@@ -286,15 +382,27 @@ func TestServeRejectsWeakToken(t *testing.T) {
 	}
 }
 
-func TestServeRequiresArtifactDirectory(t *testing.T) {
+func TestServeCreatesArtifactDirectoryAndRejectsMissingTLSFiles(t *testing.T) {
 	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", strings.Repeat("x", 32))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	root := t.TempDir()
+	missingDirectory := filepath.Join(root, "provider-data")
 	configPath := writeServeConfig(t, missingDirectory)
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = append(contents, []byte("tls:\n  certificate_file: "+filepath.Join(root, "missing.crt")+"\n  key_file: "+filepath.Join(root, "missing.key")+"\n")...)
+	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "artifact directory") {
-		t.Fatalf("expected artifact root error, got %d and %q", code, stderr.String())
+	if code != 2 || !strings.Contains(stderr.String(), "load TLS certificate") {
+		t.Fatalf("expected missing TLS certificate error before listener startup, got %d and %q", code, stderr.String())
+	}
+	if info, err := os.Stat(missingDirectory); err != nil || !info.IsDir() {
+		t.Fatalf("provider did not create its configured artifact directory: %v", err)
 	}
 }
 
