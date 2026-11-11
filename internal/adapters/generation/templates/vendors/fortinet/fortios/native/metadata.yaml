@@ -1,0 +1,34 @@
+id: infraflow.fortinet.fortios.native
+version: "1"
+manufacturer: fortinet
+model: "*"
+os_family: fortios
+os_versions:
+  - "*"
+provisioning_method: native-config
+template_file: native.conf.tmpl
+features:
+  - system.hostname
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - interfaces.admin_state
+  - routes.static_ipv4
+variables:
+  - device.name
+  - network.vdom
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.interfaces.enabled
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+required_variables:
+  - device.name
+  - network.vdom
+status: render-only
+source: "InfraFlow local family template; model and OS compatibility are not verified"
+source_references:
+  - docs/vendor-provisioning-audit.md
+  - demo-output/equipment/fortinet/fortigate-ztp.md

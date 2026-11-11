@@ -44,8 +44,11 @@ type nativeDeviceReport struct {
 	ProvisioningMethod  string   `json:"provisioning_method,omitempty"`
 	TemplateID          string   `json:"template_id"`
 	TemplateVersion     string   `json:"template_version"`
+	TemplateHash        string   `json:"template_hash,omitempty"`
 	InputHash           string   `json:"input_hash"`
 	OutputHash          string   `json:"output_hash"`
+	SupportedFeatures   []string `json:"supported_features,omitempty"`
+	ValidationStatus    string   `json:"validation_status"`
 	Compatibility       string   `json:"compatibility,omitempty"`
 	CompatibilityStatus string   `json:"compatibility_status"`
 	VerificationStatus  string   `json:"verification_status"`
@@ -60,8 +63,50 @@ type nativeOutput struct {
 	data               []byte
 	templateID         string
 	templateVersion    string
+	templateHash       string
 	provisioningMethod string
 	sourceReferences   []string
+	supportedFeatures  []string
+	validationStatus   string
+}
+
+type nativeRenderedArtifact struct {
+	contents           string
+	templateID         string
+	templateVersion    string
+	templateHash       string
+	provisioningMethod string
+	sourceReferences   []string
+	supportedFeatures  []string
+	validationStatus   string
+	extension          string
+}
+
+type nativeTemplateInterfaceData struct {
+	Name        string
+	IPv4Mode    string
+	IPv4Address string
+	Address     string
+	Netmask     string
+	Enabled     bool
+	HasEnabled  bool
+}
+
+type nativeTemplateRouteData struct {
+	Destination      string
+	Netmask          string
+	NextHop          string
+	Interface        string
+	Distance         int
+	FortinetSequence int
+	Gateway          string
+}
+
+type nativeTemplateData struct {
+	Name       string
+	VDOM       string
+	Interfaces []nativeTemplateInterfaceData
+	Routes     []nativeTemplateRouteData
 }
 
 // GenerateNative renders a conservative, text-only native configuration for
@@ -117,8 +162,10 @@ func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string
 				Family: nativeFamily(profile), TemplateID: output.templateID,
 				Model: output.device.Model, OSVersion: output.device.OSVersion,
 				ProvisioningMethod: output.provisioningMethod,
-				TemplateVersion:    output.templateVersion, InputHash: inputHash,
+				TemplateVersion:    output.templateVersion, TemplateHash: output.templateHash, InputHash: inputHash,
 				OutputHash: protocol.SHA256(output.data), Compatibility: "unknown", CompatibilityStatus: "unknown",
+				SupportedFeatures:  append([]string(nil), output.supportedFeatures...),
+				ValidationStatus:   output.validationStatus,
 				VerificationStatus: "not_performed", SourceReferences: append([]string(nil), output.sourceReferences...),
 				Path: output.path, Status: "rendered_unverified",
 			})
@@ -165,7 +212,7 @@ func renderNativeSite(site domain.Site, templates []templateCandidate) ([]native
 	outputs := make([]nativeOutput, 0, len(devices))
 	seenIdentities := make(map[string]struct{}, len(devices))
 	for _, device := range devices {
-		method := strings.ToLower(strings.TrimSpace(device.Provisioning.Method))
+		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
 		if device.Network == nil && (method == "" || method == "ssh" || method == "api" || method == "https") {
 			continue
 		}
@@ -174,7 +221,7 @@ func renderNativeSite(site domain.Site, templates []templateCandidate) ([]native
 			return nil, err
 		}
 		if device.Network == nil {
-			_, _, _, _, _, _, err := renderNativeArtifact(device, profile, templates)
+			_, err := renderNativeArtifact(device, profile, templates)
 			if err != nil {
 				return nil, err
 			}
@@ -202,20 +249,22 @@ func renderNativeSite(site domain.Site, templates []templateCandidate) ([]native
 			return nil, fmt.Errorf("device %s: native renderer cannot safely encode VDOM %q", device.Name, device.Network.VDOM)
 		}
 
-		contents, templateID, templateVersion, provisioningMethod, sourceReferences, extension, err := renderNativeArtifact(device, profile, templates)
+		rendered, err := renderNativeArtifact(device, profile, templates)
 		if err != nil {
 			return nil, err
 		}
-		path := filepath.ToSlash(filepath.Join(site.Name, "native", "device-"+artifactID+extension))
+		path := filepath.ToSlash(filepath.Join(site.Name, "native", "device-"+artifactID+rendered.extension))
 		identityKey := strings.ToLower(artifactID)
 		if _, exists := seenIdentities[identityKey]; exists {
 			return nil, fmt.Errorf("site %s: native artifact identity %q is not unique", site.Name, artifactID)
 		}
 		seenIdentities[identityKey] = struct{}{}
 		outputs = append(outputs, nativeOutput{
-			device: device, path: path, data: []byte(contents), templateID: templateID,
-			templateVersion: templateVersion, provisioningMethod: provisioningMethod,
-			sourceReferences: sourceReferences,
+			device: device, path: path, data: []byte(rendered.contents), templateID: rendered.templateID,
+			templateVersion: rendered.templateVersion, templateHash: rendered.templateHash,
+			provisioningMethod: rendered.provisioningMethod,
+			sourceReferences:   rendered.sourceReferences, supportedFeatures: rendered.supportedFeatures,
+			validationStatus: rendered.validationStatus,
 		})
 	}
 	return outputs, nil
@@ -290,53 +339,242 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 	}
 }
 
-func renderNativeArtifact(device domain.Device, profile nativeProfile, templates []templateCandidate) (string, string, string, string, []string, string, error) {
-	method := strings.ToLower(strings.TrimSpace(device.Provisioning.Method))
+func renderNativeArtifact(device domain.Device, profile nativeProfile, templates []templateCandidate) (nativeRenderedArtifact, error) {
+	method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
 	switch method {
-	case "", "ssh", "api", "https":
-		contents, err := renderNativeDevice(device, profile)
-		return contents, nativeTemplateID(profile), nativeTemplateVersion, "", nil, ".cfg", err
-	case "auto-rsc":
+	case "", string(domain.ProvisioningMethodSSH), string(domain.ProvisioningMethodAPI), string(domain.ProvisioningMethodHTTPS),
+		string(domain.ProvisioningMethodNativeConfig), string(domain.ProvisioningMethodCiscoIOSXENative),
+		string(domain.ProvisioningMethodMikroTikRouterOS7API), string(domain.ProvisioningMethodFortiOSNative):
+		if err := validateNativeMethodForProfile(method, profile); err != nil {
+			return nativeRenderedArtifact{}, err
+		}
+		templateDevice := device
+		templateDevice.Provisioning.Method = domain.ProvisioningMethodNativeConfig
+		if templateDevice.Provisioning.TemplateVersion == "" {
+			templateDevice.Provisioning.TemplateVersion = nativeTemplateVersion
+		}
+		candidate, err := resolveTemplateForDevice(templateDevice, string(domain.ProvisioningMethodNativeConfig), templates)
+		if err != nil {
+			return nativeRenderedArtifact{}, err
+		}
+		if candidate.Metadata.ID != nativeTemplateID(profile) {
+			return nativeRenderedArtifact{}, fmt.Errorf("device %s: resolved native template %q does not match vendor profile", device.Name, candidate.Metadata.ID)
+		}
+		data, err := buildNativeTemplateData(device, profile)
+		if err != nil {
+			return nativeRenderedArtifact{}, err
+		}
+		var output strings.Builder
+		if err := candidate.Parsed.Execute(&output, data); err != nil {
+			return nativeRenderedArtifact{}, fmt.Errorf("execute native template %q: %w", candidate.Metadata.ID, err)
+		}
+		contents := strings.ReplaceAll(output.String(), "\r\n", "\n")
+		provisioningMethod := method
+		if provisioningMethod == "" {
+			provisioningMethod = string(domain.ProvisioningMethodNativeConfig)
+		}
+		return nativeRenderedArtifact{
+			contents: contents, templateID: candidate.Metadata.ID,
+			templateVersion: candidate.Metadata.Version, templateHash: candidate.Hash,
+			provisioningMethod: provisioningMethod,
+			sourceReferences:   append([]string(nil), candidate.Metadata.SourceReferences...),
+			supportedFeatures:  append([]string(nil), candidate.Metadata.Features...),
+			validationStatus:   candidate.Metadata.Status, extension: ".cfg",
+		}, nil
+	case string(domain.ProvisioningMethodAutoRSC):
 		if profile != nativeMikroTikRouterOS7 {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: auto-rsc provisioning is only supported for MikroTik RouterOS 7", device.Name)
+			return nativeRenderedArtifact{}, fmt.Errorf("device %s: auto-rsc provisioning is only supported for MikroTik RouterOS 7", device.Name)
 		}
-		candidate, found := findProvisioningTemplate(templates, "infraflow.mikrotik.routeros7.auto-rsc")
-		if !found {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: RouterOS auto-rsc template is not registered", device.Name)
+		if device.Network == nil {
+			return nativeRenderedArtifact{}, fmt.Errorf("device %s: RouterOS auto-rsc requires network intent", device.Name)
 		}
-		if !strings.EqualFold(strings.TrimSpace(device.Model), candidate.Metadata.Model) {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: auto-rsc template %s does not support model %q", device.Name, candidate.Metadata.ID, device.Model)
-		}
-		if !containsExact(candidate.Metadata.OSVersions, strings.TrimSpace(device.OSVersion)) {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: auto-rsc template %s does not support RouterOS version %q; declared version scope is %v", device.Name, candidate.Metadata.ID, device.OSVersion, candidate.Metadata.OSVersions)
-		}
-		if strings.TrimSpace(device.Provisioning.TemplateVersion) != candidate.Metadata.Version {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: auto-rsc requires provisioning.template_version %q", device.Name, candidate.Metadata.Version)
-		}
-		if candidate.Metadata.ProvisioningMethod != method {
-			return "", "", "", "", nil, "", fmt.Errorf("device %s: template provisioning method does not match %q", device.Name, method)
+		candidate, err := resolveTemplateForDevice(device, method, templates)
+		if err != nil {
+			return nativeRenderedArtifact{}, err
 		}
 		contents, err := renderRouterOSAutoRSC(device, candidate)
-		return contents, candidate.Metadata.ID, candidate.Metadata.Version, method,
-			append([]string(nil), candidate.Metadata.SourceReferences...), ".auto.rsc", err
-	case "cisco-ztp":
-		return "", "", "", "", nil, "", fmt.Errorf("device %s: Cisco ZTP generation is blocked; repository evidence documents HTTP/TFTP bootstrap examples but does not confirm the required TLS-only transport for a model/release profile", device.Name)
-	case "cisco-autoinstall":
-		return "", "", "", "", nil, "", fmt.Errorf("device %s: Cisco AutoInstall generation is unsupported; no model/release-specific discovery and filename profile is verified", device.Name)
-	case "fortimanager-ztp", "fortideploy-cloud":
-		return "", "", "", "", nil, "", fmt.Errorf("device %s: Fortinet ZTP generation is unsupported until an exact model, FortiOS release, backend, and required DHCP/enrollment values are established", device.Name)
+		return nativeRenderedArtifact{
+			contents: contents, templateID: candidate.Metadata.ID,
+			templateVersion: candidate.Metadata.Version, templateHash: candidate.Hash,
+			provisioningMethod: method, sourceReferences: append([]string(nil), candidate.Metadata.SourceReferences...),
+			supportedFeatures: append([]string(nil), candidate.Metadata.Features...),
+			validationStatus:  candidate.Metadata.Status, extension: ".auto.rsc",
+		}, err
+	case string(domain.ProvisioningMethodCiscoZTP), string(domain.ProvisioningMethodCiscoIOSXEZTP):
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Cisco ZTP generation is blocked; repository evidence documents HTTP/TFTP bootstrap examples but does not confirm the required TLS-only transport for a model/release profile", device.Name)
+	case string(domain.ProvisioningMethodCiscoAutoInstall), string(domain.ProvisioningMethodCiscoIOSXEAutoInstall):
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Cisco AutoInstall generation is unsupported; no model/release-specific discovery and filename profile is verified", device.Name)
+	case string(domain.ProvisioningMethodFortiManagerZTP), string(domain.ProvisioningMethodFortiDeployCloud),
+		string(domain.ProvisioningMethodFortiOSFortiManager), string(domain.ProvisioningMethodFortiOSFortiDeploy):
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Fortinet ZTP generation is unsupported until an exact model, FortiOS release, backend, and required DHCP/enrollment values are established", device.Name)
 	default:
-		return "", "", "", "", nil, "", fmt.Errorf("device %s: unsupported native provisioning method %q", device.Name, device.Provisioning.Method)
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: unsupported native provisioning method %q", device.Name, device.Provisioning.Method)
 	}
 }
 
-func findProvisioningTemplate(templates []templateCandidate, id string) (templateCandidate, bool) {
-	for _, candidate := range templates {
-		if candidate.Metadata.ID == id {
-			return candidate, true
+func nativeSupportedFeatures(profile nativeProfile) []string {
+	switch profile {
+	case nativeCiscoIOSXE:
+		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4"}
+	case nativeMikroTikRouterOS7:
+		return []string{"system.identity", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "routes.static_ipv4"}
+	case nativeFortiOS:
+		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4"}
+	default:
+		return nil
+	}
+}
+
+func validateNativeMethodForProfile(method string, profile nativeProfile) error {
+	switch method {
+	case string(domain.ProvisioningMethodCiscoIOSXENative):
+		if profile != nativeCiscoIOSXE {
+			return fmt.Errorf("method %q requires Cisco IOS-XE", method)
+		}
+	case string(domain.ProvisioningMethodMikroTikRouterOS7API):
+		if profile != nativeMikroTikRouterOS7 {
+			return fmt.Errorf("method %q requires MikroTik RouterOS 7", method)
+		}
+	case string(domain.ProvisioningMethodFortiOSNative):
+		if profile != nativeFortiOS {
+			return fmt.Errorf("method %q requires FortiOS", method)
 		}
 	}
-	return templateCandidate{}, false
+	return nil
+}
+
+func buildNativeTemplateData(device domain.Device, profile nativeProfile) (nativeTemplateData, error) {
+	if device.Network == nil {
+		return nativeTemplateData{}, fmt.Errorf("device %s: native template requires network intent", device.Name)
+	}
+	data := nativeTemplateData{Name: device.Name, VDOM: device.Network.VDOM}
+	for _, iface := range device.Network.Interfaces {
+		if iface.IPv4Mode != "static" && iface.IPv4Mode != "dhcp" {
+			return nativeTemplateData{}, fmt.Errorf("device %s interface %s: unsupported IPv4 mode %q", device.Name, iface.Name, iface.IPv4Mode)
+		}
+		if profile == nativeMikroTikRouterOS7 && iface.Enabled != nil {
+			return nativeTemplateData{}, fmt.Errorf("device %s interface %s: native RouterOS renderer cannot apply enabled intent without a verified interface-type mapping", device.Name, iface.Name)
+		}
+		entry := nativeTemplateInterfaceData{
+			Name: iface.Name, IPv4Mode: iface.IPv4Mode, IPv4Address: iface.IPv4Address,
+			HasEnabled: iface.Enabled != nil,
+		}
+		if iface.Enabled != nil {
+			entry.Enabled = *iface.Enabled
+		}
+		if iface.IPv4Mode == "static" {
+			address, mask, err := nativeAddressAndMask(iface.IPv4Address)
+			if err != nil {
+				return nativeTemplateData{}, fmt.Errorf("device %s interface %s: %w", device.Name, iface.Name, err)
+			}
+			entry.Address, entry.Netmask = address, mask
+		}
+		data.Interfaces = append(data.Interfaces, entry)
+	}
+	for _, route := range device.Network.Routes {
+		if route.Distance < 0 {
+			return nativeTemplateData{}, fmt.Errorf("device %s route %s: distance must not be negative", device.Name, route.Destination)
+		}
+		destination, mask, err := nativeNetworkAddressAndMask(route.Destination)
+		if err != nil {
+			return nativeTemplateData{}, fmt.Errorf("device %s route %s: %w", device.Name, route.Destination, err)
+		}
+		gateway := route.NextHop
+		if gateway == "" {
+			gateway = route.Interface
+		}
+		if profile == nativeMikroTikRouterOS7 {
+			destination = route.Destination
+		}
+		data.Routes = append(data.Routes, nativeTemplateRouteData{
+			Destination: destination, Netmask: mask, NextHop: route.NextHop,
+			Interface: route.Interface, Distance: route.Distance,
+			FortinetSequence: route.FortinetSequence, Gateway: gateway,
+		})
+	}
+	return data, nil
+}
+
+func resolveTemplateForDevice(device domain.Device, method string, templates []templateCandidate) (templateCandidate, error) {
+	var methodTemplates []templateCandidate
+	for _, candidate := range templates {
+		if strings.EqualFold(strings.TrimSpace(candidate.Metadata.ProvisioningMethod), method) {
+			methodTemplates = append(methodTemplates, candidate)
+		}
+	}
+	if len(methodTemplates) == 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: no template is registered for provisioning method %q", device.Name, method)
+	}
+	if strings.TrimSpace(device.Provisioning.TemplateVersion) == "" {
+		return templateCandidate{}, fmt.Errorf("device %s: method %q requires provisioning.template_version", device.Name, method)
+	}
+
+	vendor := strings.TrimSpace(device.Vendor)
+	family := strings.TrimSpace(device.Family)
+	version := strings.TrimSpace(device.OSVersion)
+	model := strings.TrimSpace(device.Model)
+	var familyTemplates, exactModels, familyModels []templateCandidate
+	for _, candidate := range methodTemplates {
+		metadata := candidate.Metadata
+		if !strings.EqualFold(strings.TrimSpace(metadata.Manufacturer), vendor) || !strings.EqualFold(strings.TrimSpace(metadata.OSFamily), family) {
+			continue
+		}
+		familyTemplates = append(familyTemplates, candidate)
+		if strings.EqualFold(strings.TrimSpace(metadata.Model), model) {
+			exactModels = append(exactModels, candidate)
+		} else if metadata.Model == "*" {
+			familyModels = append(familyModels, candidate)
+		}
+	}
+	if len(familyTemplates) == 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: no %s template supports vendor/family %s/%s", device.Name, method, vendor, family)
+	}
+	candidates := exactModels
+	if len(candidates) == 0 {
+		candidates = familyModels
+	}
+	if len(candidates) == 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: %s template does not support model %q", device.Name, method, model)
+	}
+
+	var versionCandidates []templateCandidate
+	for _, candidate := range candidates {
+		if containsExactOrWildcard(candidate.Metadata.OSVersions, version) {
+			versionCandidates = append(versionCandidates, candidate)
+		}
+	}
+	if len(versionCandidates) == 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: no %s template supports %s version %q", device.Name, method, family, version)
+	}
+	var templateCandidates []templateCandidate
+	for _, candidate := range versionCandidates {
+		if candidate.Metadata.Version == device.Provisioning.TemplateVersion {
+			templateCandidates = append(templateCandidates, candidate)
+		}
+	}
+	if len(templateCandidates) == 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: no %s template supports template version %q", device.Name, method, device.Provisioning.TemplateVersion)
+	}
+	if len(templateCandidates) > 1 {
+		return templateCandidate{}, fmt.Errorf("device %s: multiple %s templates match model/version; selection is ambiguous", device.Name, method)
+	}
+	selected := templateCandidates[0]
+	if missing := missingTemplateVariables(device, selected.Metadata.RequiredVariables); len(missing) > 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: template %s requires missing variable(s): %s", device.Name, selected.Metadata.ID, strings.Join(missing, ", "))
+	}
+	if missing := missingTemplateFeatures(device, selected.Metadata.Features); len(missing) > 0 {
+		return templateCandidate{}, fmt.Errorf("device %s: template %s does not support requested feature(s): %s", device.Name, selected.Metadata.ID, strings.Join(missing, ", "))
+	}
+	return selected, nil
+}
+
+func containsExactOrWildcard(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted || value == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 func containsExact(values []string, wanted string) bool {
@@ -348,16 +586,81 @@ func containsExact(values []string, wanted string) bool {
 	return false
 }
 
+func missingTemplateVariables(device domain.Device, required []string) []string {
+	available := map[string]bool{"device.name": strings.TrimSpace(device.Name) != ""}
+	if device.Network != nil && len(device.Network.Interfaces) > 0 {
+		available["network.interfaces"] = true
+		available["network.interfaces.name"] = true
+		available["network.interfaces.ipv4_mode"] = true
+		for _, iface := range device.Network.Interfaces {
+			if iface.IPv4Mode == "static" {
+				available["network.interfaces.ipv4_address"] = strings.TrimSpace(iface.IPv4Address) != ""
+			}
+		}
+	}
+	if device.Network != nil && strings.TrimSpace(device.Network.VDOM) != "" {
+		available["network.vdom"] = true
+	}
+	if device.Network != nil && len(device.Network.Routes) > 0 {
+		available["network.routes"] = true
+		available["network.routes.destination"] = true
+		available["network.routes.next_hop"] = true
+		available["network.routes.interface"] = true
+		available["network.routes.distance"] = true
+	}
+	var missing []string
+	for _, variable := range required {
+		if !available[variable] {
+			missing = append(missing, variable)
+		}
+	}
+	return missing
+}
+
+func missingTemplateFeatures(device domain.Device, supported []string) []string {
+	identityFeature := "system.hostname"
+	if strings.EqualFold(strings.TrimSpace(device.Vendor), "mikrotik") {
+		identityFeature = "system.identity"
+	}
+	available := map[string]bool{identityFeature: strings.TrimSpace(device.Name) != ""}
+	if device.Network != nil {
+		for _, iface := range device.Network.Interfaces {
+			switch iface.IPv4Mode {
+			case "static":
+				available["interfaces.ipv4_static"] = true
+			case "dhcp":
+				available["interfaces.ipv4_dhcp"] = true
+			}
+		}
+		if len(device.Network.Routes) > 0 {
+			available["routes.static_ipv4"] = true
+		}
+	}
+	var missing []string
+	for feature, requested := range available {
+		if !requested {
+			continue
+		}
+		if !containsExact(supported, feature) {
+			missing = append(missing, feature)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
 type routerOSInterfaceTemplateData struct {
 	Name        string
 	IPv4Mode    string
 	IPv4Address string
+	Owner       string
 }
 
 type routerOSRouteTemplateData struct {
 	Destination string
 	Gateway     string
 	Distance    int
+	Owner       string
 }
 
 type routerOSAutoRSCTemplateData struct {
@@ -376,6 +679,13 @@ func renderRouterOSAutoRSC(device domain.Device, candidate templateCandidate) (s
 	if len(device.Network.Interfaces) == 0 {
 		return "", fmt.Errorf("device %s: RouterOS auto-rsc requires at least one interface", device.Name)
 	}
+	ownerID := strings.TrimSpace(device.ID)
+	if ownerID == "" {
+		ownerID = device.Name
+	}
+	if !nativeIdentifier.MatchString(ownerID) {
+		return "", fmt.Errorf("device %s: RouterOS auto-rsc device id cannot be encoded safely", device.Name)
+	}
 	interfaces := append([]domain.NetworkInterface(nil), device.Network.Interfaces...)
 	sort.Slice(interfaces, func(i, j int) bool { return interfaces[i].Name < interfaces[j].Name })
 	data := routerOSAutoRSCTemplateData{Name: device.Name, Interfaces: make([]routerOSInterfaceTemplateData, 0, len(interfaces))}
@@ -393,6 +703,7 @@ func renderRouterOSAutoRSC(device domain.Device, candidate templateCandidate) (s
 		}
 		data.Interfaces = append(data.Interfaces, routerOSInterfaceTemplateData{
 			Name: iface.Name, IPv4Mode: iface.IPv4Mode, IPv4Address: iface.IPv4Address,
+			Owner: "infraflow:" + ownerID + ":interface:" + iface.Name,
 		})
 	}
 	routes := append([]domain.StaticRoute(nil), device.Network.Routes...)
@@ -422,6 +733,7 @@ func renderRouterOSAutoRSC(device domain.Device, candidate templateCandidate) (s
 		}
 		data.Routes = append(data.Routes, routerOSRouteTemplateData{
 			Destination: route.Destination, Gateway: gateway, Distance: route.Distance,
+			Owner: "infraflow:" + ownerID + ":route:" + route.Destination,
 		})
 	}
 	var output strings.Builder

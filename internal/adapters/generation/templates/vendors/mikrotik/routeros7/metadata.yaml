@@ -11,7 +11,9 @@ features:
   - system.identity
   - interfaces.ipv4_static
   - interfaces.ipv4_dhcp
+  - interfaces.idempotent_owned_update
   - routes.static_ipv4
+  - routes.idempotent_owned_update
 variables:
   - device.name
   - network.interfaces.name
@@ -21,9 +23,14 @@ variables:
   - network.routes.next_hop
   - network.routes.interface
   - network.routes.distance
+required_variables:
+  - device.name
+  - network.interfaces
 status: render-only
 source: "InfraFlow local template; RouterOS release and device syntax are not lab-verified"
 source_references:
+  - https://manual.mikrotik.com/docs/getting-started/configuration-management/
+  - https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting
   - docs/vendor-provisioning-audit.md
   - design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md
   - demo-output/equipment/mikrotik/hex-rb750gr3.md

@@ -1,0 +1,9 @@
+hostname {{.Name}}
+{{range .Interfaces}}interface {{.Name}}
+{{if eq .IPv4Mode "static"}} ip address {{.Address}} {{.Netmask}}
+{{else if eq .IPv4Mode "dhcp"}} ip address dhcp
+{{end}}{{if .HasEnabled}}{{if .Enabled}} no shutdown
+{{else}} shutdown
+{{end}}{{end}}!
+{{end}}{{range .Routes}}ip route {{.Destination}} {{.Netmask}}{{if .Interface}} {{.Interface}}{{end}}{{if .NextHop}} {{.NextHop}}{{end}}{{if .Distance}} {{.Distance}}{{end}}
+{{end}}

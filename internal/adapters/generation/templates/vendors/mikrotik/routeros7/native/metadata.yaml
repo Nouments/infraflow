@@ -1,0 +1,31 @@
+id: infraflow.mikrotik.routeros7.native
+version: "1"
+manufacturer: mikrotik
+model: "*"
+os_family: routeros
+os_versions:
+  - "*"
+provisioning_method: native-config
+template_file: native.cfg.tmpl
+features:
+  - system.identity
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - routes.static_ipv4
+variables:
+  - device.name
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+required_variables:
+  - device.name
+status: render-only
+source: "InfraFlow local family template; model and OS compatibility are not verified"
+source_references:
+  - docs/vendor-provisioning-audit.md
+  - design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md
+  - demo-output/equipment/mikrotik/hex-rb750gr3.md

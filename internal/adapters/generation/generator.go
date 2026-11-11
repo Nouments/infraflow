@@ -218,7 +218,7 @@ func terraformLocals(site domain.Site, inputHash string) map[string]any {
 			"family": device.Family, "model": device.Model,
 			"identity":     map[string]any{"serial": device.Identity.Serial, "macs": append([]string(nil), device.Identity.MACs...)},
 			"management":   map[string]any{"ipv4": device.Management.IPv4},
-			"provisioning": map[string]any{"method": device.Provisioning.Method},
+			"provisioning": map[string]any{"method": string(device.Provisioning.Method)},
 		})
 	}
 	links := make([]any, 0, len(site.Links))
@@ -858,7 +858,10 @@ func artifactDetails(siteID string, artifacts []Artifact, files []pendingFile) (
 			detail.DocumentationReferences = []string{}
 			if device.ProvisioningMethod != "" {
 				detail.ProvisioningMethod = device.ProvisioningMethod
+				detail.TemplateHash = device.TemplateHash
 				detail.OutputHash = artifact.OutputHash
+				detail.SupportedFeatures = append([]string(nil), device.SupportedFeatures...)
+				detail.ValidationStatus = device.ValidationStatus
 				detail.VerificationStatus = device.VerificationStatus
 				detail.SourceReferences = append([]string(nil), device.SourceReferences...)
 				detail.DocumentationReferences = append([]string(nil), device.SourceReferences...)
@@ -889,7 +892,7 @@ func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.G
 		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "native_configuration_rendering", Status: "not_configured"})
 	}
 	for _, device := range site.Devices {
-		if strings.EqualFold(strings.TrimSpace(device.Provisioning.Method), "auto-rsc") {
+		if strings.EqualFold(strings.TrimSpace(string(device.Provisioning.Method)), "auto-rsc") {
 			capabilities = append(capabilities, protocol.GenerationCapability{
 				Feature:  "routeros_auto_rsc_generation:" + device.Name,
 				Status:   "rendered_unverified",

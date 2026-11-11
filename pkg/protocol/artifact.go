@@ -32,9 +32,12 @@ type SiteArtifact struct {
 	Format                  string   `json:"artifact_format,omitempty"`
 	TemplateID              string   `json:"template_id,omitempty"`
 	TemplateVersion         string   `json:"template_version,omitempty"`
+	TemplateHash            string   `json:"template_hash,omitempty"`
 	InputHash               string   `json:"input_hash,omitempty"`
 	OutputHash              string   `json:"output_hash,omitempty"`
 	ProvisioningMethod      string   `json:"provisioning_method,omitempty"`
+	SupportedFeatures       []string `json:"supported_features,omitempty"`
+	ValidationStatus        string   `json:"validation_status,omitempty"`
 	GenerationStatus        string   `json:"generation_status,omitempty"`
 	CompatibilityStatus     string   `json:"compatibility_status,omitempty"`
 	VerificationStatus      string   `json:"verification_status,omitempty"`
@@ -184,7 +187,8 @@ func ValidSiteArtifactMetadata(siteID, manifestInputHash string, artifact SiteAr
 	hasMetadata := artifact.SiteID != "" || artifact.DeviceID != "" || artifact.Vendor != "" ||
 		artifact.Family != "" || artifact.Model != "" || artifact.OSVersion != "" ||
 		artifact.Format != "" || artifact.TemplateID != "" || artifact.TemplateVersion != "" ||
-		artifact.InputHash != "" || artifact.OutputHash != "" || artifact.ProvisioningMethod != "" ||
+		artifact.TemplateHash != "" || artifact.InputHash != "" || artifact.OutputHash != "" || artifact.ProvisioningMethod != "" ||
+		artifact.SupportedFeatures != nil || artifact.ValidationStatus != "" ||
 		artifact.GenerationStatus != "" || artifact.CompatibilityStatus != "" ||
 		artifact.VerificationStatus != "" || artifact.DocumentationReferences != nil || artifact.SourceReferences != nil
 	if !hasMetadata {
@@ -205,20 +209,22 @@ func ValidSiteArtifactMetadata(siteID, manifestInputHash string, artifact SiteAr
 }
 
 func validateExtendedSiteArtifactMetadata(artifact SiteArtifact) bool {
-	hasExtendedMetadata := artifact.OutputHash != "" || artifact.ProvisioningMethod != "" ||
-		artifact.VerificationStatus != "" || artifact.SourceReferences != nil
+	hasExtendedMetadata := artifact.TemplateHash != "" || artifact.OutputHash != "" ||
+		artifact.ProvisioningMethod != "" || artifact.SupportedFeatures != nil ||
+		artifact.ValidationStatus != "" || artifact.VerificationStatus != "" || artifact.SourceReferences != nil
 	if !hasExtendedMetadata {
 		return true
 	}
-	if artifact.OutputHash != artifact.SHA256 || artifact.ProvisioningMethod != "auto-rsc" ||
-		artifact.VerificationStatus != "not_performed" || len(artifact.SourceReferences) == 0 {
+	if artifact.OutputHash != artifact.SHA256 || artifact.ProvisioningMethod == "" ||
+		!IsSHA256(artifact.TemplateHash) || len(artifact.SupportedFeatures) == 0 ||
+		artifact.ValidationStatus != "render-only" || artifact.VerificationStatus != "not_performed" ||
+		len(artifact.SourceReferences) == 0 {
 		return false
 	}
-	if !strings.EqualFold(artifact.Vendor, "mikrotik") || !strings.EqualFold(artifact.Family, "routeros") ||
-		!strings.EqualFold(artifact.Model, "RB750Gr3") || artifact.OSVersion != "7.x" ||
-		artifact.TemplateID != "infraflow.mikrotik.routeros7.auto-rsc" || artifact.TemplateVersion != "1" ||
-		!strings.HasSuffix(artifact.Path, ".auto.rsc") {
-		return false
+	for _, feature := range artifact.SupportedFeatures {
+		if strings.TrimSpace(feature) == "" {
+			return false
+		}
 	}
 	for _, reference := range artifact.SourceReferences {
 		if strings.TrimSpace(reference) == "" {

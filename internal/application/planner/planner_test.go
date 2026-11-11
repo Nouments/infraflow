@@ -234,7 +234,7 @@ func TestBuildPlanMethodDoesNotImplyVerification(t *testing.T) {
 		name   string
 		vendor string
 		family string
-		method string
+		method domain.ProvisioningMethod
 	}{
 		{name: "netconf", vendor: "cisco", family: "iosxe", method: "netconf"},
 		{name: "api", vendor: "mikrotik", family: "routeros", method: "api"},
@@ -250,7 +250,7 @@ func TestBuildPlanMethodDoesNotImplyVerification(t *testing.T) {
 				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "Gi1"}}},
 			}
 			plan := Build(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}})
-			if len(plan.Tasks) != 1 || plan.Tasks[0].Method != test.method {
+			if len(plan.Tasks) != 1 || plan.Tasks[0].Method != string(test.method) {
 				t.Fatalf("configured method was not preserved: %#v", plan.Tasks)
 			}
 			profile, ok := domain.VendorProfileFor(device)

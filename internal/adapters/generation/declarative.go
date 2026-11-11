@@ -39,6 +39,7 @@ type deviceTemplateMetadata struct {
 	TemplateFile       string   `yaml:"template_file,omitempty"`
 	Features           []string `yaml:"features"`
 	Variables          []string `yaml:"variables"`
+	RequiredVariables  []string `yaml:"required_variables,omitempty"`
 	Status             string   `yaml:"status"`
 	Source             string   `yaml:"source"`
 	SourceReferences   []string `yaml:"source_references,omitempty"`
@@ -393,6 +394,7 @@ func loadDeviceTemplates() ([]templateCandidate, error) {
 		if err != nil {
 			return nil, fmt.Errorf("template %q references missing file %q: %w", metadata.ID, templatePath, err)
 		}
+		content = []byte(strings.ReplaceAll(string(content), "\r\n", "\n"))
 		parsed, err := template.New(metadata.ID).Option("missingkey=error").Parse(string(content))
 		if err != nil {
 			return nil, fmt.Errorf("parse template %q: %w", metadata.ID, err)

@@ -1,0 +1,26 @@
+config global
+    config system global
+        set hostname {{.Name}}
+    end
+end
+config vdom
+    edit {{.VDOM}}
+{{if .Interfaces}}        config system interface
+{{range .Interfaces}}            edit {{printf "%q" .Name}}
+{{if eq .IPv4Mode "static"}}                set mode static
+                set ip {{.Address}} {{.Netmask}}
+{{else if eq .IPv4Mode "dhcp"}}                set mode dhcp
+{{end}}{{if .HasEnabled}}{{if .Enabled}}                set status up
+{{else}}                set status down
+{{end}}{{end}}            next
+{{end}}        end
+{{end}}{{if .Routes}}        config router static
+{{range .Routes}}            edit {{.FortinetSequence}}
+                set dst {{.Destination}} {{.Netmask}}
+{{if .NextHop}}                set gateway {{.NextHop}}
+{{end}}                set device {{printf "%q" .Interface}}
+{{if .Distance}}                set distance {{.Distance}}
+{{end}}            next
+{{end}}        end
+{{end}}    next
+end

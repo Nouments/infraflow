@@ -510,6 +510,11 @@ func TestGenerateAllPublishesRouterOSAutoRSCWithProvenance(t *testing.T) {
 		`/ip address add address=198.51.100.1/24 interface="ether1"`,
 		`/ip dhcp-client add interface="ether2" disabled=no`,
 		`/ip route add dst-address=203.0.113.0/24 gateway="198.51.100.254"`,
+		`find where comment="infraflow:r1:interface:ether1"`,
+		`/ip address set $addressEntry address=198.51.100.1/24 interface="ether1"`,
+		`/ip dhcp-client set $dhcpEntry interface="ether2" disabled=no`,
+		`find where comment="infraflow:r1:route:203.0.113.0/24"`,
+		`/ip route set $routeEntry dst-address=203.0.113.0/24 gateway="198.51.100.254" distance=1`,
 	} {
 		if !strings.Contains(contents, expected) {
 			t.Errorf("RouterOS auto-script missing %q:\n%s", expected, contents)
@@ -517,6 +522,9 @@ func TestGenerateAllPublishesRouterOSAutoRSCWithProvenance(t *testing.T) {
 	}
 	if strings.Contains(contents, "config terminal") || strings.Contains(contents, "system reset-configuration") {
 		t.Fatal("RouterOS auto-script contains another vendor's or destructive commands")
+	}
+	if strings.Count(contents, "/ip address add") != 1 || strings.Count(contents, "/ip dhcp-client add") != 1 || strings.Count(contents, "/ip route add") != 1 {
+		t.Fatal("RouterOS auto-script must contain one guarded create per requested object")
 	}
 	secondRoot := t.TempDir()
 	if _, err := GenerateAll(infrastructure, secondRoot); err != nil {
@@ -560,12 +568,21 @@ func TestGenerateAllPublishesRouterOSAutoRSCWithProvenance(t *testing.T) {
 		manifest.Devices[0]["template_id"] != "infraflow.mikrotik.routeros7.auto-rsc" ||
 		manifest.Devices[0]["template_version"] != "1" ||
 		manifest.Devices[0]["compatibility_status"] != "unknown" ||
+		manifest.Devices[0]["validation_status"] != "render-only" ||
 		manifest.Devices[0]["output_hash"] != protocol.SHA256([]byte(contents)) {
 		t.Fatalf("native manifest omitted RouterOS method or verification provenance: %#v", manifest.Devices)
 	}
 	inputHash, ok := manifest.Devices[0]["input_hash"].(string)
 	if !ok || !protocol.IsSHA256(inputHash) {
 		t.Fatalf("native manifest input hash is invalid: %#v", manifest.Devices[0]["input_hash"])
+	}
+	templateHash, ok := manifest.Devices[0]["template_hash"].(string)
+	if !ok || !protocol.IsSHA256(templateHash) {
+		t.Fatalf("native manifest template hash is invalid: %#v", manifest.Devices[0]["template_hash"])
+	}
+	supportedFeatures, ok := manifest.Devices[0]["supported_features"].([]any)
+	if !ok || len(supportedFeatures) == 0 {
+		t.Fatalf("native manifest supported features are missing: %#v", manifest.Devices[0]["supported_features"])
 	}
 	sourceReferences, ok := manifest.Devices[0]["source_references"].([]any)
 	if !ok || len(sourceReferences) == 0 {
@@ -585,6 +602,8 @@ func TestGenerateAllPublishesRouterOSAutoRSCWithProvenance(t *testing.T) {
 		if artifact.Path == path && (artifact.ProvisioningMethod != "auto-rsc" ||
 			artifact.VerificationStatus != "not_performed" || artifact.OutputHash != artifact.SHA256 ||
 			len(artifact.SourceReferences) == 0 || artifact.CompatibilityStatus != "unknown" ||
+			!protocol.IsSHA256(artifact.TemplateHash) || artifact.ValidationStatus != "render-only" ||
+			len(artifact.SupportedFeatures) == 0 ||
 			artifact.TemplateID != "infraflow.mikrotik.routeros7.auto-rsc" ||
 			artifact.TemplateVersion != "1" || artifact.InputHash != siteManifest.InputHash) {
 			t.Fatalf("site manifest provenance is incomplete: %#v", artifact)

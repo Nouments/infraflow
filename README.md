@@ -122,10 +122,15 @@ Get-Content (Join-Path $demo "generation-report.json")
 ```
 
 The generated `.auto.rsc` is an inert catalog artifact until an operator
-separately chooses an upload path. Its hashes establish file integrity only;
-they do not show that RouterOS accepted or executed it. After an authorized
-device-side upload, the corresponding `.auto.log` must be retrieved and
-inspected separately.
+separately chooses an upload path. It uses stable `infraflow:` comments and
+RouterOS `find`/conditional `set` commands for its own address, DHCP-client,
+and route entries, avoiding unconditional duplicate `add` operations on
+repeat import. This is template-level repeat-safety, not CHR validation; do
+not treat it as proven until the exact RouterOS build has been tested. Its
+hashes establish file integrity only, not device acceptance or execution.
+Because upload automatically executes `.auto.rsc`, only upload it through an
+authorized isolated lab workflow. After upload, retrieve and inspect the
+corresponding `.auto.log` separately. See the [RouterOS CHR runbook](docs/lab/routeros-chr.md).
 
 The deterministic score is: exact manufacturer/model 30 points; OS family
 20 points plus 5 only for an explicitly supported OS version; requested

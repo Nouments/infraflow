@@ -1,5 +1,14 @@
 /system identity set name="{{.Name}}"
-{{range .Interfaces}}{{if eq .IPv4Mode "static"}}/ip address add address={{.IPv4Address}} interface="{{.Name}}"
-{{else if eq .IPv4Mode "dhcp"}}/ip dhcp-client add interface="{{.Name}}" disabled=no
-{{end}}{{end}}{{range .Routes}}/ip route add dst-address={{.Destination}} gateway="{{.Gateway}}"{{if .Distance}} distance={{.Distance}}{{end}}
+{{range .Interfaces}}{{if eq .IPv4Mode "static"}}{
+	:local addressEntry [/ip address find where comment="{{.Owner}}"];
+	:if ([:len $addressEntry] = 0) do={/ip address add address={{.IPv4Address}} interface="{{.Name}}" comment="{{.Owner}}"} else={/ip address set $addressEntry address={{.IPv4Address}} interface="{{.Name}}"}
+}
+{{else if eq .IPv4Mode "dhcp"}}{
+	:local dhcpEntry [/ip dhcp-client find where comment="{{.Owner}}"];
+	:if ([:len $dhcpEntry] = 0) do={/ip dhcp-client add interface="{{.Name}}" disabled=no comment="{{.Owner}}"} else={/ip dhcp-client set $dhcpEntry interface="{{.Name}}" disabled=no}
+}
+{{end}}{{end}}{{range .Routes}}{
+	:local routeEntry [/ip route find where comment="{{.Owner}}"];
+	:if ([:len $routeEntry] = 0) do={/ip route add dst-address={{.Destination}} gateway="{{.Gateway}}" distance={{if .Distance}}{{.Distance}}{{else}}1{{end}} comment="{{.Owner}}"} else={/ip route set $routeEntry dst-address={{.Destination}} gateway="{{.Gateway}}" distance={{if .Distance}}{{.Distance}}{{else}}1{{end}}}
+}
 {{end}}

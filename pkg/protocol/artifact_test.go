@@ -79,9 +79,12 @@ func TestValidSiteArtifactMetadataRequiresCompleteRenderOnlyProvenance(t *testin
 	extended.OSVersion = "7.x"
 	extended.TemplateID = "infraflow.mikrotik.routeros7.auto-rsc"
 	extended.TemplateVersion = "1"
+	extended.TemplateHash = SHA256([]byte("template"))
 	extended.SHA256 = SHA256([]byte("generated script"))
 	extended.OutputHash = extended.SHA256
 	extended.ProvisioningMethod = "auto-rsc"
+	extended.SupportedFeatures = []string{"system.identity", "routes.static_ipv4"}
+	extended.ValidationStatus = "render-only"
 	extended.VerificationStatus = "not_performed"
 	extended.SourceReferences = []string{"docs/vendor-provisioning-audit.md"}
 	extended.DocumentationReferences = []string{"docs/vendor-provisioning-audit.md"}
@@ -91,6 +94,16 @@ func TestValidSiteArtifactMetadataRequiresCompleteRenderOnlyProvenance(t *testin
 	extended.OutputHash = SHA256([]byte("different output"))
 	if ValidSiteArtifactMetadata("site-lab", inputHash, extended) {
 		t.Fatal("must reject output hash that disagrees with the manifest SHA-256")
+	}
+	extended.OutputHash = extended.SHA256
+	extended.TemplateHash = "invalid"
+	if ValidSiteArtifactMetadata("site-lab", inputHash, extended) {
+		t.Fatal("must reject invalid template checksums")
+	}
+	extended.TemplateHash = SHA256([]byte("template"))
+	extended.SupportedFeatures = []string{""}
+	if ValidSiteArtifactMetadata("site-lab", inputHash, extended) {
+		t.Fatal("must reject empty supported-feature metadata")
 	}
 
 	artifact.CompatibilityStatus = "compatible"

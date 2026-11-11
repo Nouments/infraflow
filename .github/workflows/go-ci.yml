@@ -1,0 +1,55 @@
+name: Go CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./...
+      - run: go vet ./...
+      - run: go build ./provider/cmd ./agent/cmd
+      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - run: git diff --check
+
+  windows:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+      CC: gcc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update-environment: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - run: go test -count=1 ./...
+        shell: msys2 {0}
+      - run: go vet ./...
+        shell: msys2 {0}
+      - run: go build ./provider/cmd ./agent/cmd
+        shell: msys2 {0}
+      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+        shell: msys2 {0}
+      - run: git diff --check
+        shell: msys2 {0}

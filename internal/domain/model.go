@@ -11,6 +11,29 @@ type LifecycleStateName string
 
 type Provenance string
 
+type ProvisioningMethod string
+
+const (
+	ProvisioningMethodSSH                      ProvisioningMethod = "ssh"
+	ProvisioningMethodAPI                      ProvisioningMethod = "api"
+	ProvisioningMethodHTTPS                    ProvisioningMethod = "https"
+	ProvisioningMethodNativeConfig             ProvisioningMethod = "native-config"
+	ProvisioningMethodCiscoIOSXENative         ProvisioningMethod = "cisco-iosxe-native"
+	ProvisioningMethodCiscoIOSXEZTP            ProvisioningMethod = "cisco-iosxe-ztp"
+	ProvisioningMethodCiscoIOSXEAutoInstall    ProvisioningMethod = "cisco-iosxe-autoinstall"
+	ProvisioningMethodAutoRSC                  ProvisioningMethod = "auto-rsc"
+	ProvisioningMethodMikroTikRouterOS7AutoRSC ProvisioningMethod = "mikrotik-routeros7-auto-rsc"
+	ProvisioningMethodMikroTikRouterOS7API     ProvisioningMethod = "mikrotik-routeros7-api"
+	ProvisioningMethodMikroTikNetinstall       ProvisioningMethod = "mikrotik-netinstall"
+	ProvisioningMethodFortiOSNative            ProvisioningMethod = "fortios-native"
+	ProvisioningMethodFortiOSFortiDeploy       ProvisioningMethod = "fortios-fortideploy"
+	ProvisioningMethodFortiOSFortiManager      ProvisioningMethod = "fortios-fortimanager"
+	ProvisioningMethodCiscoZTP                 ProvisioningMethod = "cisco-ztp"
+	ProvisioningMethodCiscoAutoInstall         ProvisioningMethod = "cisco-autoinstall"
+	ProvisioningMethodFortiManagerZTP          ProvisioningMethod = "fortimanager-ztp"
+	ProvisioningMethodFortiDeployCloud         ProvisioningMethod = "fortideploy-cloud"
+)
+
 const (
 	CapabilityImplemented  CapabilityState = "IMPLEMENTED"
 	CapabilityLabVerified  CapabilityState = "LAB-VERIFIED"
@@ -220,7 +243,7 @@ func (r CapabilityRegistry) Resolve(device Device) (CapabilityState, string) {
 		return CapabilityUnknown, "capability registry is empty; no verified adapter evidence"
 	}
 
-	method := strings.TrimSpace(device.Provisioning.Method)
+	method := strings.TrimSpace(string(device.Provisioning.Method))
 	if method == "" {
 		method = "default"
 	}
@@ -292,8 +315,8 @@ type Management struct {
 }
 
 type Provisioning struct {
-	Method          string `yaml:"method,omitempty" json:"method,omitempty"`
-	TemplateVersion string `yaml:"template_version,omitempty" json:"template_version,omitempty"`
+	Method          ProvisioningMethod `yaml:"method,omitempty" json:"method,omitempty"`
+	TemplateVersion string             `yaml:"template_version,omitempty" json:"template_version,omitempty"`
 }
 
 type DeviceNetwork struct {

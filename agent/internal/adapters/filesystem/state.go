@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"infraflow/internal/infrastructure/safefs"
@@ -38,7 +39,11 @@ func (store *StateStore) SaveReport(report protocol.AgentReport) error {
 		return err
 	}
 	data = append(data, '\n')
-	return safefs.AtomicWrite(store.root, ".infraflow-agent-state.json", data, 0o600)
+	path := filepath.Join(store.root, ".infraflow-agent-state.json")
+	if err := safefs.AtomicWrite(store.root, ".infraflow-agent-state.json", data, 0o600); err != nil {
+		return err
+	}
+	return securePrivateReport(path)
 }
 
 func validStoredArtifactPath(relativePath string) bool {
