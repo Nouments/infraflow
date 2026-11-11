@@ -29,16 +29,19 @@ import (
 var vendorTemplateFiles embed.FS
 
 type deviceTemplateMetadata struct {
-	ID           string   `yaml:"id"`
-	Version      string   `yaml:"version"`
-	Manufacturer string   `yaml:"manufacturer"`
-	Model        string   `yaml:"model"`
-	OSFamily     string   `yaml:"os_family"`
-	OSVersions   []string `yaml:"os_versions"`
-	Features     []string `yaml:"features"`
-	Variables    []string `yaml:"variables"`
-	Status       string   `yaml:"status"`
-	Source       string   `yaml:"source"`
+	ID                 string   `yaml:"id"`
+	Version            string   `yaml:"version"`
+	Manufacturer       string   `yaml:"manufacturer"`
+	Model              string   `yaml:"model"`
+	OSFamily           string   `yaml:"os_family"`
+	OSVersions         []string `yaml:"os_versions"`
+	ProvisioningMethod string   `yaml:"provisioning_method,omitempty"`
+	TemplateFile       string   `yaml:"template_file,omitempty"`
+	Features           []string `yaml:"features"`
+	Variables          []string `yaml:"variables"`
+	Status             string   `yaml:"status"`
+	Source             string   `yaml:"source"`
+	SourceReferences   []string `yaml:"source_references,omitempty"`
 }
 
 type templateCandidate struct {
@@ -381,7 +384,11 @@ func loadDeviceTemplates() ([]templateCandidate, error) {
 			return nil, fmt.Errorf("duplicate local template id %q", metadata.ID)
 		}
 		seenIDs[normalizedID] = struct{}{}
-		templatePath := strings.TrimSuffix(metadataPath, "metadata.yaml") + "interfaces.cfg.tmpl"
+		templateFile := metadata.TemplateFile
+		if templateFile == "" {
+			templateFile = "interfaces.cfg.tmpl"
+		}
+		templatePath := strings.TrimSuffix(metadataPath, "metadata.yaml") + templateFile
 		content, err := vendorTemplateFiles.ReadFile(templatePath)
 		if err != nil {
 			return nil, fmt.Errorf("template %q references missing file %q: %w", metadata.ID, templatePath, err)

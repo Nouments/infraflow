@@ -1,0 +1,29 @@
+id: infraflow.mikrotik.routeros7.auto-rsc
+version: "1"
+manufacturer: mikrotik
+model: RB750Gr3
+os_family: routeros
+os_versions:
+  - "7.x"
+provisioning_method: auto-rsc
+template_file: auto.rsc.tmpl
+features:
+  - system.identity
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - routes.static_ipv4
+variables:
+  - device.name
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+status: render-only
+source: "InfraFlow local template; RouterOS release and device syntax are not lab-verified"
+source_references:
+  - docs/vendor-provisioning-audit.md
+  - design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md
+  - demo-output/equipment/mikrotik/hex-rb750gr3.md

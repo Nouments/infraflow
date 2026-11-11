@@ -20,6 +20,13 @@ The [generation report](pilot-generated/vendor-pilot/generation-report.json) rec
 
 This pilot exercises native text rendering for Cisco IOS XE, MikroTik RouterOS 7, and FortiOS. It does **not** emit RouterOS `.rsc`/`.auto.rsc` or FortiDeploy/FortiManager ZTP artifacts, nor does it provide a complete ZTP/AutoInstall workflow. Those are the provisioning focus, gated on exact release/model and backend inputs.
 
+The separate [`examples/provisioning-generation.yaml`](../examples/provisioning-generation.yaml)
+fixture renders a RouterOS 7 `.auto.rsc` artifact for the declared RB750Gr3 /
+`7.x` train. It remains render-only with unknown compatibility; the artifact is
+not uploaded, executed, or checked through `.auto.log`. Cisco ZTP remains
+blocked by the unverified TLS transport/profile requirement, and Cisco
+AutoInstall and Fortinet ZTP remain unsupported.
+
 ## Pilot order
 
 1. Keep the existing Cisco `.cfg` render as the baseline.

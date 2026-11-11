@@ -47,7 +47,10 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: "lab/native/device-edge-west-1.cfg"}) {
 		t.Fatal("expected valid stable native device artifact path")
 	}
-	for _, path := range []string{"lab/native/device-../escape.cfg", "lab/native/device-a/b.cfg", "lab/native/device-.cfg"} {
+	if !ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: "lab/native/device-r1.auto.rsc"}) {
+		t.Fatal("expected valid RouterOS auto-script artifact path")
+	}
+	for _, path := range []string{"lab/native/device-../escape.cfg", "lab/native/device-a/b.cfg", "lab/native/device-.cfg", "lab/native/device-.auto.rsc", "lab/native/device-r1.rsc"} {
 		if ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: path}) {
 			t.Errorf("accepted invalid native device artifact path %q", path)
 		}
@@ -67,6 +70,27 @@ func TestValidSiteArtifactMetadataRequiresCompleteRenderOnlyProvenance(t *testin
 	}
 	if !ValidSiteArtifactMetadata("site-lab", inputHash, artifact) {
 		t.Fatal("expected complete render-only metadata to validate")
+	}
+	extended := artifact
+	extended.Path = "lab/native/device-r1.auto.rsc"
+	extended.Vendor = "mikrotik"
+	extended.Family = "routeros"
+	extended.Model = "RB750Gr3"
+	extended.OSVersion = "7.x"
+	extended.TemplateID = "infraflow.mikrotik.routeros7.auto-rsc"
+	extended.TemplateVersion = "1"
+	extended.SHA256 = SHA256([]byte("generated script"))
+	extended.OutputHash = extended.SHA256
+	extended.ProvisioningMethod = "auto-rsc"
+	extended.VerificationStatus = "not_performed"
+	extended.SourceReferences = []string{"docs/vendor-provisioning-audit.md"}
+	extended.DocumentationReferences = []string{"docs/vendor-provisioning-audit.md"}
+	if !ValidSiteArtifactMetadata("site-lab", inputHash, extended) {
+		t.Fatal("expected complete auto-rsc provenance to validate")
+	}
+	extended.OutputHash = SHA256([]byte("different output"))
+	if ValidSiteArtifactMetadata("site-lab", inputHash, extended) {
+		t.Fatal("must reject output hash that disagrees with the manifest SHA-256")
 	}
 
 	artifact.CompatibilityStatus = "compatible"

@@ -1,5 +1,48 @@
 # Completion and test campaign report
 
+## Generation sprint update — 2026-11-11
+
+The native generation pipeline now has an embedded RouterOS `.auto.rsc`
+template and metadata profile for declared model `RB750Gr3`, OS train `7.x`,
+and template version `1`. It renders identity, represented IPv4 static/DHCP
+interfaces, and represented static routes. Device compatibility and RouterOS
+syntax remain unverified. The Agent stages this as native text; no upload,
+device execution, or `.auto.log` retrieval was performed.
+
+Cisco ZTP generation was not enabled: repository evidence does not establish a
+TLS-compatible transport for a model/release profile. Cisco AutoInstall and
+Fortinet ZTP remain unsupported due missing exact profile evidence. The demo
+includes a Cisco native `.cfg` render and a separate MikroTik `.auto.rsc` render.
+
+`go test -count=1 ./internal/adapters/generation ./pkg/protocol` passed. The
+demo test parsed `examples/provisioning-generation.yaml`, ran `GenerateAll`,
+read the Cisco `.cfg` and RouterOS `.auto.rsc` through the published catalog,
+and checked their SHA-256 values. The added negative tests cover unknown
+RouterOS model/version, missing template version, unsafe interface input, and
+the unsupported Cisco/Fortinet profiles.
+
+`go vet ./internal/adapters/generation ./pkg/protocol` passed. The full
+`go test ./...` run failed in the Windows Agent private-file mode assertion;
+Windows Application Control blocked two Agent test binaries; and a multisite
+integration test could not build Provider because `CGO_ENABLED=0` excludes the
+SQLite symbols referenced by `provider/internal/adapters/sqlite/users.go`.
+`go test -race ./...` requires CGO. Repository-wide `go vet` and Provider/Agent
+build are blocked by the same SQLite compile issue. GNU `make` is unavailable;
+all touched Go files pass `gofmt -l`.
+
+The Provider CLI could not run in this environment, so no persistent generated
+output directory was created. The integration test generated and inspected
+outputs in a temporary directory. No device was contacted, no commit was
+created, and nothing was pushed.
+
+**Sprint progress score: 4.8/10.** Rubric: shared generation/manifest
+integration 20% (8/10), RouterOS `.auto.rsc` slice 30% (8/10), Cisco ZTP 20%
+(0/10), Cisco AutoInstall 10% (0/10), Fortinet ZTP handling 10% (2/10), and
+evidence/demo/documentation 10% (6/10). This is a completion score for the
+requested sprint, not an overall InfraFlow maturity or production-readiness
+score. The unimplemented Cisco/Fortinet profiles and unavailable live evidence
+are the main remaining blockers.
+
 **Date:** 2026-10-30  
 **Branch:** `develop`  
 **Starting commit:** `710b7ee5163acb3760c1e7043d7fa8589ca4fad3`  

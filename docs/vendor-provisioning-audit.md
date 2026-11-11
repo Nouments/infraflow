@@ -7,14 +7,30 @@ requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 compatibility. No capability below is marked `IMPLEMENTED` or `LAB-VERIFIED`
 unless an actual implementation and matching evidence exist.
 
+## Implementation update — 2026-11-11
+
+The Provider now renders a versioned RouterOS `.auto.rsc` template through
+`generate-all` for declared model `RB750Gr3`, OS train `7.x`, and template
+version `1`. The site and catalog manifests record the method, template,
+source references, input/output hashes, `compatibility_status: unknown`, and
+`verification_status: not_performed`. This is syntax-by-template rendering
+only: exact hardware/release behavior is not verified, and there is no upload,
+execution, or `.auto.log` reader. The existing Agent stages the artifact as
+native text without applying it.
+
+Cisco ZTP generation remains blocked because the repository's selected
+HTTP/TFTP examples do not establish a model/release profile compatible with
+the TLS-only requirement. Cisco AutoInstall discovery/file naming and
+Fortinet enrollment selection remain unsupported for lack of exact profiles.
+
 ## Current-state summary
 
-InfraFlow already has a common network declaration, planning, native text
-rendering, artifact manifests, authenticated publication, and hash-checked
-Agent transfer. It does not have the requested vendor-specific bootstrap
-generators or MikroTik/FortiOS API executors. Most multi-vendor native output
-is family-level render-only text; it is not selected by exact model and
-software release and is not proof of accepted device syntax.
+InfraFlow has a common network declaration, planning, native text rendering,
+artifact manifests, authenticated publication, and hash-checked Agent
+transfer. The limited RouterOS `.auto.rsc` renderer is an opt-in, render-only
+profile; it is not an upload workflow or proof of device syntax. Most other
+multi-vendor native output remains family-level render-only text and is not
+selected by exact model and software release.
 
 The current Agent stages verified files and processes the generic inventory,
 topology, and manifest formats. It does not execute a vendor configuration
@@ -32,7 +48,7 @@ constitute Cisco ZTP or AutoInstall.
 | Cisco ZTP | Generic DHCP/bootstrap output and an explicitly started bootstrap HTTP service exist. No Cisco ZTP script, option-67 profile, or ZTP artifact workflow is implemented. | Model the documented first-boot/DHCP/script/Guest Shell flow separately from device configuration; emit only justified artifacts and report outcomes. | `internal/adapters/generation/`, `agent/internal/delivery/{dhcp,artifacts}/`, `pkg/protocol/` |
 | Cisco AutoInstall | Not implemented. No AutoInstall-specific file discovery profile or artifact type exists. | A separate, model/release-evidenced backend; never reuse the ZTP bootstrap implicitly. | `internal/adapters/generation/`, `pkg/protocol/`, `provider/internal/` |
 | MikroTik API | RouterOS family is recognized and text rendering exists. No typed RouterOS API client or operation-plan executor exists. | Typed allowlisted operations over authenticated TLS, with preflight, read-back, idempotency controls, and mock coverage. | `internal/domain/`, `provider/internal/adapters/executors/`, `agent/internal/` |
-| MikroTik `.auto.rsc` | No RouterOS-native `.auto.rsc` generator, publication type, or `.auto.log` verification flow exists. | An explicit, versioned upload-triggered path, separate from API and Netinstall; SFTP preferred and log read-back required. | `internal/adapters/generation/`, `pkg/protocol/`, `agent/internal/`, `provider/internal/` |
+| MikroTik `.auto.rsc` | Render-only RouterOS 7 template for declared RB750Gr3 / `7.x`; hash-verified native artifact. No device upload or `.auto.log` verification. | Verify exact model/release behavior; separately authorize any upload and implement log review before claiming provisioning. | `internal/adapters/generation/templates/vendors/mikrotik/routeros7/`, `internal/adapters/generation/native.go`, `pkg/protocol/` |
 | MikroTik Netinstall | Not implemented. | Separate, explicitly authorized installation/reinstallation workflow with destructive-operation confirmation and preconditions; never an ordinary apply action. | `provider/internal/`, `agent/internal/`, `pkg/protocol/` |
 | FortiGate ZTP | Neither FortiDeploy enrollment nor FortiManager DHCP-option ZTP is generated. The repository has an explanatory FortiGate workflow dossier. | Separate Cloud enrollment and FortiManager workflows; backend, model/release, ownership, DHCP values, and authorization must be explicit. | `internal/adapters/generation/`, `agent/internal/delivery/dhcp/`, `pkg/protocol/` |
 | FortiOS API | FortiOS family-level text rendering exists. No FortiOS HTTPS API client, typed operations, token integration, or device read-back executor exists. | External token, verified TLS, explicit VDOM, typed allowlisted operations, policy-order-aware diff, and read-back verification. | `provider/internal/adapters/executors/`, `internal/domain/`, `agent/internal/` |

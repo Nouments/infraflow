@@ -1,5 +1,34 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
+## Mise à jour de génération — 2026-11-11
+
+- Branche `develop`; HEAD de départ `7d03baf681325b2a97c75de02ce51c9084839375`.
+- Le pipeline `generate-all` rend maintenant un artefact RouterOS `.auto.rsc`
+  via un template versionné pour le modèle déclaré RB750Gr3, le train RouterOS
+  `7.x` et la version de template `1`. L’artefact reste `rendered_unverified`;
+  aucune compatibilité, syntaxe réelle, livraison, exécution ou lecture
+  `.auto.log` n’est affirmée.
+- Cisco ZTP reste bloqué par l’exigence TLS-only et l’absence de profil
+  modèle/release prouvé. AutoInstall Cisco et ZTP Fortinet restent non
+  supportés. Le fichier Cisco de la démo est un rendu `.cfg`, pas du ZTP.
+- `go test -count=1 ./internal/adapters/generation ./pkg/protocol` : PASS,
+  y compris la lecture du YAML de démo, `GenerateAll`, la lecture du catalogue
+  et les SHA-256 des fichiers Cisco `.cfg` et RouterOS `.auto.rsc`.
+- `go test ./...` : FAIL. Un test de permissions Agent échoue sur Windows,
+  Application Control bloque deux binaires de test Agent et le test multisite
+  ne peut compiler Provider car `CGO_ENABLED=0` exclut les symboles cgo de
+  SQLite. `go test -race ./...` exige CGO.
+- `go vet ./...` et `go build ./provider/cmd ./agent/cmd` sont bloqués par les
+  mêmes symboles SQLite absents. GNU `make` n’est pas installé; `gofmt -l` sur
+  les fichiers Go modifiés est propre. La CLI Provider n’a pas pu être lancée;
+  aucun répertoire de sortie persistant n’a été créé.
+- Score de progression du sprint : **4,8/10**, pondéré entre intégration et
+  manifestes (20 %, 8/10), profil RouterOS `.auto.rsc` (30 %, 8/10), Cisco ZTP
+  (20 %, 0/10), AutoInstall Cisco (10 %, 0/10), traitement des profils ZTP
+  Fortinet (10 %, 2/10) et preuves/démo/documentation (10 %, 6/10). Ce score
+  concerne le sprint, pas la maturité globale d’InfraFlow.
+- Aucun équipement contacté; aucun commit ni push effectué.
+
 ## Campagne de complétion et tests (2026-10-30)
 
 - Commit de départ : `710b7ee5163acb3760c1e7043d7fa8589ca4fad3` sur `develop`;

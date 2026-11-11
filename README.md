@@ -87,12 +87,45 @@ provided), so adding another device does not renumber existing artifacts. The
 native manifest records model and software-version metadata when supplied but
 marks compatibility `unknown`; family-level rendering is not a supported
 model/version matrix or evidence of syntax validation. Unsupported intent is
-rejected rather than silently omitted. These outputs do not implement ZTP or
-AutoInstall and are never applied automatically.
+rejected rather than silently omitted. Generated files are never applied
+automatically.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
 and physical-device validation as `not_performed`. No IOS parser or device
 connection is used by this demo.
+
+### RouterOS `.auto.rsc` render-only demo
+
+`examples/provisioning-generation.yaml` exercises the existing Cisco native
+`.cfg` renderer and the versioned RouterOS `auto-rsc` template through the
+same `generate-all` pipeline. The RouterOS profile is limited to declared
+model `RB750Gr3`, OS train `7.x`, and template version `1`; exact RouterOS
+build and device compatibility remain `unknown`. It renders identity, IPv4
+static/DHCP interfaces, and static routes only when those fields are present.
+VLAN, interface admin-state, administration-service settings, upload, RouterOS
+execution, and `.auto.log` retrieval are not implemented. Cisco ZTP remains
+blocked because the repository evidence does not establish a model/release
+profile compatible with the project's TLS-only requirement. Cisco AutoInstall
+and Fortinet ZTP profiles are also unsupported.
+
+Run the demo in PowerShell from a fresh temporary directory:
+
+```powershell
+go run ./provider/cmd validate -f examples/provisioning-generation.yaml
+$demo = Join-Path $env:TEMP ("infraflow-provisioning-" + [guid]::NewGuid())
+go run ./provider/cmd generate-all -f examples/provisioning-generation.yaml -out $demo
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/native/device-mikrotik-r1.auto.rsc")
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/native/native-manifest.json")
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/site-manifest.json")
+Get-FileHash (Join-Path $demo "routeros-auto-rsc-demo/native/device-mikrotik-r1.auto.rsc") -Algorithm SHA256
+Get-Content (Join-Path $demo "generation-report.json")
+```
+
+The generated `.auto.rsc` is an inert catalog artifact until an operator
+separately chooses an upload path. Its hashes establish file integrity only;
+they do not show that RouterOS accepted or executed it. After an authorized
+device-side upload, the corresponding `.auto.log` must be retrieved and
+inspected separately.
 
 The deterministic score is: exact manufacturer/model 30 points; OS family
 20 points plus 5 only for an explicitly supported OS version; requested

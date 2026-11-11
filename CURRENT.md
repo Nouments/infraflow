@@ -1,5 +1,34 @@
 # InfraFlow — Bloc 1 Audit
 
+## Current generation status — 2026-11-11
+
+- Branch: `develop`; starting HEAD: `7d03baf681325b2a97c75de02ce51c9084839375`.
+- Added a versioned, render-only RouterOS `.auto.rsc` template for declared
+	`RB750Gr3`, RouterOS `7.x`, template version `1`, integrated through
+	`GenerateNative` / `GenerateAll` and the existing hash-verified artifact
+	protocol. Compatibility and syntax remain unverified; no upload, execution,
+	or `.auto.log` verification occurs.
+- Cisco ZTP is blocked by the repository's TLS-only requirement and missing
+	model/release evidence; Cisco AutoInstall and Fortinet ZTP profiles remain
+	unsupported. The demo's Cisco file is a render-only `.cfg`, not ZTP.
+- `go test -count=1 ./internal/adapters/generation ./pkg/protocol`: PASS,
+	including actual demo YAML parsing, `GenerateAll`, catalog reads, and SHA-256
+	checks for the Cisco `.cfg` and RouterOS `.auto.rsc` outputs.
+- `go test ./...`: FAIL. The Windows Agent private-file mode assertion fails;
+	Application Control blocks two Agent test binaries; the multisite test cannot
+	build Provider because `CGO_ENABLED=0` removes the current SQLite driver's
+	cgo symbols. `go test -race ./...` cannot run without CGO.
+- `go vet ./...` and `go build ./provider/cmd ./agent/cmd` are blocked by those
+	missing SQLite symbols. GNU `make` is unavailable; `gofmt -l` on all touched
+	Go files is clean. The Provider CLI demo could not run, so no persistent
+	generated output directory was created.
+- Sprint progress score: **4.8/10**, weighted across shared generation/manifest
+	integration (20%, 8/10), RouterOS `.auto.rsc` slice (30%, 8/10), Cisco ZTP
+	(20%, 0/10), Cisco AutoInstall (10%, 0/10), Fortinet ZTP handling (10%,
+	2/10), and evidence/demo/docs (10%, 6/10). This is sprint completion, not
+	overall InfraFlow maturity.
+- No device was contacted; no commit or push was made.
+
 > **Historique — état antérieur au 2026-10-29.** Les sections ci-dessous
 > décrivent un audit réalisé avant la décision d’exclure Ansible. Depuis cette
 > date, ses générateurs, artefacts, runners et commandes ont été retirés.

@@ -856,6 +856,13 @@ func artifactDetails(siteID string, artifacts []Artifact, files []pendingFile) (
 			detail.GenerationStatus = "rendered_unverified"
 			detail.CompatibilityStatus = "unknown"
 			detail.DocumentationReferences = []string{}
+			if device.ProvisioningMethod != "" {
+				detail.ProvisioningMethod = device.ProvisioningMethod
+				detail.OutputHash = artifact.OutputHash
+				detail.VerificationStatus = device.VerificationStatus
+				detail.SourceReferences = append([]string(nil), device.SourceReferences...)
+				detail.DocumentationReferences = append([]string(nil), device.SourceReferences...)
+			}
 		}
 		details = append(details, detail)
 	}
@@ -880,6 +887,15 @@ func generationCapabilities(site domain.Site, artifacts []Artifact) []protocol.G
 		})
 	} else {
 		capabilities = append(capabilities, protocol.GenerationCapability{Feature: "native_configuration_rendering", Status: "not_configured"})
+	}
+	for _, device := range site.Devices {
+		if strings.EqualFold(strings.TrimSpace(device.Provisioning.Method), "auto-rsc") {
+			capabilities = append(capabilities, protocol.GenerationCapability{
+				Feature:  "routeros_auto_rsc_generation:" + device.Name,
+				Status:   "rendered_unverified",
+				Evidence: "a local versioned template generated an inert .auto.rsc file; upload, RouterOS execution, and .auto.log verification were not performed",
+			})
+		}
 	}
 	for _, device := range site.Devices {
 		profile, exists := domain.VendorProfileFor(device)

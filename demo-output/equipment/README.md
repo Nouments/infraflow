@@ -5,14 +5,14 @@ This folder is the evidence index for template work focused on `demo-output`. Ea
 | Vendor | Pilot target | Generation target | Evidence state |
 | --- | --- | --- | --- |
 | Cisco | ISR 1100 family; exact SKU not selected | Existing IOS XE `.cfg` render | Partial catalog record; render-only |
-| MikroTik | hEX RB750Gr3 | RouterOS 6/7 `.rsc`; optional `.auto.rsc` suffix | Hardware facts source-backed; target release and command validation unknown |
+| MikroTik | hEX RB750Gr3 | RouterOS 7 `auto-rsc` render-only template | Hardware facts source-backed; exact RouterOS build, device compatibility, and command acceptance unknown |
 | Fortinet | FortiGate; exact model not selected | FortiManager ZTP declaration or FortiDeploy enrollment plan | ZTP workflows documented; model/backend eligibility not confirmed |
 
 ## Boundaries
 
 - Address values in demo artifacts use documentation-only ranges and must not be used as live allocations.
 - Interface names in examples are explicit demo inputs, not inferred hardware mappings.
-- RouterOS 6 and 7 need separate reviewed outputs. Similar command spelling is not proof of version compatibility.
+- The current `.auto.rsc` template selects only the declared RB750Gr3 / `7.x` train and records compatibility as unknown. RouterOS 6, exact build validation, upload, execution, and `.auto.log` review are not implemented.
 - FortiDeploy is a cloud enrollment workflow. FortiManager ZTP uses a separately managed DHCP path. Neither is represented as a generic FortiOS `.cfg` template.
 - Exact firmware, bootstrap network, interfaces, licensing/entitlement, and target access must be captured before a profile can move beyond `render-only`.
 - Datasheets remain linked to their publishers; this repository does not redistribute vendor PDFs.
