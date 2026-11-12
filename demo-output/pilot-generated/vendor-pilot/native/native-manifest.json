@@ -12,26 +12,89 @@
   "devices": [
     {
       "name": "CiscoR1",
+      "vendor": "cisco",
       "family": "iosxe",
       "model": "isr-1100",
+      "provisioning_method": "ssh",
+      "template_id": "infraflow.cisco.iosxe.native",
+      "template_version": "1",
+      "template_hash": "dad3ba77537b40c6880092fb174df674377977c16852d54adf4a163d1960d61d",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f",
+      "supported_features": [
+        "system.hostname",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.admin_state",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
       "compatibility": "unknown",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "docs/cisco-ios-executor.md"
+      ],
       "path": "vendor-pilot/native/device-CiscoR1.cfg",
       "status": "rendered_unverified"
     },
     {
       "name": "FortiGate1",
+      "vendor": "fortinet",
       "family": "fortios",
       "model": "unspecified",
+      "provisioning_method": "https",
+      "template_id": "infraflow.fortinet.fortios.native",
+      "template_version": "1",
+      "template_hash": "1b14460053e7a4e2ac6678f846299720efdcb19ce13c77bed3e888bf1cd42596",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "6d529bb1e3845fa8e9c6af0529398589990f19689b575f4060a377884b35a7b4",
+      "supported_features": [
+        "system.hostname",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.admin_state",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
       "compatibility": "unknown",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "demo-output/equipment/fortinet/fortigate-ztp.md"
+      ],
       "path": "vendor-pilot/native/device-FortiGate1.cfg",
       "status": "rendered_unverified"
     },
     {
       "name": "MikroTikR1",
+      "vendor": "mikrotik",
       "family": "routeros",
       "model": "RB750Gr3",
       "os_version": "7.x",
+      "provisioning_method": "api",
+      "template_id": "infraflow.mikrotik.routeros7.native",
+      "template_version": "1",
+      "template_hash": "6da19558e4a3dceed29b76dbb63f7161879485e42a60bd74277ff06769d4e466",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0",
+      "supported_features": [
+        "system.identity",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
       "compatibility": "unknown",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ],
       "path": "vendor-pilot/native/device-MikroTikR1.cfg",
       "status": "rendered_unverified"
     }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,30 @@ import (
 	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
+
+func TestGeneratedShellScriptIsExecutable(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := publishDeclarativeArtifacts(root, []byte("sites:\n  - name: lab\n"), []declarativeArtifact{{
+		Path: "lab/run.sh",
+		Type: "script",
+		Data: []byte("#!/bin/sh\necho ok\n"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected one artifact, got %#v", artifacts)
+	}
+	info, err := os.Stat(filepath.Join(root, "lab", "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if got, want := info.Mode().Perm(), os.FileMode(0o755); got != want {
+			t.Fatalf("generated shell script mode = %o, want %o", got, want)
+		}
+	}
+}
 
 func TestGenerateIsDeterministic(t *testing.T) {
 	firstInput := `sites:

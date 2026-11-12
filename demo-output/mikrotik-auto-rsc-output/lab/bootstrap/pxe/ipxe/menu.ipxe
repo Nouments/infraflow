@@ -1,0 +1,6 @@
+#!ipxe
+# InfraFlow generated iPXE menu for lab.
+# Site images are intentionally empty until declared in the infrastructure model.
+echo InfraFlow bootstrap ready for lab.
+echo No boot image is declared for this site.
+exit

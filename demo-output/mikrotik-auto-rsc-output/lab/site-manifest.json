@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "site_id": "lab",
+  "site_name": "lab",
+  "status": "succeeded",
+  "generator_version": "0.1.0",
+  "template_version": "1",
+  "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+  "artifacts": [
+    {
+      "type": "bootstrap_dhcp",
+      "path": "lab/bootstrap/dhcp/config.json",
+      "size_bytes": 533,
+      "sha256": "92fe16b41ce74ce82b7d28beb036f2a72df74019a6e33722f94af2945502d739",
+      "documentation_references": null
+    },
+    {
+      "type": "bootstrap_dns",
+      "path": "lab/bootstrap/dns/config.json",
+      "size_bytes": 166,
+      "sha256": "4672026a606488a57781fb19fcf2df16429dfbf8d6999b0c6ffbd7b0709aa8bf",
+      "documentation_references": null
+    },
+    {
+      "type": "bootstrap_ipxe_script",
+      "path": "lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+      "size_bytes": 367,
+      "sha256": "faa0d3e17dcf66845baafdc0ea6da234e19a05bf45415649878468c3deaa3670",
+      "documentation_references": null
+    },
+    {
+      "type": "bootstrap_ipxe_menu",
+      "path": "lab/bootstrap/pxe/ipxe/menu.ipxe",
+      "size_bytes": 227,
+      "sha256": "c25dc0c182f939b14c3467c2616e6bb9ccd5749f47d4f44fc327bba94f2a4185",
+      "documentation_references": null
+    },
+    {
+      "type": "bootstrap_pxe",
+      "path": "lab/bootstrap/pxe/metadata.json",
+      "size_bytes": 217,
+      "sha256": "a2a6f4d6bb924a277e9ab227963c80694f8176837fdcec3881ed94538477f730",
+      "documentation_references": null
+    },
+    {
+      "type": "bootstrap_tftp",
+      "path": "lab/bootstrap/tftp/config.json",
+      "size_bytes": 300,
+      "sha256": "67f46e10466b9baaea47041d9dd46985f53e7916c289f6cedea54f5438afc8a3",
+      "documentation_references": null
+    },
+    {
+      "type": "inventory",
+      "path": "lab/inventory.json",
+      "size_bytes": 878,
+      "sha256": "5adc87588be8c96cd88b8e61999be7998b6df4b3e90f6d2b13bb114162b4c903",
+      "documentation_references": null
+    },
+    {
+      "type": "native_device_config",
+      "path": "lab/native/device-r1.auto.rsc",
+      "size_bytes": 972,
+      "sha256": "abcb02a9765b4f514f86fa327679c518f74a5afcc1eb0e23ac8d51f6d0201243",
+      "site_id": "lab",
+      "device_id": "r1",
+      "vendor": "mikrotik",
+      "family": "routeros",
+      "model": "RB750Gr3",
+      "os_version": "7.x",
+      "artifact_format": "text/plain",
+      "template_id": "infraflow.mikrotik.routeros7.auto-rsc",
+      "template_version": "1",
+      "template_hash": "8ae7a004c83a9b507ed66de779f4d2b1f9cb881bbb69a457fcf91cfaf66b65db",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "abcb02a9765b4f514f86fa327679c518f74a5afcc1eb0e23ac8d51f6d0201243",
+      "provisioning_method": "auto-rsc",
+      "supported_features": [
+        "system.identity",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.idempotent_owned_update",
+        "routes.static_ipv4",
+        "routes.idempotent_owned_update"
+      ],
+      "validation_status": "render-only",
+      "generation_status": "rendered_unverified",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "documentation_references": [
+        "https://manual.mikrotik.com/docs/getting-started/configuration-management/",
+        "https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting",
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ],
+      "source_references": [
+        "https://manual.mikrotik.com/docs/getting-started/configuration-management/",
+        "https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting",
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ]
+    },
+    {
+      "type": "native_manifest",
+      "path": "lab/native/native-manifest.json",
+      "size_bytes": 2070,
+      "sha256": "1a0f891e428f165fc9cd0d134792adb7480a06b568221175528cb464b695ba76",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_locals",
+      "path": "lab/terraform/locals.tf",
+      "size_bytes": 931,
+      "sha256": "1864218a7fe8b1d658cb21024c66583f418b616cbc95a4e5eeec38bf265a93ca",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_main",
+      "path": "lab/terraform/main.tf",
+      "size_bytes": 187,
+      "sha256": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_outputs",
+      "path": "lab/terraform/outputs.tf",
+      "size_bytes": 429,
+      "sha256": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_providers",
+      "path": "lab/terraform/providers.tf",
+      "size_bytes": 71,
+      "sha256": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_tfvars_example",
+      "path": "lab/terraform/terraform.tfvars.example",
+      "size_bytes": 95,
+      "sha256": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_variables",
+      "path": "lab/terraform/variables.tf",
+      "size_bytes": 280,
+      "sha256": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_versions",
+      "path": "lab/terraform/versions.tf",
+      "size_bytes": 46,
+      "sha256": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f",
+      "documentation_references": null
+    },
+    {
+      "type": "topology",
+      "path": "lab/topology.json",
+      "size_bytes": 164,
+      "sha256": "2c3a29b286cfae1150298dedd505afb406be3239fc89715920e0c2e2f46f1eb7",
+      "documentation_references": null
+    },
+    {
+      "type": "generation_report",
+      "path": "lab/generation-report.json",
+      "size_bytes": 387,
+      "sha256": "28434a7657864f9bd27ea84877689fedcb5fef70b45dda5c121be3c5116ed72e",
+      "documentation_references": null
+    }
+  ],
+  "capabilities": [
+    {
+      "feature": "autoinstall",
+      "status": "unknown",
+      "evidence": "no device-specific autoinstall mechanism was verified"
+    },
+    {
+      "feature": "bootstrap_service_execution",
+      "status": "not_configured",
+      "evidence": "generation emits static files only; no service is started"
+    },
+    {
+      "feature": "device_compatibility:edge-r1",
+      "status": "UNVERIFIED",
+      "evidence": "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet."
+    },
+    {
+      "feature": "native_configuration_rendering",
+      "status": "unverified",
+      "evidence": "text-only output; command syntax and physical-device behavior were not validated"
+    },
+    {
+      "feature": "routeros_auto_rsc_generation:edge-r1",
+      "status": "rendered_unverified",
+      "evidence": "a local versioned template generated an inert .auto.rsc file; upload, RouterOS execution, and .auto.log verification were not performed"
+    },
+    {
+      "feature": "site_artifact_generation",
+      "status": "generated"
+    },
+    {
+      "feature": "ztp",
+      "status": "unknown",
+      "evidence": "no device-specific ZTP mechanism was verified"
+    }
+  ]
+}

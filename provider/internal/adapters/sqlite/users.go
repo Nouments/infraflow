@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
-
-	"github.com/mattn/go-sqlite3"
 
 	"infraflow/provider/internal/domain"
 	"infraflow/provider/internal/ports"
@@ -255,6 +254,5 @@ func boolInt(value bool) int {
 }
 
 func isUniqueError(err error) bool {
-	var sqliteErr sqlite3.Error
-	return err != nil && errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

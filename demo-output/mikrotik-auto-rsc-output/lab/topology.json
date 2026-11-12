@@ -1,0 +1,12 @@
+{
+  "site": "lab",
+  "nodes": [
+    {
+      "id": "r1",
+      "name": "edge-r1",
+      "vendor": "mikrotik",
+      "model": "RB750Gr3"
+    }
+  ],
+  "edges": null
+}

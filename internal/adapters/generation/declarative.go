@@ -302,7 +302,7 @@ func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending [
 
 	artifacts := make([]Artifact, 0, len(pending))
 	for _, item := range pending {
-		if err := safefs.AtomicWrite(root, item.Path, item.Data, 0o644); err != nil {
+		if err := safefs.AtomicWrite(root, item.Path, item.Data, generatedArtifactMode(item.Path, item.Data)); err != nil {
 			writeErr := fmt.Errorf("write generated artifact %q: %w", item.Path, err)
 			return nil, errors.Join(writeErr, restoreBackups())
 		}

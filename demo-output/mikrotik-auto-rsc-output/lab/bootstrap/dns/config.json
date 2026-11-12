@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "service": "dns",
+  "enabled": false,
+  "site": "lab",
+  "zone": "lab.infraflow.local",
+  "ttl": 60,
+  "records": [],
+  "reverse_records": []
+}
+

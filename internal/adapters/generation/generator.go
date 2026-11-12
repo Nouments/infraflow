@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -94,6 +95,18 @@ type terraformPendingFile struct {
 
 type terraformExpression string
 
+func generatedArtifactMode(path string, data []byte) os.FileMode {
+	trimmedPath := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(trimmedPath, ".sh"), strings.HasSuffix(trimmedPath, ".bash"), strings.HasSuffix(trimmedPath, ".zsh"), strings.HasSuffix(trimmedPath, ".ksh"), strings.HasSuffix(trimmedPath, ".ps1"), strings.HasSuffix(trimmedPath, ".py"), strings.HasSuffix(trimmedPath, ".pl"):
+		return 0o755
+	case len(data) >= 2 && bytes.HasPrefix(data, []byte("#!")):
+		return 0o755
+	default:
+		return 0o644
+	}
+}
+
 // GenerateTerraform emits a data-only Terraform configuration. It represents
 // the validated desired state and topology without selecting a provider or
 // applying any infrastructure changes.
@@ -147,7 +160,7 @@ func GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory str
 		return nil, fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
-		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+		if err := safefs.AtomicWrite(root, file.path, file.data, generatedArtifactMode(file.path, file.data)); err != nil {
 			return nil, fmt.Errorf("write Terraform artifact %q: %w", file.path, err)
 		}
 	}

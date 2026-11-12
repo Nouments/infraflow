@@ -1,0 +1,57 @@
+﻿sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+      gateway: 192.0.2.254
+    devices:
+      - name: router1
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+              enabled: true
+          routes:
+            - destination: 198.51.100.0/24
+              next_hop: 192.0.2.254
+              interface: GigabitEthernet1
+              distance: 25
+      - name: router2
+        vendor: mikrotik
+        family: routeros
+        model: RB5009UG+S+
+        os_version: "7.x"
+        network:
+          interfaces:
+            - name: ether1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.2/24
+          routes:
+            - destination: 198.51.100.0/24
+              next_hop: 192.0.2.254
+              distance: 3
+      - name: firewall1
+        vendor: fortinet
+        family: fortios
+        model: FG-60F
+        os_version: "7.4.5"
+        network:
+          vdom: root
+          interfaces:
+            - name: port1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.3/24
+              enabled: false
+          routes:
+            - destination: 198.51.100.0/24
+              next_hop: 192.0.2.254
+              interface: port1
+              distance: 7
+              fortinet_sequence: 10

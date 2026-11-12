@@ -198,7 +198,7 @@ func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string
 		return nil, fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
-		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+		if err := safefs.AtomicWrite(root, file.path, file.data, generatedArtifactMode(file.path, file.data)); err != nil {
 			return nil, fmt.Errorf("write native artifact %q: %w", file.path, err)
 		}
 	}

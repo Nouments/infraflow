@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+  "sites": [
+    {
+      "site_id": "lab",
+      "site_name": "lab",
+      "status": "succeeded",
+      "artifact_count": 19,
+      "site_manifest_path": "lab/site-manifest.json",
+      "site_manifest_sha256": "a7f8ad33413c6c5e9411f7a11c376b84ff77be610023ec0365847a3a38997711",
+      "generation_report_path": "lab/generation-report.json"
+    }
+  ]
+}

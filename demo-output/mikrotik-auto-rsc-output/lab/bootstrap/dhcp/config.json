@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "service": "dhcp",
+  "enabled": false,
+  "site": "lab",
+  "network": "198.51.100.0/24",
+  "gateway": "198.51.100.254",
+  "pools": [
+    {
+      "start": "198.51.100.1",
+      "end": "198.51.100.253"
+    }
+  ],
+  "reserved_addresses": [
+    "198.51.100.254"
+  ],
+  "reservations": [],
+  "options": {
+    "dns_servers": [],
+    "next_server": "",
+    "next_server_source": "agent_runtime",
+    "boot_mode": "",
+    "boot_filename": "",
+    "tftp_directory": "",
+    "ipxe_script": "pxe/ipxe/bootstrap.ipxe"
+  }
+}
+
