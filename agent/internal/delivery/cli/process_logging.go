@@ -50,7 +50,12 @@ func newProcessLogSession(configPath string) (*processLogSession, error) {
 	if token == "" {
 		return nil, fmt.Errorf("provider token environment variable %s is empty", tokenEnv)
 	}
-	reporter, err := providergrpc.New(settings.Provider.Address, token, settings.Provider.TLS.Enabled, settings.Provider.TLS.CAFile, settings.Agent.ID)
+	reporter, err := providergrpc.NewWithTLSConfig(settings.Provider.Address, token, providergrpc.TLSConfig{
+		Enabled:         settings.Provider.TLS.Enabled,
+		CAFile:          settings.Provider.TLS.CAFile,
+		CertificateFile: settings.Provider.TLS.CertificateFile,
+		KeyFile:         settings.Provider.TLS.KeyFile,
+	}, settings.Agent.ID)
 	if err != nil {
 		return nil, fmt.Errorf("configure process log transport: %w", err)
 	}

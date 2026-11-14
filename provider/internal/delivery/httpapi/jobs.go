@@ -23,11 +23,12 @@ import (
 const maxRequestBytes = 2 << 20
 
 type Handler struct {
-	service       *application.Service
-	executions    *application.ExecutionService
-	agentToken    []byte
-	authenticator *application.Authenticator
-	logger        *observability.Logger
+	service             *application.Service
+	executions          *application.ExecutionService
+	agentToken          []byte
+	agentTokenExpiresAt time.Time
+	authenticator       *application.Authenticator
+	logger              *observability.Logger
 }
 
 type responseStatusWriter struct {
@@ -120,11 +121,18 @@ type agentLogRequest struct {
 }
 
 func NewHandler(service *application.Service, token string, authenticators ...*application.Authenticator) (*Handler, error) {
+	return NewHandlerWithTokenExpiry(service, token, time.Time{}, authenticators...)
+}
+
+func NewHandlerWithTokenExpiry(service *application.Service, token string, tokenExpiresAt time.Time, authenticators ...*application.Authenticator) (*Handler, error) {
 	if service == nil {
 		return nil, fmt.Errorf("provider application service is required")
 	}
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("API token must be at least %d bytes", security.MinAgentTokenBytes)
+	}
+	if !tokenExpiresAt.IsZero() && !tokenExpiresAt.After(time.Now()) {
+		return nil, fmt.Errorf("API agent token is expired")
 	}
 	var authenticator *application.Authenticator
 	if len(authenticators) > 1 {
@@ -133,7 +141,10 @@ func NewHandler(service *application.Service, token string, authenticators ...*a
 	if len(authenticators) == 1 {
 		authenticator = authenticators[0]
 	}
-	return &Handler{service: service, agentToken: []byte(token), authenticator: authenticator}, nil
+	return &Handler{
+		service: service, agentToken: []byte(token),
+		agentTokenExpiresAt: tokenExpiresAt, authenticator: authenticator,
+	}, nil
 }
 
 func (handler *Handler) SetLogger(logger *observability.Logger) { handler.logger = logger }
@@ -390,6 +401,9 @@ func (handler *Handler) authenticate(request *http.Request) (principal, bool) {
 		return principal{}, false
 	}
 	if security.BearerTokenMatches(authorizations[0], handler.agentToken) {
+		if !handler.agentTokenExpiresAt.IsZero() && !time.Now().Before(handler.agentTokenExpiresAt) {
+			return principal{}, false
+		}
 		return principal{agent: true}, true
 	}
 	if handler.authenticator == nil {

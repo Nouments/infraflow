@@ -560,6 +560,14 @@ func generateAllLocked(ctx context.Context, infrastructure domain.Infrastructure
 			if err := ctx.Err(); err != nil {
 				return siteGenerationResult{site: site, stagingRoot: siteRoot, err: err}
 			}
+			if hooks.beforeStage != nil {
+				if err := hooks.beforeStage(site.Name, generate.name); err != nil {
+					return siteGenerationResult{
+						site: site, stagingRoot: siteRoot,
+						err: fmt.Errorf("%s: %w", generate.name, err),
+					}
+				}
+			}
 			generated, err := generate.run(siteInfrastructure, siteRoot)
 			if err != nil {
 				return siteGenerationResult{site: site, stagingRoot: siteRoot, err: fmt.Errorf("%s: %w", generate.name, err)}

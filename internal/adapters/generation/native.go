@@ -18,6 +18,39 @@ import (
 
 const nativeTemplateVersion = "1"
 
+const configSyntaxValidationUnavailable = "not_available"
+const configSyntaxValidationName = "CONFIG_SYNTAX_VALIDATION"
+
+type ConfigSyntaxValidationResult struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func configSyntaxValidationFor(vendor, family string, generated bool) ConfigSyntaxValidationResult {
+	if !generated {
+		return ConfigSyntaxValidationResult{
+			Name:    configSyntaxValidationName,
+			Status:  "not_run",
+			Message: "No configuration was generated; syntax validation was not run.",
+		}
+	}
+	label := strings.TrimSpace(vendor + " " + family)
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "cisco":
+		label = "Cisco IOS-XE"
+	case "mikrotik":
+		label = "MikroTik RouterOS 7"
+	case "fortinet", "fortigate":
+		label = "Fortinet FortiOS"
+	}
+	return ConfigSyntaxValidationResult{
+		Name:    configSyntaxValidationName,
+		Status:  configSyntaxValidationUnavailable,
+		Message: fmt.Sprintf("No offline syntax parser is registered for %s; vendor syntax remains unverified.", label),
+	}
+}
+
 var (
 	nativeIdentifier = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,62}$`)
 	nativeHostname   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,34}$`)
@@ -26,35 +59,37 @@ var (
 )
 
 type nativeManifest struct {
-	TemplateVersion string               `json:"template_version"`
-	InputHash       string               `json:"input_hash"`
-	Status          string               `json:"status"`
-	ExecutionMode   string               `json:"execution_mode"`
-	Warnings        []string             `json:"warnings"`
-	Devices         []nativeDeviceReport `json:"devices"`
+	TemplateVersion        string                       `json:"template_version"`
+	InputHash              string                       `json:"input_hash"`
+	Status                 string                       `json:"status"`
+	ExecutionMode          string                       `json:"execution_mode"`
+	ConfigSyntaxValidation ConfigSyntaxValidationResult `json:"config_syntax_validation"`
+	Warnings               []string                     `json:"warnings"`
+	Devices                []nativeDeviceReport         `json:"devices"`
 }
 
 type nativeDeviceReport struct {
-	ID                  string   `json:"id,omitempty"`
-	Name                string   `json:"name"`
-	Vendor              string   `json:"vendor"`
-	Family              string   `json:"family"`
-	Model               string   `json:"model,omitempty"`
-	OSVersion           string   `json:"os_version,omitempty"`
-	ProvisioningMethod  string   `json:"provisioning_method,omitempty"`
-	TemplateID          string   `json:"template_id"`
-	TemplateVersion     string   `json:"template_version"`
-	TemplateHash        string   `json:"template_hash,omitempty"`
-	InputHash           string   `json:"input_hash"`
-	OutputHash          string   `json:"output_hash"`
-	SupportedFeatures   []string `json:"supported_features,omitempty"`
-	ValidationStatus    string   `json:"validation_status"`
-	Compatibility       string   `json:"compatibility,omitempty"`
-	CompatibilityStatus string   `json:"compatibility_status"`
-	VerificationStatus  string   `json:"verification_status"`
-	SourceReferences    []string `json:"source_references"`
-	Path                string   `json:"path"`
-	Status              string   `json:"status"`
+	ID                     string                       `json:"id,omitempty"`
+	Name                   string                       `json:"name"`
+	Vendor                 string                       `json:"vendor"`
+	Family                 string                       `json:"family"`
+	Model                  string                       `json:"model,omitempty"`
+	OSVersion              string                       `json:"os_version,omitempty"`
+	ProvisioningMethod     string                       `json:"provisioning_method,omitempty"`
+	TemplateID             string                       `json:"template_id"`
+	TemplateVersion        string                       `json:"template_version"`
+	TemplateHash           string                       `json:"template_hash,omitempty"`
+	InputHash              string                       `json:"input_hash"`
+	OutputHash             string                       `json:"output_hash"`
+	SupportedFeatures      []string                     `json:"supported_features,omitempty"`
+	ValidationStatus       string                       `json:"validation_status"`
+	ConfigSyntaxValidation ConfigSyntaxValidationResult `json:"config_syntax_validation"`
+	Compatibility          string                       `json:"compatibility,omitempty"`
+	CompatibilityStatus    string                       `json:"compatibility_status"`
+	VerificationStatus     string                       `json:"verification_status"`
+	SourceReferences       []string                     `json:"source_references"`
+	Path                   string                       `json:"path"`
+	Status                 string                       `json:"status"`
 }
 
 type nativeOutput struct {
@@ -168,6 +203,11 @@ func prepareNativeArtifacts(infrastructure domain.Infrastructure) ([]pendingFile
 			InputHash:       inputHash,
 			Status:          "rendered_unverified",
 			ExecutionMode:   "render-only; review manually; no device connection or execution",
+			ConfigSyntaxValidation: ConfigSyntaxValidationResult{
+				Name:    configSyntaxValidationName,
+				Status:  configSyntaxValidationUnavailable,
+				Message: "No offline syntax parser is registered for generated native configurations; see per-device details.",
+			},
 			Warnings: []string{
 				"command syntax and behavior were not validated against a physical device",
 				"vendor family profiles do not certify compatibility with the reported model or software version",
@@ -188,8 +228,11 @@ func prepareNativeArtifacts(infrastructure domain.Infrastructure) ([]pendingFile
 				ProvisioningMethod: output.provisioningMethod,
 				TemplateVersion:    output.templateVersion, TemplateHash: output.templateHash, InputHash: inputHash,
 				OutputHash: protocol.SHA256(output.data), Compatibility: "unknown", CompatibilityStatus: "unknown",
-				SupportedFeatures:  append([]string(nil), output.supportedFeatures...),
-				ValidationStatus:   output.validationStatus,
+				SupportedFeatures: append([]string(nil), output.supportedFeatures...),
+				ValidationStatus:  output.validationStatus,
+				ConfigSyntaxValidation: configSyntaxValidationFor(
+					nativeVendor(profile), nativeFamily(profile), true,
+				),
 				VerificationStatus: "not_performed", SourceReferences: append([]string(nil), output.sourceReferences...),
 				Path: output.path, Status: "rendered_unverified",
 			})

@@ -90,6 +90,10 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 		t.Fatalf("report paths or hashes do not match published files: %#v", report.Devices[0])
 	}
 	if report.Status != "rendered_unverified" || report.CommandSyntaxValidation != "not_performed" ||
+		report.ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+		report.ConfigSyntaxValidation.Status != configSyntaxValidationUnavailable ||
+		report.Devices[0].ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+		!strings.Contains(report.Devices[0].ConfigSyntaxValidation.Message, "No offline syntax parser is registered for Cisco IOS-XE") ||
 		report.PhysicalDeviceValidation != "not_performed" || report.Devices[0].TemplateID == "" ||
 		report.CompatibilityScope != "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified" ||
 		report.Devices[0].Candidates[0].Score != 93 || !report.Devices[0].Candidates[0].Selected {

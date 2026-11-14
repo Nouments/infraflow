@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
@@ -29,6 +30,7 @@ type Config struct {
 	ArtifactDirectory     string            `yaml:"artifact_directory"`
 	DatabasePath          string            `yaml:"database_path,omitempty"`
 	TokenEnv              string            `yaml:"token_env"`
+	TokenExpiresAt        time.Time         `yaml:"token_expires_at,omitempty"`
 	AgentCredentials      []AgentCredential `yaml:"agent_credentials,omitempty"`
 	AdminUsername         string            `yaml:"admin_username,omitempty"`
 	AdminCredentialFile   string            `yaml:"admin_credential_file,omitempty"`
@@ -41,9 +43,10 @@ type Config struct {
 }
 
 type AgentCredential struct {
-	AgentID  string `yaml:"agent_id"`
-	SiteID   string `yaml:"site_id"`
-	TokenEnv string `yaml:"token_env"`
+	AgentID   string    `yaml:"agent_id"`
+	SiteID    string    `yaml:"site_id"`
+	TokenEnv  string    `yaml:"token_env"`
+	ExpiresAt time.Time `yaml:"expires_at"`
 }
 
 type LoggingConfig struct {
@@ -57,6 +60,7 @@ type LoggingConfig struct {
 type TLSConfig struct {
 	CertificateFile string `yaml:"certificate_file,omitempty"`
 	KeyFile         string `yaml:"key_file,omitempty"`
+	ClientCAFile    string `yaml:"client_ca_file,omitempty"`
 }
 
 func Load(path string) (Config, error) {
@@ -136,6 +140,7 @@ func applyEnvironment(config *Config) {
 	setIfPresent("INFRAFLOW_PROVIDER_TOKEN_ENV", &config.TokenEnv)
 	setIfPresent("INFRAFLOW_PROVIDER_TLS_CERTIFICATE", &config.TLS.CertificateFile)
 	setIfPresent("INFRAFLOW_PROVIDER_TLS_KEY", &config.TLS.KeyFile)
+	setIfPresent("INFRAFLOW_PROVIDER_TLS_CLIENT_CA", &config.TLS.ClientCAFile)
 	setIfPresent("INFRAFLOW_PROVIDER_LOG_DIRECTORY", &config.Logging.Directory)
 	setIfPresent("INFRAFLOW_PROVIDER_DATABASE", &config.DatabasePath)
 	setIfPresent("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", &config.AdminCredentialFile)
@@ -173,6 +178,9 @@ func (config Config) Validate() error {
 			strings.TrimSpace(credential.TokenEnv) == "" || strings.ContainsAny(credential.TokenEnv, "\r\n") {
 			return fmt.Errorf("agent_credentials require valid agent_id, site_id, and token_env values")
 		}
+		if credential.ExpiresAt.IsZero() || !credential.ExpiresAt.After(time.Now()) {
+			return fmt.Errorf("agent credential for %q requires a future expires_at timestamp", credential.AgentID)
+		}
 		if _, exists := seenAgentIDs[credential.AgentID]; exists {
 			return fmt.Errorf("duplicate agent credential for %q", credential.AgentID)
 		}
@@ -198,6 +206,14 @@ func (config Config) Validate() error {
 	if err != nil || host == "" {
 		return fmt.Errorf("listen_address must use host:port format")
 	}
+	if !config.TokenExpiresAt.IsZero() && !config.TokenExpiresAt.After(time.Now()) {
+		return fmt.Errorf("token_expires_at must be a future timestamp")
+	}
+	ip := net.ParseIP(host)
+	remoteListener := !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback())
+	if remoteListener && len(config.AgentCredentials) == 0 && config.TokenExpiresAt.IsZero() {
+		return fmt.Errorf("token_expires_at must be a future timestamp for remote listeners without site-scoped credentials")
+	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("listen_address contains an invalid port")
@@ -208,10 +224,12 @@ func (config Config) Validate() error {
 		return fmt.Errorf("tls.certificate_file and tls.key_file must be configured together")
 	}
 	if !certificateSet {
-		ip := net.ParseIP(host)
 		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
 			return fmt.Errorf("TLS certificate and key are required for non-loopback listen addresses")
 		}
+	}
+	if config.TLS.ClientCAFile != "" && !certificateSet {
+		return fmt.Errorf("tls.client_ca_file requires a server certificate and key")
 	}
 	if config.APIListenAddress != "" {
 		apiHost, apiPortText, err := net.SplitHostPort(config.APIListenAddress)
@@ -223,8 +241,12 @@ func (config Config) Validate() error {
 			return fmt.Errorf("api_listen_address contains an invalid port")
 		}
 		apiIP := net.ParseIP(apiHost)
-		if !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback()) && !certificateSet {
+		remoteAPI := !strings.EqualFold(apiHost, "localhost") && (apiIP == nil || !apiIP.IsLoopback())
+		if remoteAPI && !certificateSet {
 			return fmt.Errorf("api_listen_address requires TLS certificate and key for non-loopback addresses")
+		}
+		if remoteAPI && config.TokenExpiresAt.IsZero() {
+			return fmt.Errorf("token_expires_at must be a future timestamp for remote API listeners")
 		}
 	}
 	if config.WebUIEnabled && config.APIListenAddress == "" {

@@ -90,40 +90,52 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 
 	forti := readNativeArtifact(t, root, "lab/native/device-firewall1.cfg")
 	cisco := readNativeArtifact(t, root, "lab/native/device-edge-west-1.cfg")
-	for _, line := range []string{
-		"hostname router1",
-		"ip address 192.0.2.1 255.255.255.0",
-		"no shutdown",
-		"ip address dhcp",
-		"ip route 198.51.100.0 255.255.255.0 GigabitEthernet1 192.0.2.254 25",
-	} {
-		if !strings.Contains(cisco, line) {
-			t.Errorf("Cisco config missing %q:\n%s", line, cisco)
-		}
-	}
 	mikrotik := readNativeArtifact(t, root, "lab/native/device-router2.cfg")
-	for _, line := range []string{
-		`/system identity set name="router2"`,
-		`/ip address add address=192.0.2.2/24 interface="ether1"`,
-		`/ip route add dst-address=198.51.100.0/24 gateway="192.0.2.254" distance=3`,
-	} {
-		if !strings.Contains(mikrotik, line) {
-			t.Errorf("RouterOS config missing %q:\n%s", line, mikrotik)
-		}
+	expected := map[string]string{
+		"Cisco IOS-XE": `hostname router1
+interface GigabitEthernet1
+ ip address 192.0.2.1 255.255.255.0
+ no shutdown
+!
+interface GigabitEthernet2
+ ip address dhcp
+!
+ip route 198.51.100.0 255.255.255.0 GigabitEthernet1 192.0.2.254 25
+`,
+		"MikroTik RouterOS 7": `/system identity set name="router2"
+/ip address add address=192.0.2.2/24 interface="ether1"
+/ip route add dst-address=198.51.100.0/24 gateway="192.0.2.254" distance=3
+`,
+		"FortiOS": `config global
+    config system global
+        set hostname firewall1
+    end
+end
+config vdom
+    edit root
+        config system interface
+            edit "port1"
+                set mode static
+                set ip 192.0.2.3 255.255.255.0
+                set status down
+            next
+        end
+        config router static
+            edit 10
+                set dst 198.51.100.0 255.255.255.0
+                set gateway 192.0.2.254
+                set device "port1"
+                set distance 7
+            next
+        end
+    next
+end`,
 	}
-	for _, line := range []string{
-		"set hostname firewall1",
-		"config vdom\n    edit root",
-		`edit "port1"`,
-		"set ip 192.0.2.3 255.255.255.0",
-		"set status down",
-		"edit 10",
-		"set dst 198.51.100.0 255.255.255.0",
-		`set device "port1"`,
-		"set distance 7",
+	for vendor, got := range map[string]string{
+		"Cisco IOS-XE": cisco, "MikroTik RouterOS 7": mikrotik, "FortiOS": forti,
 	} {
-		if !strings.Contains(forti, line) {
-			t.Errorf("FortiOS config missing %q:\n%s", line, forti)
+		if got != expected[vendor] {
+			t.Errorf("%s output differs from expected: got=%q want=%q", vendor, got, expected[vendor])
 		}
 	}
 	if strings.Contains(forti, "password") || strings.Contains(mikrotik, ".auto.rsc") {
@@ -135,14 +147,67 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 	if err := json.Unmarshal([]byte(data), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Status != "rendered_unverified" || len(manifest.Warnings) == 0 || len(manifest.Devices) != 3 {
+	if manifest.Status != "rendered_unverified" || len(manifest.Warnings) == 0 || len(manifest.Devices) != 3 ||
+		manifest.ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+		manifest.ConfigSyntaxValidation.Status != configSyntaxValidationUnavailable {
 		t.Fatalf("native manifest must disclose unverified status and limits: %#v", manifest)
+	}
+	for _, device := range manifest.Devices {
+		if device.ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+			device.ConfigSyntaxValidation.Status != configSyntaxValidationUnavailable ||
+			!strings.Contains(device.ConfigSyntaxValidation.Message, "No offline syntax parser is registered") {
+			t.Errorf("native report did not disclose parser availability for %s: %#v", device.Name, device.ConfigSyntaxValidation)
+		}
 	}
 	if manifest.Devices[0].Compatibility != "unknown" || manifest.Devices[0].Model != "FG-60F" || manifest.Devices[0].OSVersion != "7.4.5" {
 		t.Fatalf("native manifest must preserve target identity without claiming compatibility: %#v", manifest.Devices[0])
 	}
 	if manifest.Devices[0].Vendor != "fortinet" || manifest.Devices[0].TemplateID != "infraflow.fortinet.fortios.native" {
 		t.Fatalf("native manifest must identify the renderer provenance: %#v", manifest.Devices[0])
+	}
+}
+
+func TestFortiOSExampleMatchesExpectedConfiguration(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "..", "examples", "fortios-native.yaml")
+	data, err := os.ReadFile(examplePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := config.Parse(data)
+	if err != nil {
+		t.Fatalf("parse FortiOS example: %v", err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(infrastructure, root); err != nil {
+		t.Fatalf("generate FortiOS example: %v", err)
+	}
+	got := readNativeArtifact(t, root, "fortios-lab/native/device-FG60F.cfg")
+	want := `config global
+    config system global
+        set hostname FG60F
+    end
+end
+config vdom
+    edit root
+        config system interface
+            edit "port1"
+                set mode static
+                set ip 192.0.2.1 255.255.255.0
+                set status up
+            next
+        end
+        config router static
+            edit 10
+                set dst 198.51.100.0 255.255.255.0
+                set gateway 192.0.2.254
+                set device "port1"
+                set distance 7
+            next
+        end
+    next
+end`
+	if got != want {
+		t.Fatalf("FortiOS example output differs from expected: got=%q want=%q", got, want)
 	}
 }
 

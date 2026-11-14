@@ -385,6 +385,65 @@ func TestGRPCRejectsMultipleAgentsForOneSite(t *testing.T) {
 	}
 }
 
+func TestGRPCAgentTokensExpireRotateAndRevoke(t *testing.T) {
+	agents, err := filesystem.NewAgentStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, application.Dependencies{})
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-a", SiteID: "site-a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	globalToken := strings.Repeat("g", security.MinAgentTokenBytes)
+	oldToken := strings.Repeat("a", security.MinAgentTokenBytes)
+	newToken := strings.Repeat("b", security.MinAgentTokenBytes)
+	makeServer := func(token string, expiresAt time.Time) *agentProviderServer {
+		return &agentProviderServer{
+			service: service,
+			token:   []byte(globalToken),
+			agentCredentials: map[string]AgentCredential{
+				"agent-a": {AgentID: "agent-a", SiteID: "site-a", Token: token, ExpiresAt: expiresAt},
+			},
+		}
+	}
+	makeContext := func(token string) context.Context {
+		return metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+			"authorization", "Bearer "+token,
+			"x-infraflow-agent-id", "agent-a",
+		))
+	}
+
+	active := makeServer(oldToken, time.Now().Add(time.Hour))
+	if _, err := active.authorize(makeContext(oldToken)); err != nil {
+		t.Fatalf("active token rejected: %v", err)
+	}
+	rotated := makeServer(newToken, time.Now().Add(time.Hour))
+	if _, err := rotated.authorize(makeContext(oldToken)); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("rotated token still accepted the old credential: %v", err)
+	}
+	if _, err := rotated.authorize(makeContext(newToken)); err != nil {
+		t.Fatalf("new token rejected after rotation: %v", err)
+	}
+	if _, err := makeServer(newToken, time.Now().Add(-time.Second)).authorize(makeContext(newToken)); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expired token was accepted: %v", err)
+	}
+
+	revoked := &agentProviderServer{service: service, token: []byte(globalToken)}
+	if _, err := revoked.authorize(makeContext(newToken)); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("revoked token was accepted after removal from provider credentials: %v", err)
+	}
+}
+
+func TestGRPCRejectsExpiredGlobalToken(t *testing.T) {
+	token := strings.Repeat("g", security.MinAgentTokenBytes)
+	server := &agentProviderServer{token: []byte(token), tokenExpiresAt: time.Now().Add(-time.Second)}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+token))
+	if _, err := server.authorize(ctx); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("expired global token was accepted: %v", err)
+	}
+}
+
 func TestGRPCScopedAgentLogsRejectIdentityAndSiteSpoofing(t *testing.T) {
 	root := t.TempDir()
 	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)

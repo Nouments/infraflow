@@ -3,6 +3,7 @@ package generator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,27 @@ import (
 	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
+
+func BenchmarkGenerateAll(b *testing.B) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        model: ios-xe
+`))
+	if err != nil {
+		b.Fatal(err)
+	}
+	output := b.TempDir()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := GenerateAll(infrastructure, output); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestGeneratedShellScriptIsExecutable(t *testing.T) {
 	root := t.TempDir()
@@ -648,6 +670,7 @@ func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) 
 `)
 	for _, path := range []string{
 		"lab/inventory.json",
+		"lab/topology.json",
 		"lab/manifest.json",
 		"generation-report.json",
 		"manifest.json",
@@ -681,7 +704,221 @@ func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) 
 			if _, err := Catalog(root); err != nil {
 				t.Fatalf("previous catalog is no longer valid: %v", err)
 			}
+			data, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil || len(data) == 0 {
+				t.Fatalf("previous artifact is no longer readable: size=%d err=%v", len(data), err)
+			}
 		})
+	}
+}
+
+func TestGenerateAllStagingFailurePreservesPreviousGeneration(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	oldInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeStage: func(site, phase string) error {
+			if site == "lab" && phase == "native configuration" {
+				return os.ErrPermission
+			}
+			return nil
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil {
+		t.Fatal("expected injected staging failure")
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is no longer valid: %v", err)
+	}
+	currentInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+	if err != nil || string(currentInventory) != string(oldInventory) {
+		t.Fatalf("previous artifact changed after staging failure: err=%v", err)
+	}
+}
+
+func TestGenerateAllAtomicWriteFailuresPreservePreviousGeneration(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	tests := []struct {
+		name      string
+		configure func(*publicationHooks)
+	}{
+		{
+			name: "sync",
+			configure: func(hooks *publicationHooks) {
+				hooks.beforeSync = func(path string) error {
+					if path == "lab/topology.json" {
+						return os.ErrPermission
+					}
+					return nil
+				}
+			},
+		},
+		{
+			name: "replace",
+			configure: func(hooks *publicationHooks) {
+				hooks.beforeReplace = func(path string) error {
+					if path == "lab/topology.json" {
+						return os.ErrPermission
+					}
+					return nil
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if _, err := GenerateAll(previous, root); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotGenerationFiles(t, root)
+			oldInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock, err := acquireGenerationLock(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hooks := publicationHooks{}
+			test.configure(&hooks)
+			_, generationErr := generateAllLocked(context.Background(), next, root, hooks)
+			releaseErr := lock.release()
+			if generationErr == nil {
+				t.Fatalf("expected injected %s failure", test.name)
+			}
+			if releaseErr != nil {
+				t.Fatalf("release generation lock: %v", releaseErr)
+			}
+			assertGenerationFilesEqual(t, root, before)
+			if _, err := Catalog(root); err != nil {
+				t.Fatalf("previous catalog is no longer valid: %v", err)
+			}
+			currentInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil || string(currentInventory) != string(oldInventory) {
+				t.Fatalf("previous artifact changed after %s failure: err=%v", test.name, err)
+			}
+		})
+	}
+}
+
+func TestUnrecoverablePublicationReportsRecoveryRequired(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(root, "user-notes.txt")
+	if err := os.WriteFile(userFile, []byte("preserve\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeWrite: func(path string) error {
+			if path != "lab/topology.json" {
+				return nil
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+					backup := filepath.Join(root, entry.Name(), "lab", "inventory.json")
+					return errors.Join(os.WriteFile(backup, []byte("corrupted rollback copy"), 0o600), os.ErrPermission)
+				}
+			}
+			return errors.New("publication backup was not created")
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil || !errors.Is(generationErr, ErrRecoveryRequired) {
+		t.Fatalf("generation error = %v, want recovery-required error", generationErr)
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	if _, err := Catalog(root); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("catalog error = %v, want recovery-required error", err)
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("artifact read error = %v, want recovery-required error", err)
+	}
+	if got, err := os.ReadFile(userFile); err != nil || string(got) != "preserve\n" {
+		t.Fatalf("recovery failure changed user file: data=%q err=%v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); err != nil {
+		t.Fatalf("recovery journal was discarded: %v", err)
 	}
 }
 

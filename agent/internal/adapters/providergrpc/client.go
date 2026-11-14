@@ -35,7 +35,18 @@ type Client struct {
 	agentID    string
 }
 
+type TLSConfig struct {
+	Enabled         bool
+	CAFile          string
+	CertificateFile string
+	KeyFile         string
+}
+
 func New(address, token string, tlsEnabled bool, caFile string, agentIDs ...string) (*Client, error) {
+	return NewWithTLSConfig(address, token, TLSConfig{Enabled: tlsEnabled, CAFile: caFile}, agentIDs...)
+}
+
+func NewWithTLSConfig(address, token string, tlsConfig TLSConfig, agentIDs ...string) (*Client, error) {
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("agent token must be at least %d bytes", security.MinAgentTokenBytes)
 	}
@@ -53,11 +64,16 @@ func New(address, token string, tlsEnabled bool, caFile string, agentIDs ...stri
 	if err != nil || host == "" || port == "" {
 		return nil, fmt.Errorf("provider address must use host:port format")
 	}
+	certificateSet := tlsConfig.CertificateFile != ""
+	keySet := tlsConfig.KeyFile != ""
+	if certificateSet != keySet {
+		return nil, fmt.Errorf("provider client certificate and key must be configured together")
+	}
 	var transport credentials.TransportCredentials
-	if tlsEnabled {
+	if tlsConfig.Enabled {
 		configuration := &tls.Config{MinVersion: tls.VersionTLS12}
-		if caFile != "" {
-			certificate, err := os.ReadFile(caFile)
+		if tlsConfig.CAFile != "" {
+			certificate, err := os.ReadFile(tlsConfig.CAFile)
 			if err != nil {
 				return nil, fmt.Errorf("read provider CA: %w", err)
 			}
@@ -67,16 +83,26 @@ func New(address, token string, tlsEnabled bool, caFile string, agentIDs ...stri
 			}
 			configuration.RootCAs = roots
 		}
+		if certificateSet {
+			certificate, err := tls.LoadX509KeyPair(tlsConfig.CertificateFile, tlsConfig.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("load provider client certificate: %w", err)
+			}
+			configuration.Certificates = []tls.Certificate{certificate}
+		}
 		transport = credentials.NewTLS(configuration)
 	} else if !isLoopback(host) {
 		return nil, fmt.Errorf("TLS is required for non-loopback provider addresses")
 	} else {
+		if certificateSet {
+			return nil, fmt.Errorf("provider client certificate requires TLS to be enabled")
+		}
 		transport = insecure.NewCredentials()
 	}
 	connection, err := grpc.NewClient(
 		address,
 		grpc.WithTransportCredentials(transport),
-		grpc.WithPerRPCCredentials(bearerCredentials{token: token, agentID: agentID, secure: tlsEnabled}),
+		grpc.WithPerRPCCredentials(bearerCredentials{token: token, agentID: agentID, secure: tlsConfig.Enabled}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create provider gRPC client: %w", err)

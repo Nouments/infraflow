@@ -126,11 +126,15 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if artifactTokenEnv == "" {
 		artifactTokenEnv = settings.Provider.TokenEnv
 	}
-	providerClient, err := providergrpc.New(
+	providerClient, err := providergrpc.NewWithTLSConfig(
 		settings.Provider.Address,
 		os.Getenv(artifactTokenEnv),
-		settings.Provider.TLS.Enabled,
-		settings.Provider.TLS.CAFile,
+		providergrpc.TLSConfig{
+			Enabled:         settings.Provider.TLS.Enabled,
+			CAFile:          settings.Provider.TLS.CAFile,
+			CertificateFile: settings.Provider.TLS.CertificateFile,
+			KeyFile:         settings.Provider.TLS.KeyFile,
+		},
 		settings.Agent.ID,
 	)
 	if err != nil {

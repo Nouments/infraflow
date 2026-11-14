@@ -22,7 +22,10 @@ Source and tests show the native renderer writes Cisco `.cfg`, MikroTik
 `.auto.rsc`, and FortiOS `.cfg` files. Previous references to FortiOS `.conf`
 were incorrect and have been corrected. The three providers' example rendering
 is checked in generation tests; this is template-content evidence only, not a
-vendor parser, hardware, or lab result. A local full demo was blocked by
+vendor parser, hardware, or lab result. Generation reports expose the separate
+`config_syntax_validation` status as `not_available`, with a device-specific
+reason because no offline Cisco IOS-XE, RouterOS 7, or FortiOS parser is
+registered. A local full demo was blocked by
 PowerShell execution policy and Windows Application Control; no policy was
 changed. A local lock-marker inspection fix is uncommitted and is not included
 in the cited CI run. See the completion report for exact commands and limits.

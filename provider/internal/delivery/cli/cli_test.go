@@ -428,7 +428,7 @@ func TestServeCreatesArtifactDirectoryAndRejectsMissingTLSFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "load TLS certificate") {
+	if code != 2 || !strings.Contains(stderr.String(), "configure gRPC TLS") {
 		t.Fatalf("expected missing TLS certificate error before listener startup, got %d and %q", code, stderr.String())
 	}
 	if info, err := os.Stat(missingDirectory); err != nil || !info.IsDir() {
@@ -455,6 +455,28 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 	code := Run([]string{"validate", "-f", inputPath}, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stderr.String(), "unsupported") {
 		t.Fatalf("expected invalid input error, got %d and %q", code, stderr.String())
+	}
+}
+
+func TestGenerateRejectsSecretLikeUnknownFieldsWithoutPublishingOrLoggingValues(t *testing.T) {
+	inputPath := writeInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        credentials:
+          password: sentinel-secret-value
+`)
+	outputPath := filepath.Join(t.TempDir(), "generated")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run([]string{"generate-all", "-f", inputPath, "-out", outputPath}, &stdout, &stderr); code != 1 {
+		t.Fatalf("unsupported secret-like input was not rejected: code=%d stderr=%q", code, stderr.String())
+	}
+	if strings.Contains(stderr.String()+stdout.String(), "sentinel-secret-value") {
+		t.Fatalf("secret-like input value leaked into command output: %q", stderr.String()+stdout.String())
+	}
+	if _, err := os.Lstat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("rejected secret-like input published an output directory: %v", err)
 	}
 }
 
@@ -496,7 +518,7 @@ func TestServeReportsInvalidConfigAndTLSCertificate(t *testing.T) {
 	t.Setenv("INFRAFLOW_TEST_AGENT_TOKEN", strings.Repeat("x", 32))
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "load TLS certificate") {
+	if code := Run([]string{"serve", "-config", configPath}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "configure gRPC TLS") {
 		t.Fatalf("invalid TLS certificate returned %d: %q", code, stderr.String())
 	}
 }

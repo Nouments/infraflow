@@ -88,6 +88,7 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 	}
 	globalToken := strings.Repeat("g", 32)
 	providerConfigPath := filepath.Join(tempRoot, "provider.yaml")
+	tokenExpiry := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
 	providerConfig := fmt.Sprintf(
 		"listen_address: 127.0.0.1:%d\napi_listen_address: 127.0.0.1:%d\nartifact_directory: %s\ntoken_env: INFRAFLOW_E2E_GLOBAL_TOKEN\nknown_hosts_file: %s\nlogging:\n  directory: %s\nagent_credentials:\n",
 		grpcPort, apiPort, yamlQuote(artifactRoot),
@@ -96,8 +97,8 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 	)
 	for index, credential := range credentials {
 		providerConfig += fmt.Sprintf(
-			"  - agent_id: %s\n    site_id: %s\n    token_env: INFRAFLOW_E2E_SITE_%d_TOKEN\n",
-			credential.agentID, credential.siteID, index,
+			"  - agent_id: %s\n    site_id: %s\n    token_env: INFRAFLOW_E2E_SITE_%d_TOKEN\n    expires_at: %s\n",
+			credential.agentID, credential.siteID, index, tokenExpiry,
 		)
 	}
 	if err := os.WriteFile(providerConfigPath, []byte(providerConfig), 0o600); err != nil {

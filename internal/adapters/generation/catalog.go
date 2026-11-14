@@ -50,10 +50,10 @@ func catalogArtifacts(root string) ([]Artifact, error) {
 	seenPaths := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.Name() == generationJournalName {
-			return nil, fmt.Errorf("publication recovery is required for %q", filepath.Join(root, entry.Name()))
+			return nil, fmt.Errorf("%w: %q", ErrRecoveryRequired, filepath.Join(root, entry.Name()))
 		}
 		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
-			return nil, fmt.Errorf("publication recovery is required for %q", filepath.Join(root, entry.Name()))
+			return nil, fmt.Errorf("%w: %q", ErrRecoveryRequired, filepath.Join(root, entry.Name()))
 		}
 		if entry.Name() == generationLockName || strings.HasPrefix(entry.Name(), generationReadLockPrefix) {
 			continue

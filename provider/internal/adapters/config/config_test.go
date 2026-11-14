@@ -19,6 +19,7 @@ token_env: INFRAFLOW_AGENT_TOKEN
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
 artifact_directory: /var/lib/infraflow/artifacts
 token_env: INFRAFLOW_AGENT_TOKEN
+token_expires_at: 2099-01-01T00:00:00Z
 chunk_size: 32768
 tls:
   certificate_file: /etc/infraflow/server.crt
@@ -55,6 +56,7 @@ func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
 	t.Setenv("INFRAFLOW_PROVIDER_TOKEN_ENV", "INFRAFLOW_AGENT_TOKEN")
 	t.Setenv("INFRAFLOW_PROVIDER_TLS_CERTIFICATE", "/run/secrets/provider.crt")
 	t.Setenv("INFRAFLOW_PROVIDER_TLS_KEY", "/run/secrets/provider.key")
+	t.Setenv("INFRAFLOW_PROVIDER_TLS_CLIENT_CA", "/run/secrets/agent-ca.crt")
 	t.Setenv("INFRAFLOW_PROVIDER_DATA", "/var/lib/infraflow-provider")
 	t.Setenv("INFRAFLOW_PROVIDER_DATABASE", "")
 	t.Setenv("INFRAFLOW_PROVIDER_ADMIN_CREDENTIAL_FILE", "")
@@ -64,6 +66,7 @@ func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
 api_listen_address: 127.0.0.1:8080
 artifact_directory: ./provider-data
 token_env: TOKEN
+token_expires_at: 2099-01-01T00:00:00Z
 `)
 	config, err := Load(path)
 	if err != nil {
@@ -77,7 +80,7 @@ token_env: TOKEN
 	if config.ArtifactDirectory != expectedDirectory || config.DatabasePath != expectedDatabase {
 		t.Fatalf("provider data paths were not applied: %#v", config)
 	}
-	if config.TLS.CertificateFile != "/run/secrets/provider.crt" || config.TLS.KeyFile != "/run/secrets/provider.key" {
+	if config.TLS.CertificateFile != "/run/secrets/provider.crt" || config.TLS.KeyFile != "/run/secrets/provider.key" || config.TLS.ClientCAFile != "/run/secrets/agent-ca.crt" {
 		t.Fatalf("provider TLS overrides were not applied: %#v", config.TLS)
 	}
 }
@@ -90,9 +93,11 @@ agent_credentials:
   - agent_id: agent-a
     site_id: site-a
     token_env: INFRAFLOW_SITE_A_TOKEN
+    expires_at: 2099-01-01T00:00:00Z
   - agent_id: agent-b
     site_id: site-b
     token_env: INFRAFLOW_SITE_B_TOKEN
+    expires_at: 2099-01-01T00:00:00Z
 `)
 	config, err := Load(path)
 	if err != nil {
@@ -109,9 +114,11 @@ agent_credentials:
   - agent_id: agent-a
     site_id: site-a
     token_env: TOKEN_A
+    expires_at: 2099-01-01T00:00:00Z
   - agent_id: agent-a
     site_id: site-b
     token_env: TOKEN_B
+    expires_at: 2099-01-01T00:00:00Z
 `)
 	if _, err := Load(duplicate); err == nil || !strings.Contains(err.Error(), "duplicate agent credential") {
 		t.Fatalf("expected duplicate agent credentials to be rejected, got %v", err)
@@ -124,9 +131,11 @@ agent_credentials:
   - agent_id: agent-a
     site_id: site-a
     token_env: TOKEN_A
+    expires_at: 2099-01-01T00:00:00Z
   - agent_id: agent-b
     site_id: site-a
     token_env: TOKEN_B
+    expires_at: 2099-01-01T00:00:00Z
 `)
 	if _, err := Load(duplicateSite); err == nil || !strings.Contains(err.Error(), "site_id") {
 		t.Fatalf("expected a site to be assigned to only one Agent, got %v", err)
@@ -137,6 +146,7 @@ func TestLoadRejectsRemotePlaintextAndUnknownFields(t *testing.T) {
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
 artifact_directory: ./provider-data
 token_env: TOKEN
+token_expires_at: 2099-01-01T00:00:00Z
 `)
 	if _, err := Load(remote); err == nil || !strings.Contains(err.Error(), "TLS certificate") {
 		t.Fatalf("expected remote TLS requirement, got %v", err)
@@ -152,6 +162,72 @@ token_env: TOKEN
 `)
 	if _, err := Load(remoteAPI); err == nil || !strings.Contains(err.Error(), "api_listen_address requires TLS") {
 		t.Fatalf("expected remote API rejection, got %v", err)
+	}
+}
+
+func TestLoadRequiresExpiringCredentialsForRemoteAgentAccess(t *testing.T) {
+	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+tls:
+  certificate_file: /tmp/provider.crt
+  key_file: /tmp/provider.key
+`)
+	if _, err := Load(remote); err == nil || !strings.Contains(err.Error(), "token_expires_at") {
+		t.Fatalf("expected a remote global token expiry requirement, got %v", err)
+	}
+
+	scoped := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-a
+    site_id: site-a
+    token_env: TOKEN_A
+`)
+	if _, err := Load(scoped); err == nil || !strings.Contains(err.Error(), "future expires_at") {
+		t.Fatalf("expected a scoped token expiry requirement, got %v", err)
+	}
+
+	remoteAPI := writeProviderConfig(t, `listen_address: localhost:8443
+api_listen_address: 0.0.0.0:8080
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+agent_credentials:
+  - agent_id: agent-a
+    site_id: site-a
+    token_env: TOKEN_A
+    expires_at: 2099-01-01T00:00:00Z
+tls:
+  certificate_file: /tmp/provider.crt
+  key_file: /tmp/provider.key
+`)
+	if _, err := Load(remoteAPI); err == nil || !strings.Contains(err.Error(), "token_expires_at") {
+		t.Fatalf("expected a remote API machine-token expiry requirement, got %v", err)
+	}
+
+	expired := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+token_expires_at: 2000-01-01T00:00:00Z
+tls:
+  certificate_file: /tmp/provider.crt
+  key_file: /tmp/provider.key
+`)
+	if _, err := Load(expired); err == nil || !strings.Contains(err.Error(), "token_expires_at") {
+		t.Fatalf("expected an expired global token to be rejected, got %v", err)
+	}
+}
+
+func TestLoadRequiresServerTLSWhenClientCAIsConfigured(t *testing.T) {
+	path := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: TOKEN
+tls:
+  client_ca_file: /tmp/agent-ca.crt
+`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "requires a server certificate") {
+		t.Fatalf("expected client CA without server TLS to be rejected, got %v", err)
 	}
 }
 

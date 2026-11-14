@@ -14,10 +14,25 @@ import (
 )
 
 func AtomicWrite(root, relativePath string, data []byte, mode fs.FileMode) error {
-	return AtomicWriteFromReader(root, relativePath, bytes.NewReader(data), mode, "")
+	return AtomicWriteWithHooks(root, relativePath, data, mode, AtomicWriteHooks{})
+}
+
+type AtomicWriteHooks struct {
+	BeforeSync    func() error
+	BeforeReplace func() error
+}
+
+// AtomicWriteWithHooks allows callers to inject failures at durability and
+// replacement boundaries without changing the normal atomic-write behavior.
+func AtomicWriteWithHooks(root, relativePath string, data []byte, mode fs.FileMode, hooks AtomicWriteHooks) error {
+	return atomicWriteFromReader(root, relativePath, bytes.NewReader(data), mode, "", hooks)
 }
 
 func AtomicWriteFromReader(root, relativePath string, source io.Reader, mode fs.FileMode, expectedHash string) error {
+	return atomicWriteFromReader(root, relativePath, source, mode, expectedHash, AtomicWriteHooks{})
+}
+
+func atomicWriteFromReader(root, relativePath string, source io.Reader, mode fs.FileMode, expectedHash string, hooks AtomicWriteHooks) error {
 	parts, err := safeRelativeParts(relativePath)
 	if strings.TrimSpace(root) == "" || err != nil {
 		return fmt.Errorf("invalid relative output path")
@@ -74,11 +89,21 @@ func AtomicWriteFromReader(root, relativePath string, source io.Reader, mode fs.
 	if expectedHash != "" && hex.EncodeToString(digest.Sum(nil)) != expectedHash {
 		return fmt.Errorf("output SHA-256 does not match expected hash")
 	}
+	if hooks.BeforeSync != nil {
+		if err := hooks.BeforeSync(); err != nil {
+			return fmt.Errorf("sync staged output: %w", err)
+		}
+	}
 	if err := temporary.Sync(); err != nil {
 		return err
 	}
 	if err := temporary.Close(); err != nil {
 		return err
+	}
+	if hooks.BeforeReplace != nil {
+		if err := hooks.BeforeReplace(); err != nil {
+			return fmt.Errorf("replace output: %w", err)
+		}
 	}
 	return os.Rename(temporaryPath, target)
 }
