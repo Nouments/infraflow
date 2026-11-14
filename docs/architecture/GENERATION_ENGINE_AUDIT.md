@@ -1,6 +1,49 @@
 # Generation Engine Audit
 
-## Current presentation-readiness follow-up — `develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`
+## Mission 85+ local follow-up — `develop` baseline `bbffd4153857547204a457fa0da2c5f46e542d06`
+
+The starting worktree was clean and `develop` matched `origin/develop` at
+`stabilization6`. CI
+[run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
+passed Linux tests/race/vet/build/format/diff and Windows tests/vet/build/
+format/diff on that SHA. No CI run covers the current local changes.
+
+The full-generation publisher now writes a strict, bounded journal and
+SHA-256-verified backups before changing published files. The journal stores
+the original/new hashes, original modes, backup location, and directories
+created for publication. Reads fail closed while a journal or backup state is
+present. Under the next writer lock, an uncommitted transaction is restored
+and a committed transaction is cleaned. Publication-phase failures roll back
+using this same journal; a simulated abrupt interruption after an artifact
+write is covered. Tests also cover unsafe recovery metadata and committed
+cleanup after backup removal.
+
+Recovery is not a global atomic directory swap. File contents are synced
+before rename, but parent-directory sync and power-loss durability are not
+guaranteed across filesystems. A stale writer lock is not auto-removed; an
+operator must verify the owner is no longer active and remove only the lock
+file before retrying. Reader markers are also persistent and writers fail
+closed while any are present. After stopping all processes that may read the
+root and confirming no reader is active, an operator may remove only the
+`.infraflow-generation-reader-*.lock` files. Invalid journal or backup
+metadata remains fail-closed. An initial journal-write failure removes its
+unused backup directory rather than leaving an orphan that blocks reads and
+future recovery.
+Standalone and declarative generation remain outside the shared full-generation
+transaction/catalog contract.
+
+The new Bash launcher/Python verifier and Linux CI job are configured to check
+fresh-output generation, manifests, paths, sizes, hashes, bootstrap
+opt-in/opt-out, native rendered content, unsupported OSPF, and the real Agent
+multisite integration test. The local demo and new job were not executed; no
+success is claimed.
+The local full test suite failed under Windows Application Control and
+`CGO_ENABLED=0` SQLite limitations. The latest generation-package test
+invocation was blocked by Application Control; earlier focused runs passed.
+Race tests are not available locally with `CGO_ENABLED=0`. Exact chronology is
+in the [completion report](../COMPLETION_AND_TEST_REPORT.md).
+
+## Historical stabilization5 follow-up — `develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`
 
 `develop` and `origin/develop` were fetched and confirmed at this starting
 commit; no newer remote commit was found. The initial worktree was clean.

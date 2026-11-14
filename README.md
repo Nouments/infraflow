@@ -32,24 +32,28 @@ go run ./provider/cmd validate -f examples/network-deployment.yaml
 
 ### Current repository and CI baseline
 
-The presentation-readiness review started on `develop` at
-`093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`), matching
-`origin/develop`; the worktree was clean. GitHub Actions
-[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
-passed on that commit. Linux passed full and race tests, vet, command builds,
-formatting, and diff checks. Windows passed full tests, vet, command builds,
-formatting, and diff checks; the workflow does not run Windows race tests.
+The current review baseline is `develop` at
+`bbffd4153857547204a457fa0da2c5f46e542d06` (`stabilization6`), matching
+`origin/develop`; the worktree was clean before this local follow-up. GitHub
+Actions [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
+passed on that exact commit: Linux full and race tests, vet, builds, formatting,
+and diff checks; Windows full tests, vet, builds, formatting, and diff checks.
+Windows CI does not run race tests.
 
-The local follow-up corrected a concurrent-generation race while inspecting
-transient reader-lock files. Focused generation-related tests passed, including
-ten runs of the reader/generator regression. This local change has not been
-covered by CI. The full local test suite fails with `CGO_ENABLED=0` SQLite and
-temporary Provider runtime errors; the race command requires CGO. Windows
-Application Control blocked a targeted CLI test executable and `go run`, and
-the active PowerShell policy refused to load the demo script. No policy was
-changed or bypassed. See the [completion report](docs/COMPLETION_AND_TEST_REPORT.md)
+The current uncommitted follow-up adds journal-based recovery for interrupted
+`generate-all` publication, a fresh-output presentation demo and verifier, and
+a test-only timeout adjustment for a Windows pipe-throughput test. Focused
+generation/protocol/filesystem/Agent-artifact tests passed before the final
+review fixes; `go vet` and command builds passed on the final Go changes. The
+corrected focused generation test and final full suite were blocked by Windows
+Application Control, and the full suite also encountered `CGO_ENABLED=0`
+SQLite limitations. The final full run passed the SSH output-limit package
+after a test-only timeout increase; an earlier run timed out at the old test
+limit. Race testing is unavailable with `CGO_ENABLED=0`. The follow-up has not
+been covered by CI, and the demo has not been executed locally. See the
+[completion report](docs/COMPLETION_AND_TEST_REPORT.md)
 and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md) for
-exact evidence and unresolved risks.
+commands, observed results, recovery limits, and remaining risks.
 
 ### Historical stabilization evidence (2026-11-12)
 
@@ -79,17 +83,37 @@ one combined manifest; it does not contact infrastructure or apply a plan.
 Bootstrap service artifacts are omitted unless the corresponding service is
 explicitly enabled.
 
-Run the end-to-end PowerShell demonstration from the repository root with
-`.\scripts\demo-provisioning.ps1`. It validates and plans the provisioning
-fixture, generates into a fresh temporary directory, verifies manifests,
-artifact sizes and SHA-256 values, displays the Cisco `.cfg` and MikroTik
-`.auto.rsc`, and confirms unsupported OSPF intent is rejected without output.
-The output remains under the printed `%TEMP%` path for inspection. On the
-current review machine, PowerShell policy refused to load the script and
-Windows Application Control blocked `go run`'s generated command executable.
-Neither control was changed or bypassed, so no local end-to-end demo pass is
-claimed. The exact CI test results and local limitations are in the
-[completion report](docs/COMPLETION_AND_TEST_REPORT.md).
+Full-generation publication uses a bounded journal and verified rollback
+copies. If a reader process is interrupted, its
+`.infraflow-generation-reader-*.lock` marker may remain and writers fail
+closed. Only after stopping all InfraFlow processes that may read the output
+root and confirming no reader is active, an operator may remove those exact
+reader marker files. Do not remove active reader markers. A stale
+`.infraflow-generation.lock` similarly requires confirming no writer is active
+before removing only that lock file; the next generation then attempts journal
+recovery. This rollback mechanism is not a filesystem-wide atomic swap, and
+parent-directory durability is not guaranteed across filesystems.
+
+Run the scripted presentation demo from a Linux shell or Git Bash at the
+repository root:
+
+```sh
+bash scripts/presentation-demo-launch.sh
+python3 scripts/presentation-demo-verify.py <fresh-root-printed-by-launcher>
+```
+
+The launcher uses a fresh temporary root and existing Provider CLI commands to
+validate, plan, and generate the Cisco/MikroTik, opt-in bootstrap, and
+bootstrap-disabled multisite fixtures. It rejects unsupported OSPF and checks
+that no output was published. The separate verifier checks generated JSON,
+site isolation, manifests/reports, on-disk files, sizes, and SHA-256 values,
+then displays the native Cisco `.cfg` and RouterOS `.auto.rsc`. Expected
+completion ends with `PASS: demo verification complete; artifacts were not
+applied or device-verified.` This follow-up demo and its new CI job have not
+yet been executed on the local diff; no successful run is claimed. On Windows,
+the existing `scripts/demo-provisioning.ps1` remains available, subject to the
+machine's PowerShell execution policy. The completion report records the
+observed local environment limitations.
 
 The YAML parser accepts either `site` or `sites`, based on which top-level key
 is present, and rejects documents containing both. Network validation rejects

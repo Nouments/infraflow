@@ -27,6 +27,26 @@ jobs:
       - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - run: git diff --check
 
+  presentation-demo:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Launch presentation demo
+        id: demo
+        run: bash scripts/presentation-demo-launch.sh
+      - name: Verify generated presentation artifacts
+        env:
+          DEMO_ROOT: ${{ steps.demo.outputs.root }}
+        run: python3 scripts/presentation-demo-verify.py "$DEMO_ROOT"
+      - name: Verify real Agent multisite synchronization
+        run: go test -count=1 ./agent/internal/application -run '^TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts$'
+
   windows:
     runs-on: windows-latest
     env:
@@ -41,7 +61,6 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update-environment: true
           install: mingw-w64-ucrt-x86_64-gcc
       - run: go test -count=1 ./...
         shell: pwsh

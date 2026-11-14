@@ -1,6 +1,21 @@
 # Current Architecture Snapshot
 
-## Audit baseline
+## Latest review status — 2026-11-14
+
+- Branch `develop`; starting HEAD and `origin/develop`:
+  `bbffd4153857547204a457fa0da2c5f46e542d06` (`stabilization6`); initial
+  worktree clean. Current local changes are uncommitted.
+- CI [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
+  passed Linux full/race tests and Windows full tests, plus vet, builds,
+  formatting, and diff checks on the starting SHA. The local publication
+  journal, demo scripts, and workflow updates have no CI result yet.
+- Full-generation publication now has local journal-based
+  process-interruption recovery and regression tests. Recovery is not a
+  filesystem-wide atomic swap, stale writer locks require manual verified
+  cleanup, and power-loss durability is not claimed. See the [completion
+  report](../COMPLETION_AND_TEST_REPORT.md) for exact validation outcomes.
+
+## Historical stabilization5 audit baseline
 
 - Repository: `Nouments/infraflow`
 - Branch: `develop`
@@ -81,16 +96,27 @@ the output directory. Concurrent catalog scans now ignore reserved lock
 filenames, avoiding a race when another reader removes a marker between
 `ReadDir` and `Lstat`. Full-generation inspection now also skips those
 transient lock names; otherwise a Windows `Lstat` could fail after a reader
-removed its marker. This follow-up fix is local and not covered by the cited
-CI. External processes that ignore InfraFlow locks are not coordinated.
+removed its marker. This lock-marker fix is included in the stabilization6
+baseline CI. External processes that ignore InfraFlow locks are not
+coordinated.
 
-This is rollback-capable publication, not a filesystem-wide atomic swap. A
-crash can leave a recovery directory and partial files; catalog access fails
-closed and there is no automatic recovery procedure. Standalone generators
-have per-file atomic writes and writer locking, but do not share the full
-generation transaction and stale-file/catalog lifecycle. The declarative
-device-config generator has a separate report/rollback path and does not
-publish artifacts through the shared site catalog contract.
+The local follow-up adds a bounded publication journal and hash-checked
+rollback copies before full-generation changes. An interrupted uncommitted
+transaction is restored under the next writer lock; a committed transaction
+is cleaned without reverting the new output. While recovery state exists,
+catalog reads fail closed. This remains rollback-capable publication, not a
+filesystem-wide atomic swap. File contents are synced before rename, but
+parent-directory durability and power-loss recovery are not guaranteed across
+filesystems. A stale `.infraflow-generation.lock` is not removed
+automatically; an operator must verify that no writer is active and remove
+that single lock file before retrying. Malformed journals, missing rollback
+data needed for restoration, traversal, symlinks, or unexpected target hashes
+leave recovery data intact and fail closed.
+
+Standalone generators have per-file atomic writes and writer locking, but do
+not share the full-generation transaction and stale-file/catalog lifecycle.
+The declarative device-config generator has a separate report/rollback path
+and does not publish artifacts through the shared site catalog contract.
 
 Filesystem safety rejects traversal and statically detected symlinks, but
 path-based check-then-use operations are not race-proof against another local

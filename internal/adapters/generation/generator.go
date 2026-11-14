@@ -501,6 +501,9 @@ func GenerateAllContext(ctx context.Context, infrastructure domain.Infrastructur
 	if err != nil {
 		return nil, err
 	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		return nil, errors.Join(err, lock.release())
+	}
 	artifacts, generationErr := generateAllLocked(ctx, infrastructure, root, publicationHooks{})
 	if err := lock.release(); err != nil {
 		return nil, errors.Join(generationErr, fmt.Errorf("release generation lock: %w", err))

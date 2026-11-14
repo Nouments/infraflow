@@ -23,7 +23,9 @@ import (
 const (
 	generationLockName       = ".infraflow-generation.lock"
 	generationReadLockPrefix = ".infraflow-generation-reader-"
+	generationJournalName    = ".infraflow-publish-journal.json"
 	maxManagedFileSize       = 32 << 20
+	maxPublicationJournal    = 1 << 20
 )
 
 type generationLock struct {
@@ -118,6 +120,9 @@ func withOutputGenerationLock(outputDirectory string, operation func(string) ([]
 	lock, err := acquireGenerationLock(root)
 	if err != nil {
 		return nil, err
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		return nil, errors.Join(err, lock.release())
 	}
 	artifacts, operationErr := operation(root)
 	if err := lock.release(); err != nil {
@@ -498,14 +503,34 @@ type publicationFile struct {
 }
 
 type publicationHooks struct {
-	beforeWrite  func(string) error
-	beforeRemove func(string) error
+	beforeWrite        func(string) error
+	afterWrite         func(string)
+	beforeRemove       func(string) error
+	beforeJournalWrite func(committed bool) error
 }
 
 type publicationSnapshot struct {
-	path    string
-	existed bool
-	mode    os.FileMode
+	path      string
+	existed   bool
+	mode      os.FileMode
+	oldSHA256 string
+	newSHA256 string
+}
+
+type publicationJournal struct {
+	SchemaVersion      int                       `json:"schema_version"`
+	BackupDirectory    string                    `json:"backup_directory"`
+	Committed          bool                      `json:"committed"`
+	Entries            []publicationJournalEntry `json:"entries"`
+	CreatedDirectories []string                  `json:"created_directories"`
+}
+
+type publicationJournalEntry struct {
+	Path      string `json:"path"`
+	Existed   bool   `json:"existed"`
+	Mode      uint32 `json:"mode"`
+	OldSHA256 string `json:"old_sha256,omitempty"`
+	NewSHA256 string `json:"new_sha256,omitempty"`
 }
 
 func publishSiteFiles(
@@ -532,6 +557,9 @@ func publishSiteFiles(
 	}
 	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return fmt.Errorf("publication root must be a real directory")
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		return err
 	}
 
 	files = append([]publicationFile(nil), files...)
@@ -625,13 +653,18 @@ func publishSiteFiles(
 	}
 	sort.Strings(affectedPaths)
 
+	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); err == nil {
+		return fmt.Errorf("publication recovery is required before publishing")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect publication journal: %w", err)
+	}
 	backupRoot, err := os.MkdirTemp(root, ".infraflow-publish-")
 	if err != nil {
 		return fmt.Errorf("create publication backup: %w", err)
 	}
-	cleanupBackup := true
+	journalAttempted := false
 	defer func() {
-		if !cleanupBackup {
+		if journalAttempted {
 			return
 		}
 		if err := removePublicationBackup(root, backupRoot); err != nil {
@@ -639,6 +672,10 @@ func publishSiteFiles(
 		}
 	}()
 
+	newHashes := make(map[string]string, len(files))
+	for _, file := range files {
+		newHashes[file.path] = protocol.SHA256(file.data)
+	}
 	snapshots := make([]publicationSnapshot, 0, len(affectedPaths))
 	for _, managedPath := range affectedPaths {
 		exists, _, err := inspectPublicationTarget(root, managedPath)
@@ -652,47 +689,29 @@ func publishSiteFiles(
 				return fmt.Errorf("backup managed file %q: %w", managedPath, err)
 			}
 			snapshot.mode = mode
+			snapshot.oldSHA256 = protocol.SHA256(data)
 			if err := safefs.AtomicWrite(backupRoot, managedPath, data, mode); err != nil {
 				return fmt.Errorf("save rollback copy for %q: %w", managedPath, err)
 			}
 		}
+		snapshot.newSHA256 = newHashes[managedPath]
 		snapshots = append(snapshots, snapshot)
 	}
-	if err := ctx.Err(); err != nil {
+	journal, err := makePublicationJournal(root, filepath.Base(backupRoot), snapshots, missingDirectories)
+	if err != nil {
 		return err
 	}
-
-	modified := make(map[string]struct{}, len(affectedPaths))
-	rollback := func(cause error) error {
-		rollbackErrors := []error{cause}
-		for index := len(snapshots) - 1; index >= 0; index-- {
-			snapshot := snapshots[index]
-			if _, changed := modified[snapshot.path]; !changed {
-				continue
-			}
-			if snapshot.existed {
-				data, _, err := readManagedFile(backupRoot, snapshot.path)
-				if err == nil {
-					err = safefs.AtomicWrite(root, snapshot.path, data, snapshot.mode)
-				}
-				if err != nil {
-					rollbackErrors = append(rollbackErrors, fmt.Errorf("restore %q: %w", snapshot.path, err))
-				}
-				continue
-			}
-			if err := removeNewPublicationFile(root, snapshot.path); err != nil {
-				rollbackErrors = append(rollbackErrors, fmt.Errorf("remove new file %q: %w", snapshot.path, err))
-			}
+	if hooks.beforeJournalWrite != nil {
+		if err := hooks.beforeJournalWrite(false); err != nil {
+			return fmt.Errorf("write publication journal: %w", err)
 		}
-		if err := removeCreatedDirectories(root, missingDirectories); err != nil {
-			rollbackErrors = append(rollbackErrors, fmt.Errorf("remove publication directories: %w", err))
-		}
-		if len(rollbackErrors) == 1 {
-			return cause
-		}
-		cleanupBackup = false
-		rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback data retained at %q", backupRoot))
-		return errors.Join(rollbackErrors...)
+	}
+	if err := writePublicationJournal(root, journal); err != nil {
+		return fmt.Errorf("write publication journal: %w", err)
+	}
+	journalAttempted = true
+	if err := ctx.Err(); err != nil {
+		return rollbackPublication(root, err)
 	}
 
 	remove := func(relativePath string) error {
@@ -709,9 +728,8 @@ func publishSiteFiles(
 	for _, relativePath := range invalidate {
 		if _, exists := affected[relativePath]; exists {
 			if err := remove(relativePath); err != nil {
-				return rollback(fmt.Errorf("invalidate previous manifest %q: %w", relativePath, err))
+				return rollbackPublication(root, fmt.Errorf("invalidate previous manifest %q: %w", relativePath, err))
 			}
-			modified[relativePath] = struct{}{}
 		}
 	}
 	for _, relativePath := range stalePaths {
@@ -719,9 +737,8 @@ func publishSiteFiles(
 			continue
 		}
 		if err := remove(relativePath); err != nil {
-			return rollback(fmt.Errorf("remove obsolete artifact %q: %w", relativePath, err))
+			return rollbackPublication(root, fmt.Errorf("remove obsolete artifact %q: %w", relativePath, err))
 		}
-		modified[relativePath] = struct{}{}
 	}
 	for phase := publicationPhaseArtifacts; phase <= publicationPhaseGlobalManifest; phase++ {
 		for _, file := range files {
@@ -729,21 +746,38 @@ func publishSiteFiles(
 				continue
 			}
 			if err := ctx.Err(); err != nil {
-				return rollback(err)
+				return rollbackPublication(root, err)
 			}
 			if hooks.beforeWrite != nil {
 				if err := hooks.beforeWrite(file.path); err != nil {
-					return rollback(fmt.Errorf("publish artifact %q: %w", file.path, err))
+					return rollbackPublication(root, fmt.Errorf("publish artifact %q: %w", file.path, err))
 				}
 			}
 			if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
-				return rollback(fmt.Errorf("publish artifact %q: %w", file.path, err))
+				return rollbackPublication(root, fmt.Errorf("publish artifact %q: %w", file.path, err))
 			}
-			modified[file.path] = struct{}{}
+			if hooks.afterWrite != nil {
+				hooks.afterWrite(file.path)
+			}
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return rollback(err)
+		return rollbackPublication(root, err)
+	}
+	journal.Committed = true
+	if hooks.beforeJournalWrite != nil {
+		if err := hooks.beforeJournalWrite(true); err != nil {
+			return rollbackPublication(root, fmt.Errorf("commit publication journal: %w", err))
+		}
+	}
+	if err := writePublicationJournal(root, journal); err != nil {
+		return rollbackPublication(root, fmt.Errorf("commit publication journal: %w", err))
+	}
+	if err := cleanupPublicationJournal(root, journal); err != nil {
+		return fmt.Errorf(
+			"generation committed but recovery journal cleanup is incomplete; catalog reads remain blocked until recovery: %w",
+			err,
+		)
 	}
 	return nil
 }
@@ -815,20 +849,6 @@ func removeManagedPublicationFile(root, relativePath string) error {
 	return os.Remove(filepath.Join(root, filepath.FromSlash(relativePath)))
 }
 
-func removeNewPublicationFile(root, relativePath string) error {
-	exists, _, err := inspectPublicationTarget(root, relativePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	return os.Remove(filepath.Join(root, filepath.FromSlash(relativePath)))
-}
-
 func removeCreatedDirectories(root string, directories []string) error {
 	unique := make(map[string]struct{}, len(directories))
 	for _, directory := range directories {
@@ -889,4 +909,292 @@ func removePublicationBackup(root, backupRoot string) error {
 		return fmt.Errorf("publication backup is not a real directory")
 	}
 	return os.RemoveAll(backupRoot)
+}
+
+func makePublicationJournal(root, backupDirectory string, snapshots []publicationSnapshot, directories []string) (publicationJournal, error) {
+	journal := publicationJournal{
+		SchemaVersion:   1,
+		BackupDirectory: backupDirectory,
+		Entries:         make([]publicationJournalEntry, 0, len(snapshots)),
+	}
+	for _, snapshot := range snapshots {
+		entry := publicationJournalEntry{
+			Path:      snapshot.path,
+			Existed:   snapshot.existed,
+			Mode:      uint32(snapshot.mode.Perm()),
+			NewSHA256: snapshot.newSHA256,
+		}
+		if snapshot.existed {
+			entry.OldSHA256 = snapshot.oldSHA256
+		}
+		journal.Entries = append(journal.Entries, entry)
+	}
+	seenDirectories := make(map[string]struct{}, len(directories))
+	for _, directory := range directories {
+		relative, err := filepath.Rel(root, directory)
+		if err != nil || relative == "." || relative == ".." ||
+			strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			return publicationJournal{}, fmt.Errorf("publication directory %q is outside output root", directory)
+		}
+		relative = filepath.ToSlash(relative)
+		if !safePublicationPath(relative) {
+			return publicationJournal{}, fmt.Errorf("unsafe publication directory %q", relative)
+		}
+		if _, exists := seenDirectories[relative]; !exists {
+			seenDirectories[relative] = struct{}{}
+			journal.CreatedDirectories = append(journal.CreatedDirectories, relative)
+		}
+	}
+	sort.Strings(journal.CreatedDirectories)
+	if err := validatePublicationJournal(journal); err != nil {
+		return publicationJournal{}, err
+	}
+	return journal, nil
+}
+
+func validatePublicationJournal(journal publicationJournal) error {
+	if journal.SchemaVersion != 1 || !safePublicationPath(journal.BackupDirectory) ||
+		strings.Contains(journal.BackupDirectory, "/") ||
+		!strings.HasPrefix(journal.BackupDirectory, ".infraflow-publish-") ||
+		len(journal.Entries) == 0 {
+		return fmt.Errorf("publication journal has invalid metadata")
+	}
+	seenPaths := make(map[string]struct{}, len(journal.Entries))
+	for _, entry := range journal.Entries {
+		if !safePublicationPath(entry.Path) || entry.Mode&^uint32(0o777) != 0 {
+			return fmt.Errorf("publication journal contains an unsafe artifact path or mode")
+		}
+		if _, exists := seenPaths[entry.Path]; exists {
+			return fmt.Errorf("publication journal contains duplicate path %q", entry.Path)
+		}
+		seenPaths[entry.Path] = struct{}{}
+		if entry.Existed {
+			if !protocol.IsSHA256(entry.OldSHA256) {
+				return fmt.Errorf("publication journal has an invalid previous hash for %q", entry.Path)
+			}
+		} else if entry.OldSHA256 != "" || entry.Mode != 0 {
+			return fmt.Errorf("publication journal has previous-file metadata for new path %q", entry.Path)
+		}
+		if entry.NewSHA256 != "" && !protocol.IsSHA256(entry.NewSHA256) {
+			return fmt.Errorf("publication journal has an invalid new hash for %q", entry.Path)
+		}
+	}
+	seenDirectories := make(map[string]struct{}, len(journal.CreatedDirectories))
+	for _, directory := range journal.CreatedDirectories {
+		if !safePublicationPath(directory) {
+			return fmt.Errorf("publication journal contains an unsafe directory path")
+		}
+		if _, exists := seenDirectories[directory]; exists {
+			return fmt.Errorf("publication journal contains duplicate directory %q", directory)
+		}
+		seenDirectories[directory] = struct{}{}
+	}
+	return nil
+}
+
+func writePublicationJournal(root string, journal publicationJournal) error {
+	if err := validatePublicationJournal(journal); err != nil {
+		return err
+	}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		return fmt.Errorf("encode publication journal: %w", err)
+	}
+	if len(data) > maxPublicationJournal {
+		return fmt.Errorf("publication journal exceeds size limit")
+	}
+	if err := safefs.AtomicWrite(root, generationJournalName, data, 0o600); err != nil {
+		return fmt.Errorf("persist publication journal: %w", err)
+	}
+	return nil
+}
+
+func readPublicationJournal(root string) (publicationJournal, error) {
+	info, err := os.Lstat(filepath.Join(root, generationJournalName))
+	if err != nil {
+		return publicationJournal{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > maxPublicationJournal {
+		return publicationJournal{}, fmt.Errorf("publication journal must be a bounded regular file")
+	}
+	data, _, err := readManagedFile(root, generationJournalName)
+	if err != nil {
+		return publicationJournal{}, fmt.Errorf("read publication journal: %w", err)
+	}
+	var journal publicationJournal
+	if err := decodeStrictJSON(data, &journal); err != nil {
+		return publicationJournal{}, fmt.Errorf("decode publication journal: %w", err)
+	}
+	if err := validatePublicationJournal(journal); err != nil {
+		return publicationJournal{}, err
+	}
+	return journal, nil
+}
+
+func recoverInterruptedPublication(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("inspect publication recovery state: %w", err)
+	}
+	var backupDirectories []string
+	for _, entry := range entries {
+		if entry.Name() == generationJournalName || !strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("inspect publication backup %q: %w", entry.Name(), err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("publication backup %q is not a real directory", entry.Name())
+		}
+		backupDirectories = append(backupDirectories, entry.Name())
+	}
+	journalInfo, err := os.Lstat(filepath.Join(root, generationJournalName))
+	if os.IsNotExist(err) {
+		if len(backupDirectories) != 0 {
+			return fmt.Errorf("publication recovery is required for backup without a journal")
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect publication journal: %w", err)
+	}
+	if journalInfo.Mode()&os.ModeSymlink != 0 || !journalInfo.Mode().IsRegular() {
+		return fmt.Errorf("publication journal must be a regular file")
+	}
+	journal, err := readPublicationJournal(root)
+	if err != nil {
+		return fmt.Errorf("publication recovery is required: %w", err)
+	}
+	if journal.Committed {
+		if len(backupDirectories) > 1 ||
+			(len(backupDirectories) == 1 && backupDirectories[0] != journal.BackupDirectory) {
+			return fmt.Errorf("publication recovery is required: journal and backup directory do not match")
+		}
+		return cleanupPublicationJournal(root, journal)
+	}
+	if len(backupDirectories) > 1 ||
+		(len(backupDirectories) == 1 && backupDirectories[0] != journal.BackupDirectory) {
+		return fmt.Errorf("publication recovery is required: journal and backup directory do not match")
+	}
+	backupRoot := filepath.Join(root, journal.BackupDirectory)
+	if err := restorePublicationJournal(root, backupRoot, journal); err != nil {
+		return fmt.Errorf("restore interrupted publication; recovery data retained: %w", err)
+	}
+	if err := removeCreatedDirectoriesFromJournal(root, journal.CreatedDirectories); err != nil {
+		return fmt.Errorf("clean interrupted publication directories: %w", err)
+	}
+	return cleanupPublicationJournal(root, journal)
+}
+
+func rollbackPublication(root string, cause error) error {
+	if err := recoverInterruptedPublication(root); err != nil {
+		return errors.Join(cause, fmt.Errorf("publication rollback failed; recovery data retained: %w", err))
+	}
+	return cause
+}
+
+type publicationRecoveryAction struct {
+	entry   publicationJournalEntry
+	restore []byte
+	remove  bool
+}
+
+func restorePublicationJournal(root, backupRoot string, journal publicationJournal) error {
+	actions := make([]publicationRecoveryAction, 0, len(journal.Entries))
+	for _, entry := range journal.Entries {
+		exists, _, err := inspectPublicationTarget(root, entry.Path)
+		if err != nil {
+			return fmt.Errorf("inspect recovery target %q: %w", entry.Path, err)
+		}
+		var currentHash string
+		if exists {
+			current, _, err := readManagedFile(root, entry.Path)
+			if err != nil {
+				return fmt.Errorf("read recovery target %q: %w", entry.Path, err)
+			}
+			currentHash = protocol.SHA256(current)
+		}
+		action := publicationRecoveryAction{entry: entry}
+		if entry.Existed {
+			if exists && currentHash == entry.OldSHA256 {
+				actions = append(actions, action)
+				continue
+			}
+			backupPath := filepath.ToSlash(filepath.Join(journal.BackupDirectory, entry.Path))
+			backup, _, err := readManagedFile(root, backupPath)
+			if err != nil {
+				return fmt.Errorf("read rollback copy for %q: %w", entry.Path, err)
+			}
+			if protocol.SHA256(backup) != entry.OldSHA256 {
+				return fmt.Errorf("rollback copy hash mismatch for %q", entry.Path)
+			}
+			if exists && (entry.NewSHA256 == "" || currentHash != entry.NewSHA256) {
+				return fmt.Errorf("recovery target %q contains unexpected content", entry.Path)
+			}
+			action.restore = backup
+			actions = append(actions, action)
+			continue
+		}
+		if !exists {
+			actions = append(actions, action)
+			continue
+		}
+		if entry.NewSHA256 == "" || currentHash != entry.NewSHA256 {
+			return fmt.Errorf("new recovery target %q contains unexpected content", entry.Path)
+		}
+		action.remove = true
+		actions = append(actions, action)
+	}
+
+	for index := len(actions) - 1; index >= 0; index-- {
+		action := actions[index]
+		if action.restore != nil {
+			if err := safefs.AtomicWrite(root, action.entry.Path, action.restore, os.FileMode(action.entry.Mode)); err != nil {
+				return fmt.Errorf("restore %q: %w", action.entry.Path, err)
+			}
+		} else if action.remove {
+			if err := removeManagedPublicationFile(root, action.entry.Path); err != nil {
+				return fmt.Errorf("remove new artifact %q: %w", action.entry.Path, err)
+			}
+		}
+	}
+	return nil
+}
+
+func removeCreatedDirectoriesFromJournal(root string, relativeDirectories []string) error {
+	directories := make([]string, 0, len(relativeDirectories))
+	for _, relative := range relativeDirectories {
+		if !safePublicationPath(relative) {
+			return fmt.Errorf("refusing unsafe publication directory %q", relative)
+		}
+		directories = append(directories, filepath.Join(root, filepath.FromSlash(relative)))
+	}
+	return removeCreatedDirectories(root, directories)
+}
+
+func cleanupPublicationJournal(root string, journal publicationJournal) error {
+	if err := validatePublicationJournal(journal); err != nil {
+		return err
+	}
+	backupRoot := filepath.Join(root, journal.BackupDirectory)
+	if err := removePublicationBackup(root, backupRoot); err != nil {
+		return fmt.Errorf("remove publication backup: %w", err)
+	}
+	journalPath := filepath.Join(root, generationJournalName)
+	info, err := os.Lstat(journalPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect publication journal before cleanup: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to remove unsafe publication journal")
+	}
+	if err := os.Remove(journalPath); err != nil {
+		return fmt.Errorf("remove publication journal: %w", err)
+	}
+	return nil
 }

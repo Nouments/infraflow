@@ -544,7 +544,68 @@ func TestGenerateAllFailurePreservesPreviousGeneration(t *testing.T) {
 }
 
 func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) {
-	infrastructure := parseGenerationInput(t, `sites:
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	for _, path := range []string{
+		"lab/inventory.json",
+		"lab/manifest.json",
+		"generation-report.json",
+		"manifest.json",
+	} {
+		t.Run(path, func(t *testing.T) {
+			root := t.TempDir()
+			if _, err := GenerateAll(previous, root); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotGenerationFiles(t, root)
+			lock, err := acquireGenerationLock(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+				beforeWrite: func(currentPath string) error {
+					if currentPath == path {
+						return os.ErrPermission
+					}
+					return nil
+				},
+			})
+			releaseErr := lock.release()
+			if generationErr == nil {
+				t.Fatal("expected injected publication failure")
+			}
+			if releaseErr != nil {
+				t.Fatalf("release generation lock: %v", releaseErr)
+			}
+			assertGenerationFilesEqual(t, root, before)
+			if _, err := Catalog(root); err != nil {
+				t.Fatalf("previous catalog is no longer valid: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateAllCleansBackupWhenInitialJournalWriteFails(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	next := parseGenerationInput(t, `sites:
   - name: lab
     devices:
       - name: R1
@@ -554,7 +615,7 @@ func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) 
         model: csr1000v
 `)
 	root := t.TempDir()
-	if _, err := GenerateAll(infrastructure, root); err != nil {
+	if _, err := GenerateAll(previous, root); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotGenerationFiles(t, root)
@@ -562,24 +623,190 @@ func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, generationErr := generateAllLocked(context.Background(), infrastructure, root, publicationHooks{
-		beforeWrite: func(path string) error {
-			if path == "lab/site-manifest.json" {
-				return os.ErrPermission
-			}
-			return nil
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeJournalWrite: func(bool) error {
+			return os.ErrPermission
 		},
 	})
 	releaseErr := lock.release()
 	if generationErr == nil {
-		t.Fatal("expected injected publication failure")
+		t.Fatal("expected initial journal write failure")
 	}
 	if releaseErr != nil {
 		t.Fatalf("release generation lock: %v", releaseErr)
 	}
 	assertGenerationFilesEqual(t, root, before)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+			t.Fatalf("orphaned publication backup remains: %s", entry.Name())
+		}
+	}
 	if _, err := Catalog(root); err != nil {
-		t.Fatalf("previous catalog is no longer valid: %v", err)
+		t.Fatalf("previous catalog is unreadable after failed journal write: %v", err)
+	}
+}
+
+func TestStaleReaderMarkerBlocksWritersUntilExplicitCleanup(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	staleMarker := filepath.Join(root, generationReadLockPrefix+"stale.lock")
+	if err := os.WriteFile(staleMarker, []byte("orphaned reader\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	if _, err := GenerateAll(infrastructure, root); err == nil {
+		t.Fatal("writer did not fail closed with a stale reader marker")
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("readers should remain available while a stale reader marker exists: %v", err)
+	}
+	if err := os.Remove(staleMarker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatalf("generation did not resume after explicit stale-marker cleanup: %v", err)
+	}
+}
+
+func TestGenerateAllRecoversInterruptedPublication(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "user-notes.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("keep me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var interruption any
+	func() {
+		defer func() {
+			interruption = recover()
+		}()
+		_, err := generateAllLocked(context.Background(), next, root, publicationHooks{
+			afterWrite: func(path string) {
+				if path == "lab/inventory.json" {
+					panic("simulated process interruption")
+				}
+			},
+		})
+		if err != nil {
+			t.Fatalf("publish interrupted generation: %v", err)
+		}
+	}()
+	if interruption == nil {
+		t.Fatal("expected publication interruption")
+	}
+	if err := lock.release(); err != nil {
+		t.Fatalf("release generation lock after simulated interruption: %v", err)
+	}
+	if _, err := Catalog(root); err == nil {
+		t.Fatal("catalog exposed an interrupted publication")
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		t.Fatalf("recover interrupted publication: %v", err)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "keep me\n" {
+		t.Fatalf("recovery changed an unrelated file: data=%q err=%v", got, err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous generation is not readable after recovery: %v", err)
+	}
+}
+
+func TestGenerateAllRejectsUnsafeRecoveryJournalWithoutChangingOutput(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "user.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("preserve\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backupDirectory := ".infraflow-publish-invalid"
+	if err := os.Mkdir(filepath.Join(root, backupDirectory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := publicationJournal{
+		SchemaVersion:   1,
+		BackupDirectory: backupDirectory,
+		Entries: []publicationJournalEntry{{
+			Path: "../user.txt", NewSHA256: protocol.SHA256([]byte("changed")),
+		}},
+	}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, generationJournalName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotRawOutputFiles(t, root)
+	if _, err := GenerateAll(infrastructure, root); err == nil {
+		t.Fatal("expected unsafe recovery metadata to be rejected")
+	}
+	if after := snapshotRawOutputFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatal("rejected recovery modified the existing output")
+	}
+}
+
+func TestRecoveryCleansCommittedJournalAfterBackupRemoval(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	journal := publicationJournal{
+		SchemaVersion:   1,
+		BackupDirectory: ".infraflow-publish-committed",
+		Committed:       true,
+		Entries: []publicationJournalEntry{{
+			Path: "lab/inventory.json", NewSHA256: protocol.SHA256([]byte("generated")),
+		}},
+	}
+	if err := writePublicationJournal(root, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		t.Fatalf("recover committed journal after backup cleanup: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); !os.IsNotExist(err) {
+		t.Fatalf("committed journal remains after recovery: %v", err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("committed generation was not readable after journal cleanup: %v", err)
 	}
 }
 
