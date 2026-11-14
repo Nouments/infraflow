@@ -1,6 +1,38 @@
 # InfraFlow — Bloc 1 Audit
 
-## Current Phase 0 baseline
+## M1 — coherent artifact reads
+
+- Fetched `origin`; branch `develop` remains at
+  `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), the supplied
+  starting reference. No newer remote commits were present. The worktree was
+  clean before these M1 edits.
+- `ArtifactRepository.Open` now calls the lock-protected, hash-verifying
+  `generation.ReadArtifact` path and returns a bounded in-memory snapshot.
+  Concurrent catalog scans now skip transient reserved lock-file entries;
+  reader/writer exclusion is still checked by lock acquisition.
+- A streaming file-handle approach was rejected after Windows testing showed
+  that an open artifact can prevent atomic replacement. The snapshot approach
+  keeps generation publication cross-platform and coherent at a cost of
+  memory proportional to the artifact size (capped at 32 MiB per open).
+- Focused filesystem/executor/gRPC/generation tests passed. The repository
+  reader tests passed ten consecutive runs. `go vet ./...`,
+  `go build ./provider/cmd ./agent/cmd`, and `git diff --check` passed.
+- Latest `go test -count=1 ./...` failed: Windows Application Control blocked
+  the temporary Provider binary in the multisite Agent test, and
+  `CGO_ENABLED=0` prevents SQLite-dependent tests from running. `go test -race`
+  is unavailable because race mode requires CGO. No full-suite pass is claimed.
+- `BenchmarkArtifactRepositoryOpen` measured 12.85 ms/op, 478,601 B/op, and
+  533 allocs/op on this Windows/amd64 machine (i5-6500T); see the completion
+  report for the exact command and limitations of this fixture measurement.
+- Latest CI at the starting commit,
+  [run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997),
+  passed all Linux and Windows steps. It predates these M1 edits; CI for the
+  current worktree is not available without pushing.
+- M1 changes are local and uncommitted. Transaction recovery, standalone
+  publication, artifact contract, and filesystem hardening milestones remain
+  open. No commit, push, or device validation.
+
+## Historical Phase 0 baseline (superseded)
 
 - Inspected branch `develop`, HEAD
   `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`); the worktree

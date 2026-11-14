@@ -1,8 +1,51 @@
 # Incremental Implementation Roadmap
 
-## Baseline and principles
+## Active generation-engine follow-up
 
-This roadmap is based on the code and executed evidence at
+**Starting reference:** `develop` at
+`23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), fetched and
+confirmed equal to `origin/develop`; initial worktree clean. M1 changes are
+local and uncommitted.
+
+M1 implements coherent `ArtifactRepository.Open` reads by reusing the
+lock-protected, hash-verifying `ReadArtifact` path. It returns a bounded byte
+snapshot; concurrent catalog scans also ignore transient reserved lock files.
+A streaming descriptor was rejected because Windows can prevent atomic
+replacement while the file remains open. Focused tests passed, including ten
+repeated concurrent-reader runs. The latest full local suite is blocked by
+Windows Application Control on the temporary Provider executable in the
+multisite test and `CGO_ENABLED=0` SQLite runtime failures. Local race testing
+is unavailable without CGO.
+
+The latest CI run on the starting commit,
+[43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997),
+passed all Linux and Windows steps. It predates M1 changes; post-change CI is
+unverified because no push is authorized.
+
+| Milestone | Scope | Status |
+|---|---|---|
+| M1 | Reproduce and fix `ArtifactRepository.Open` consistency; cover generation changes, deletion, readers, and writer contention. | Implemented locally; targeted tests pass. |
+| M2 | Audit and strengthen transactional publication; inject failures by publication phase. | Not started. |
+| M3 | Implement conservative crash recovery or explicit manual-recovery state. | Not started. |
+| M4 | Harden and document the public reader/writer locking contract, including cancellation and stale-lock behavior. | Not started. |
+| M5 | Harmonize declarative, standalone, site, and catalog artifact contracts with compatible metadata. | Not started. |
+| M6 | Harden filesystem operations and document portable threat-model limits. | Not started. |
+| M7 | Verify deterministic output across implemented Cisco, MikroTik, and Fortinet paths. | Not started. |
+| M8 | Expand independent generation, manifest, integrity, concurrency, recovery, and security tests. | M1-specific tests added; broader milestone not started. |
+| M9 | Verify Linux and Windows CI on the changed revision. | Starting-reference CI is green; M1 revision still needs CI. |
+
+This mission is limited to the generation engine. Developer/Reviewer agents,
+orchestration, and unrelated vendor capabilities are explicitly out of scope.
+
+## Prior broad architecture roadmap (separate from this mission)
+
+> The following was written for an earlier multi-phase architecture planning
+> task. Its coding-agent and sandbox milestones are not part of the active
+> generation-engine follow-up above.
+
+### Historical baseline and principles
+
+That earlier roadmap was based on the code and executed evidence at
 `develop` HEAD `9f60e0e51104e59875a5156bc13c9ac31c388baf`. The initial worktree
 was clean. Phase 0 audits are in this directory.
 
@@ -23,7 +66,7 @@ Guiding constraints:
 - Never allow a Developer Agent to approve its own changes.
 - Preserve explicit human approval for changes outside an isolated workspace.
 
-## M0 — Establish the evidence baseline (complete)
+### Historical M0 — Establish the evidence baseline (complete)
 
 **Outcome:** four evidence-based architecture/audit/roadmap documents, the
 actual Linux/Windows CI result recorded, and the pre-checkout Windows workflow
@@ -33,7 +76,7 @@ failure corrected in source.
 identified; local failures reported without masking environmental causes;
 no hardware, test, or runtime claims inferred from documentation alone.
 
-## M1 — Close generation consistency gaps (highest priority)
+### Historical M1 — Close generation consistency gaps (highest priority)
 
 **Objective:** make all supported generation entry points preserve one
 consistent and inspectable output state.
@@ -64,7 +107,7 @@ Linux and Windows; failed publication preserves the previous valid state;
 successful catalog entries exactly match existing bytes and hashes; no
 unowned files are removed or cataloged.
 
-## M2 — Expand end-to-end reliability evidence
+### Historical M2 — Expand end-to-end reliability evidence
 
 **Objective:** turn the supported generation contract into a repeatable
 cross-platform verification path.
@@ -82,7 +125,7 @@ cross-platform verification path.
 **Exit criteria:** focused and full test suites pass on the supported Linux and
 Windows CI workers, with the exact command and toolchain recorded.
 
-## M3 — Specify and build an enforceable execution boundary
+### Historical M3 — Specify and build an enforceable execution boundary
 
 **Objective:** establish an isolated, auditable workspace and command runner
 before enabling any write-capable coding worker.
@@ -100,7 +143,7 @@ before enabling any write-capable coding worker.
 supported platforms, keep code-writing execution disabled rather than
 substituting prompt rules or a temp directory.
 
-## M4 — Add an independent Reviewer role
+### Historical M4 — Add an independent Reviewer role
 
 **Objective:** produce structured, read-only findings for a task diff and its
 actual validation results.
@@ -117,7 +160,7 @@ actual validation results.
 cannot modify the workspace; independent test cases cover unsafe or
 success-shaped outputs.
 
-## M5 — Add a bounded Developer role
+### Historical M5 — Add a bounded Developer role
 
 **Objective:** implement narrowly scoped tasks in an isolated worktree.
 
@@ -132,7 +175,7 @@ success-shaped outputs.
 **Exit criteria:** all writes remain in the task workspace; host repository and
 external systems are unchanged absent explicit approval.
 
-## M6 — Add the task Orchestrator
+### Historical M6 — Add the task Orchestrator
 
 **Objective:** coordinate Developer, Reviewer, and human approval with durable,
 versioned state.
@@ -146,7 +189,7 @@ versioned state.
 **Exit criteria:** state-machine, concurrency, restart, cancellation,
 authorization, and approval-bypass tests pass.
 
-## M7 — CI and release evidence
+### Historical M7 — CI and release evidence
 
 **Objective:** make CI exercise the full workflow and produce observed,
 reviewable results.
@@ -163,7 +206,7 @@ reviewable results.
 **Exit criteria:** both required platform runs are green on the final revision;
 artifacts/logs identify commit SHA and exact commands.
 
-## M8 — Documentation and handoff
+### Historical M8 — Documentation and handoff
 
 **Objective:** keep README, status reports, architecture, and release procedure
 aligned with implementation and evidence.
@@ -175,7 +218,7 @@ aligned with implementation and evidence.
 - Keep historical records clearly labeled; do not let stale status statements
   appear current.
 
-## Definition of done
+### Historical definition of done
 
 The system is not ready to enable autonomous code changes until M1-M7 exit
 criteria pass, both platform CI runs succeed, the sandbox threat model is

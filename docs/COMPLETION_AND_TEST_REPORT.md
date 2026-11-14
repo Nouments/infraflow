@@ -1,6 +1,75 @@
 # Completion and test campaign report
 
-## Phase 0 repository baseline
+## M1 — ArtifactRepository read consistency
+
+**Branch:** `develop`
+**Starting/inspected HEAD:** `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`)
+**Initial worktree:** clean; fetched `origin/develop` matched this commit. No newer remote commits were present.
+**Current implementation changes:** local and uncommitted; no commit or push.
+
+### Defect and implementation
+
+`ArtifactRepository.Open` previously called `Catalog`, which released its
+reader lock, and only then opened the cataloged path. A publication in that
+gap could make returned metadata refer to generation A while the file handle
+read generation B. The open path also did not hash the bytes it returned.
+
+`Open` now calls `generation.ReadArtifact`, which holds the shared reader
+marker while it validates the catalog, reads the requested artifact, and
+verifies its SHA-256. It returns an `io.ReadCloser` over that bounded byte
+snapshot. The 32 MiB protocol artifact limit bounds each snapshot; simultaneous
+open readers can retain separate snapshots until released.
+
+Windows stress revalidation found that a reader can encounter a transient
+access-denied result while inspecting the writer lock during its creation.
+Read-lock acquisition now reports that condition as an explicit
+generation-in-progress error and removes its own reader marker.
+
+A streaming file-handle alternative was tested and rejected: on Windows an
+open artifact prevented atomic replacement during a concurrent generation.
+The byte snapshot keeps the reader independent of subsequent publication on
+both platforms, at the cost of memory proportional to artifact size (up to
+32 MiB per open). A focused `BenchmarkArtifactRepositoryOpen` was added to
+measure the repository hot path and allocations.
+
+Deterministic tests cover reads before/after publication with changed
+metadata, a read attempted while the writer marker is present, removal of an
+artifact, concurrent readers, and concurrent readers with a writer using
+start barriers rather than sleeps. Repeated concurrent runs exposed a related
+catalog race: a reader marker could disappear between `ReadDir` and `Lstat`.
+Catalog enumeration now skips reserved lock filenames; lock acquisition still
+enforces reader/writer exclusion.
+
+### Commands and results
+
+| Command | Result |
+|---|---|
+| `gofmt -w internal/adapters/generation/catalog.go provider/internal/adapters/filesystem/artifacts.go provider/internal/adapters/filesystem/artifacts_test.go` | PASS. |
+| `gofmt -w internal/adapters/generation/publication.go` | PASS. |
+| `go test -count=1 ./provider/internal/adapters/filesystem ./provider/internal/adapters/executors ./provider/internal/delivery/grpcapi ./internal/adapters/generation` | Earlier run: PASS. Latest revalidation hit a transient timeout in unrelated `TestSSHSessionOutputLimitFailsAndCloses`; isolated rerun passed, and filesystem/generation packages passed on rerun. |
+| `go test -count=10 -run '^TestArtifactRepositoryOpen' ./provider/internal/adapters/filesystem` | PASS (10 runs). |
+| `go test -run '^$' -bench '^BenchmarkArtifactRepositoryOpen$' -benchmem ./provider/internal/adapters/filesystem` | PASS on Windows/amd64, Intel Core i5-6500T: 12,853,962 ns/op, 478,601 B/op, 533 allocs/op. |
+| `go test -count=1 ./...` | Latest run FAIL: Windows Application Control blocked the temporary Provider executable in the multisite Agent test; `CGO_ENABLED=0` makes `go-sqlite3` a stub, causing SQLite-dependent tests to fail. The changed filesystem/generation packages passed. |
+| `go test -race -count=1 ./provider/internal/adapters/filesystem ./internal/adapters/generation` | NOT EXECUTED: Go exits with `-race requires cgo; enable cgo by setting CGO_ENABLED=1`. |
+| `go vet ./...` | PASS. |
+| `go build ./provider/cmd ./agent/cmd` | PASS; local SQLite runtime is not validated with `CGO_ENABLED=0`. |
+| `git diff --check` | PASS. |
+
+### CI and remaining work
+
+GitHub Actions
+[run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997)
+ran on starting commit `23f3325`. Both Linux and Windows jobs completed
+checkout, full tests, build, vet, formatting, and diff checks successfully.
+This run predates the local M1 patch; no CI result is available for the
+uncommitted changes because pushing is prohibited.
+
+M1 read consistency is implemented locally. Transaction recovery, standalone
+generator atomicity, artifact contract consistency, filesystem hardening,
+determinism, and broader test coverage remain. No device or lab validation
+was performed.
+
+## Historical Phase 0 repository baseline
 
 **Branch:** `develop`
 **Inspected HEAD:** `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`)

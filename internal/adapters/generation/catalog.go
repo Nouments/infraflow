@@ -52,6 +52,9 @@ func catalogArtifacts(root string) ([]Artifact, error) {
 		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
 			return nil, fmt.Errorf("publication recovery is required for %q", filepath.Join(root, entry.Name()))
 		}
+		if entry.Name() == generationLockName || strings.HasPrefix(entry.Name(), generationReadLockPrefix) {
+			continue
+		}
 		entryPath := filepath.Join(root, entry.Name())
 		info, err := os.Lstat(entryPath)
 		if err != nil {

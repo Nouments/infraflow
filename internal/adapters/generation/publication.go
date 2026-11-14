@@ -86,6 +86,12 @@ func acquireGenerationReadLock(root string) (string, generationLock, error) {
 		)
 	}
 	if !os.IsNotExist(err) {
+		if os.IsPermission(err) {
+			return "", generationLock{}, errors.Join(
+				fmt.Errorf("generation is in progress for %q; cannot inspect its lock: %w", root, err),
+				lock.release(),
+			)
+		}
 		return "", generationLock{}, errors.Join(
 			fmt.Errorf("inspect generation lock: %w", err),
 			lock.release(),

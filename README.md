@@ -32,25 +32,27 @@ go run ./provider/cmd validate -f examples/network-deployment.yaml
 
 ### Current repository and CI baseline
 
-The Phase 0 audit inspected `develop` at
-`9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`); the worktree
-was clean before this documentation and workflow update. GitHub Actions
-[run 43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
-ran on that commit. Linux passed the full test suite, race tests, vet, build,
-format check, and diff check. Windows failed before checkout because a
-pre-checkout `git config core.autocrlf false` command ran outside a repository;
-all subsequent Windows checks were skipped. That step has now been removed.
-`.gitattributes` specifies LF for Go sources, so the pre-checkout override is
-unnecessary. The workflow edit has not yet been validated by a new CI run.
+The generation-engine follow-up started on `develop` at
+`23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), matching
+`origin/develop`; the worktree was clean before this local change. GitHub
+Actions [run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997)
+passed all Linux and Windows steps on that commit, including checkout, full
+tests, vet, builds, formatting, and diff checks. Local M1 changes are not
+covered by that CI run.
 
-On the audit machine (`go1.27.3 windows/amd64`, `CGO_ENABLED=0`), the focused
-generation, safe-filesystem, and protocol tests passed. `go test -count=1
-./...` did not pass: Windows Application Control blocked several test
-executables, and SQLite-dependent tests failed because the CGO-disabled
-`go-sqlite3` stub cannot run. See the [completion and test report](docs/COMPLETION_AND_TEST_REPORT.md)
-for exact command output and the [architecture audit](docs/architecture/CURRENT_ARCHITECTURE.md)
-for the assessed implementation boundaries. Windows CI remains unverified
-after the workflow correction; release readiness is **not established**.
+M1 fixes `ArtifactRepository.Open` to return content and metadata from the
+same lock-protected, hash-verified artifact snapshot. Focused repository,
+executor, gRPC, and generation tests passed; the repository concurrency tests
+also passed ten repeated runs. On the audit machine (`go1.27.3
+windows/amd64`, `CGO_ENABLED=0`), the latest `go test -count=1 ./...` failed:
+Windows Application Control blocked the temporary Provider executable in the
+multisite Agent test, and SQLite-backed tests require CGO. `go test -race`
+could not run because Go requires CGO. `Open` retains an in-memory snapshot
+bounded by the 32 MiB artifact limit; this avoids Windows file-replacement
+conflicts observed with a streaming file handle. Remaining
+publication recovery, standalone generator, artifact-contract, and filesystem
+hardening work is not complete. See the [completion report](docs/COMPLETION_AND_TEST_REPORT.md)
+and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md).
 
 ### Historical stabilization evidence (2026-11-12)
 

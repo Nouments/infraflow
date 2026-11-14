@@ -4,12 +4,13 @@
 
 - Repository: `Nouments/infraflow`
 - Branch: `develop`
-- Inspected HEAD: `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`)
-- Initial worktree: clean
+- Inspected HEAD: `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`)
+- The branch was fetched; `develop` matched `origin/develop` and the supplied
+  starting reference. The initial worktree was clean.
 - Evidence: checked-in source/tests and GitHub Actions run
-  [43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020).
-  Linux passed the defined checks on this commit. Windows stopped before
-  checkout at a pre-checkout Git command; it did not test the code.
+  [43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997).
+  Both Linux and Windows completed all workflow steps successfully on this
+  commit. Local M1 changes are not covered by that run.
 
 This is a current-state snapshot, not an architecture proposal. Statements
 about device compatibility, deployment, and verification are limited to
@@ -48,6 +49,12 @@ Developer Agent launcher.
 - Shared catalog validation checks manifest metadata, allowed paths/types,
   file sizes, and SHA-256 values. `ReadArtifact` rechecks bytes while holding
   the generation reader lock.
+- Provider `ArtifactRepository.Open` now obtains metadata and content through
+  `ReadArtifact`, returning a verified in-memory snapshot rather than opening
+  the path after cataloging. The snapshot is bounded by the 32 MiB artifact
+  limit; simultaneous opens can retain one snapshot each until callers close
+  or release their readers. A streaming descriptor was rejected after
+  Windows testing showed an open file can block atomic replacement.
 - Authenticated HTTP and gRPC APIs; Agent catalog access can be site-scoped.
 - Persistent execution lifecycle with registered typed executors:
   `artifact.verify` and `cisco.ios.configure`. Cisco configuration uses SSH
@@ -68,7 +75,9 @@ exclusive output-root writer lock, coordinates `Catalog` and `ReadArtifact`
 with reader markers, and uses snapshots/rollback to preserve the previous
 cataloged state on handled publication errors. It derives managed-file
 ownership from validated previous manifests and does not recursively delete
-the output directory. External processes that ignore InfraFlow locks are not
+the output directory. Concurrent catalog scans now ignore reserved lock
+filenames, avoiding a race when another reader removes a marker between
+`ReadDir` and `Lstat`. External processes that ignore InfraFlow locks are not
 coordinated.
 
 This is rollback-capable publication, not a filesystem-wide atomic swap. A
@@ -114,13 +123,13 @@ service startup.
 
 ## Test and CI evidence
 
-On the inspected HEAD, Linux CI passed full tests, race tests, vet, command
-builds, gofmt, and diff checks. Windows CI failed before checkout because
-`git config core.autocrlf false` was run without a repository; no Windows test
-result exists for that run. A local `go test -count=1 ./...` on Windows failed
-because Application Control blocked multiple test binaries and the local
-`CGO_ENABLED=0` SQLite stub cannot run. Focused generation, safe-filesystem,
-and protocol tests passed locally. Exact results are in
+On the inspected HEAD, Linux and Windows CI passed full tests, race tests, vet,
+command builds, gofmt, and diff checks. The M1 local focused repository,
+executor, gRPC, and generation tests passed, including ten repeated runs of
+the repository concurrency tests. The latest local full suite failed because
+Windows Application Control blocked the temporary Provider executable in the
+multisite Agent test and `CGO_ENABLED=0` prevents SQLite-dependent tests. Local
+race tests cannot run without CGO. Exact results are in
 [`../COMPLETION_AND_TEST_REPORT.md`](../COMPLETION_AND_TEST_REPORT.md).
 
 ## Architecture sources
