@@ -203,11 +203,15 @@ func TestGenerateNativeRejectsUnsupportedIntent(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), "not-created")
 			_, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{
 				Name: "lab", Devices: []domain.Device{test.device},
-			}}}, t.TempDir())
+			}}}, output)
 			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
 				t.Fatalf("GenerateNative error = %v, want substring %q", err, test.wantMessage)
+			}
+			if _, err := os.Lstat(output); !os.IsNotExist(err) {
+				t.Fatalf("rejected native intent left output root behind: %v", err)
 			}
 		})
 	}

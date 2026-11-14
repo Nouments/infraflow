@@ -212,6 +212,34 @@ spec:
 	if _, err := os.Stat(filepath.Join(output, "demo", "R1", "config.cfg")); !os.IsNotExist(err) {
 		t.Fatalf("incompatible request left configuration behind: %v", err)
 	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("rejected request left output directory behind: %v", err)
+	}
+
+	existingOutput := filepath.Join(t.TempDir(), "existing")
+	if err := os.Mkdir(existingOutput, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinelPath := filepath.Join(existingOutput, "user-data.txt")
+	if err := os.WriteFile(sentinelPath, []byte("preserve this file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", existingOutput}, &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "spec.devices[0].routing.ospf") {
+		t.Fatalf("unsupported request was not rejected for existing output: code=%d stderr=%q", code, stderr.String())
+	}
+	entries, err := os.ReadDir(existingOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(sentinelPath) {
+		t.Fatalf("rejected request changed existing output directory entries: %#v", entries)
+	}
+	if contents, err := os.ReadFile(sentinelPath); err != nil || string(contents) != "preserve this file\n" {
+		t.Fatalf("rejected request changed existing user data: %q, %v", contents, err)
+	}
 }
 
 func TestCapabilitySummaryCommandReportsReadyState(t *testing.T) {

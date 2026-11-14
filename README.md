@@ -83,6 +83,13 @@ one combined manifest; it does not contact infrastructure or apply a plan.
 Bootstrap service artifacts are omitted unless the corresponding service is
 explicitly enabled.
 
+`generate-device-config` parses, resolves templates, and renders before
+acquiring the output-root lock; generic standalone generators validate before
+creating the root. Those rejected requests leave a previously absent `-out`
+path absent and do not change a pre-existing directory. `generate-all`
+intentionally may publish a `partial_failure` report when an individual site
+fails. Existing output directories are never recursively deleted.
+
 Full-generation publication uses a bounded journal and verified rollback
 copies. If a reader process is interrupted, its
 `.infraflow-generation-reader-*.lock` marker may remain and writers fail

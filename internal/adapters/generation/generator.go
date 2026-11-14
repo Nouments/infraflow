@@ -111,6 +111,12 @@ func generatedArtifactMode(path string, data []byte) os.FileMode {
 // the validated desired state and topology without selecting a provider or
 // applying any infrastructure changes.
 func GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
 	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
 		return generateTerraform(infrastructure, root)
 	})
@@ -384,6 +390,12 @@ func isHCLCollection(value any) bool {
 }
 
 func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, problems
+	}
 	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
 		return generate(infrastructure, root)
 	})

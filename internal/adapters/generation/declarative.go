@@ -125,18 +125,22 @@ type declarativeArtifact struct {
 // equipment catalog and writes only configurations supported by a registered
 // template. It never executes the generated configuration on a device.
 func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact, error) {
-	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
-		return generateDeclarativeConfig(input, root)
-	})
-}
-
-func generateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact, error) {
-	infrastructure, deployment, err := config.ParseNetworkDeployment(input)
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	pending, err := prepareDeclarativeArtifacts(input)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return publishDeclarativeArtifacts(root, input, pending)
+	})
+}
+
+func prepareDeclarativeArtifacts(input []byte) ([]declarativeArtifact, error) {
+	infrastructure, deployment, err := config.ParseNetworkDeployment(input)
+	if err != nil {
+		return nil, err
 	}
 	equipmentCatalog, err := catalog.Load()
 	if err != nil {
@@ -221,7 +225,7 @@ func generateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 		Data: reportBytes,
 	})
 
-	return publishDeclarativeArtifacts(outputDirectory, input, pending)
+	return pending, nil
 }
 
 func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending []declarativeArtifact) ([]Artifact, error) {

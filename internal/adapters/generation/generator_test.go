@@ -40,6 +40,90 @@ func TestGeneratedShellScriptIsExecutable(t *testing.T) {
 	}
 }
 
+func rejectedGenerationInfrastructure() domain.Infrastructure {
+	return domain.Infrastructure{Sites: []domain.Site{
+		{Name: "duplicate"},
+		{Name: "duplicate"},
+	}}
+}
+
+func assertRejectedGenerationPreservesOutputRoot(t *testing.T, generate func(string) error) {
+	t.Helper()
+	t.Run("new output root remains absent", func(t *testing.T) {
+		output := filepath.Join(t.TempDir(), "not-created")
+		if err := generate(output); err == nil {
+			t.Fatal("expected invalid generation input to be rejected")
+		}
+		if _, err := os.Lstat(output); !os.IsNotExist(err) {
+			t.Fatalf("rejected generation left output root behind: %v", err)
+		}
+	})
+	t.Run("existing output root remains unchanged", func(t *testing.T) {
+		output := t.TempDir()
+		if err := os.WriteFile(filepath.Join(output, "user-data.txt"), []byte("keep me\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before := snapshotRawOutputFiles(t, output)
+		if err := generate(output); err == nil {
+			t.Fatal("expected invalid generation input to be rejected")
+		}
+		if after := snapshotRawOutputFiles(t, output); !reflect.DeepEqual(before, after) {
+			t.Fatalf("rejected generation changed existing output: before=%#v after=%#v", before, after)
+		}
+	})
+}
+
+func TestGenerateRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := Generate(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateNativeRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateNative(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateTerraformRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateTerraform(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateBootstrapRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateBootstrap(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateAllPreflightRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateAllContext(context.Background(), infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateDeclarativeConfigRejectsWithoutChangingOutputRoot(t *testing.T) {
+	input, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "network-deployment-unsupported-ospf.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateDeclarativeConfig(input, output)
+		return err
+	})
+}
+
 func TestGenerateIsDeterministic(t *testing.T) {
 	firstInput := `sites:
   - name: lab
@@ -1440,9 +1524,13 @@ func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "bootstrap network") {
-		t.Fatalf("expected bootstrap network error, got %v", err)
-	}
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateBootstrap(infrastructure, output)
+		if err == nil || !strings.Contains(err.Error(), "bootstrap network") {
+			t.Fatalf("expected bootstrap network error, got %v", err)
+		}
+		return err
+	})
 }
 
 func TestGenerateBootstrapOmitsArtifactsWithoutExplicitOptIn(t *testing.T) {

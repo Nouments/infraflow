@@ -112,35 +112,53 @@ type nativeTemplateData struct {
 // GenerateNative renders a conservative, text-only native configuration for
 // the existing vendor-family profiles. It never connects to or configures a device.
 func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	files, artifacts, err := prepareNativeArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
+	}
 	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
-		return generateNative(infrastructure, root)
+		if err := writeNativeArtifacts(root, files); err != nil {
+			return nil, err
+		}
+		return artifacts, nil
 	})
 }
 
 func generateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
+	files, artifacts, err := prepareNativeArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
+	if err := writeNativeArtifacts(outputDirectory, files); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func prepareNativeArtifacts(infrastructure domain.Infrastructure) ([]pendingFile, []Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, nil, problems
 	}
 
 	canonical := canonicalize(infrastructure)
 	canonicalInput, err := json.Marshal(canonical)
 	if err != nil {
-		return nil, fmt.Errorf("encode normalized input: %w", err)
+		return nil, nil, fmt.Errorf("encode normalized input: %w", err)
 	}
 	inputHash := protocol.SHA256(canonicalInput)
 	templates, err := loadDeviceTemplates()
 	if err != nil {
-		return nil, fmt.Errorf("load local device templates: %w", err)
+		return nil, nil, fmt.Errorf("load local device templates: %w", err)
 	}
 	files := make([]pendingFile, 0)
 	artifacts := make([]Artifact, 0)
 	for _, site := range canonical.Sites {
 		outputs, err := renderNativeSite(site, templates)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(outputs) == 0 {
 			continue
@@ -161,7 +179,7 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 		for _, output := range outputs {
 			profile, err := nativeProfileFor(output.device)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			manifest.Devices = append(manifest.Devices, nativeDeviceReport{
 				ID: output.device.ID, Name: output.device.Name, Vendor: nativeVendor(profile),
@@ -183,7 +201,7 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 		}
 		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
-			return nil, fmt.Errorf("encode native manifest for site %q: %w", site.Name, err)
+			return nil, nil, fmt.Errorf("encode native manifest for site %q: %w", site.Name, err)
 		}
 		manifestBytes = append(manifestBytes, '\n')
 		manifestPath := filepath.ToSlash(filepath.Join(site.Name, "native", "native-manifest.json"))
@@ -193,23 +211,24 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 			OutputHash: protocol.SHA256(manifestBytes),
 		})
 	}
-	if len(files) == 0 {
-		return artifacts, nil
-	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return files, artifacts, nil
+}
+
+func writeNativeArtifacts(outputDirectory string, files []pendingFile) error {
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("resolve output directory: %w", err)
+		return fmt.Errorf("resolve output directory: %w", err)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
+		return fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
 		if err := safefs.AtomicWrite(root, file.path, file.data, generatedArtifactMode(file.path, file.data)); err != nil {
-			return nil, fmt.Errorf("write native artifact %q: %w", file.path, err)
+			return fmt.Errorf("write native artifact %q: %w", file.path, err)
 		}
 	}
-	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
-	return artifacts, nil
+	return nil
 }
 
 func renderNativeSite(site domain.Site, templates []templateCandidate) ([]nativeOutput, error) {
