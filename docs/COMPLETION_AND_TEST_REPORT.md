@@ -1,5 +1,44 @@
 # Completion and test campaign report
 
+## Phase 0 repository baseline
+
+**Branch:** `develop`
+**Inspected HEAD:** `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`)
+**Initial worktree:** clean. No commit or push was made.
+
+### Actual CI evidence
+
+GitHub Actions
+[run 43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
+ran on this exact HEAD. Linux passed `go test -count=1 ./...`,
+`go test -race -count=1 ./...`, `go vet ./...`, both command builds, the Go
+format check, and `git diff --check`. Windows failed before checkout at
+`git config core.autocrlf false` with “not in a git directory”; the rest of
+that job did not run. The pre-checkout step has been removed in the local
+workflow because `.gitattributes` already specifies LF for Go files. There is
+no subsequent CI run yet, so the Windows correction is unverified.
+
+### Local test evidence
+
+Environment: `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+`GOOS=windows`, `GOARCH=amd64`.
+
+| Command | Actual result |
+|---|---|
+| `go test ./internal/adapters/generation ./internal/infrastructure/safefs ./pkg/protocol` | PASS (focused audit run). |
+| `go test -count=1 ./...` | FAIL. Several packages passed, including `internal/adapters/config`, `internal/adapters/generation`, `pkg/protocol`, and multiple Provider/Agent packages. Windows Application Control blocked test executables for agent application/toolrunner/config/artifacts, catalog, safefs, observability, Provider CLI, and credentials; the multisite Agent integration could not execute its temporary Provider binary. SQLite adapter, HTTP API, and web tests failed because the CGO-disabled `go-sqlite3` stub cannot run. These are environment failures, not passes. |
+| `go vet ./...` | PASS locally on Windows after the audit. Linux CI also passed on the inspected HEAD. |
+| `go build ./provider/cmd ./agent/cmd` | PASS locally on Windows; `CGO_ENABLED=0` means this does not prove SQLite runtime behavior. Linux CI also passed on the inspected HEAD. |
+| `gofmt` repository check | Not run locally; no Go source was modified. Linux CI passed it on the inspected HEAD. |
+| `git diff --check` | PASS after the documentation/workflow edits. |
+
+No claim is made that Windows tests pass. No device or lab validation was
+performed. The generation, Agent, and roadmap findings are detailed in
+[CURRENT_ARCHITECTURE.md](architecture/CURRENT_ARCHITECTURE.md),
+[GENERATION_ENGINE_AUDIT.md](architecture/GENERATION_ENGINE_AUDIT.md),
+[AGENT_CAPABILITIES_AUDIT.md](architecture/AGENT_CAPABILITIES_AUDIT.md), and
+[IMPLEMENTATION_ROADMAP.md](architecture/IMPLEMENTATION_ROADMAP.md).
+
 ## Post-review locking and CI follow-up — 2026-11-14
 
 **Branch:** `develop`

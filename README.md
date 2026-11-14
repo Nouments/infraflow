@@ -11,7 +11,7 @@ provider/  user-facing validation, planning, generation, and authenticated gRPC 
 agent/     independent gRPC client that downloads streams, processes supported artifacts, and reports state
 ```
 
-The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. A generic scheduler core now validates dependency graphs and provides bounded execution primitives, but provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
+The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. A generic scheduler core validates dependency graphs and provides bounded execution primitives. Only explicitly registered task types are executable; vendor-specific ZTP/AutoInstall and unverified device workflows remain unsupported until their evidence requirements are met.
 
 ## Requirements
 
@@ -30,7 +30,29 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-### Current stabilization evidence (2026-11-12)
+### Current repository and CI baseline
+
+The Phase 0 audit inspected `develop` at
+`9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`); the worktree
+was clean before this documentation and workflow update. GitHub Actions
+[run 43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
+ran on that commit. Linux passed the full test suite, race tests, vet, build,
+format check, and diff check. Windows failed before checkout because a
+pre-checkout `git config core.autocrlf false` command ran outside a repository;
+all subsequent Windows checks were skipped. That step has now been removed.
+`.gitattributes` specifies LF for Go sources, so the pre-checkout override is
+unnecessary. The workflow edit has not yet been validated by a new CI run.
+
+On the audit machine (`go1.27.3 windows/amd64`, `CGO_ENABLED=0`), the focused
+generation, safe-filesystem, and protocol tests passed. `go test -count=1
+./...` did not pass: Windows Application Control blocked several test
+executables, and SQLite-dependent tests failed because the CGO-disabled
+`go-sqlite3` stub cannot run. See the [completion and test report](docs/COMPLETION_AND_TEST_REPORT.md)
+for exact command output and the [architecture audit](docs/architecture/CURRENT_ARCHITECTURE.md)
+for the assessed implementation boundaries. Windows CI remains unverified
+after the workflow correction; release readiness is **not established**.
+
+### Historical stabilization evidence (2026-11-12)
 
 The local stabilization run started on `develop` at
 `986d2a7b15fe9aee46f4579688b694862dd64485`; its fixes are uncommitted. The

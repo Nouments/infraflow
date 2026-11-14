@@ -1,6 +1,37 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
-## Verrouillage et correctifs CI après revue — 2026-11-14
+## Phase 0 — audit architecture et capacités
+
+- Branche `develop`; HEAD inspecté :
+  `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`). Le worktree
+  était propre avant les modifications de cet audit.
+- Les quatre documents dans `docs/architecture/` décrivent l'architecture
+  courante, le moteur de génération, les capacités de l'Agent et la feuille de
+  route; ils distinguent le code observé des fonctions proposées.
+- Le run GitHub Actions
+  [43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
+  sur ce HEAD a réussi sous Linux : tests, race tests, vet, build, formatage
+  et diff. Sous Windows, le job a échoué avant checkout car `git config
+  core.autocrlf false` était lancé hors d'un dépôt. Cette étape a été retirée;
+  `.gitattributes` impose déjà LF aux sources Go. La correction attend une
+  nouvelle exécution CI.
+- Environnement local : `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`. Les tests ciblés génération/safefs/protocol
+  ont réussi. `go test -count=1 ./...` a échoué : Windows Application Control
+  a bloqué plusieurs exécutables de test et SQLite nécessite CGO.
+- Les risques confirmés incluent l'absence de reprise automatique après une
+  interruption de publication, une course catalog/open dans
+  `ArtifactRepository.Open`, les générateurs autonomes sans transaction globale,
+  le contrat catalogué distinct du générateur déclaratif, et des vérifications
+  de chemins de type check-then-use.
+- Aucun commit/push, accès à un équipement, ni validation matérielle n'a eu
+  lieu. Les sorties constructeur restent du rendu; elles ne prouvent ni
+  déploiement ni compatibilité matérielle.
+
+> Les relevés ci-dessous restent historiques et ne décrivent pas le HEAD
+> courant.
+
+## Historique — verrouillage et correctifs CI après revue — 2026-11-14
 
 - Branche `develop`; HEAD inspecté : `980f0524810fe32fe94d72365259a95fa40ccddd`.
   Le worktree était propre au départ. Les modifications actuelles ne sont pas

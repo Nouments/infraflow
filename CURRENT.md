@@ -1,6 +1,44 @@
 # InfraFlow — Bloc 1 Audit
 
-## Post-review locking and CI follow-up — 2026-11-14
+## Current Phase 0 baseline
+
+- Inspected branch `develop`, HEAD
+  `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`); the worktree
+  was clean before this audit's documentation and workflow edits.
+- The [architecture snapshot](docs/architecture/CURRENT_ARCHITECTURE.md),
+  [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md),
+  [agent-capabilities audit](docs/architecture/AGENT_CAPABILITIES_AUDIT.md),
+  and [implementation roadmap](docs/architecture/IMPLEMENTATION_ROADMAP.md)
+  distinguish observed behavior from documentation intent and proposed work.
+- Actual GitHub Actions
+  [run 43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
+  on this HEAD passed all Linux steps (full tests, race tests, vet, build,
+  format, and diff checks). Windows failed before checkout because the workflow
+  ran `git config core.autocrlf false` outside a repository. That step has been
+  removed; `.gitattributes` already specifies LF for Go sources. The workflow
+  correction is not CI-verified until a subsequent run.
+- Local environment: `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`. Focused generation, safe-filesystem, and
+  protocol tests passed. `go test -count=1 ./...` failed because Windows
+  Application Control blocked multiple test binaries and SQLite tests require
+  CGO. No Windows pass is claimed.
+- Confirmed generation risks: interrupted publication is rejected but not
+  automatically recovered; Provider `ArtifactRepository.Open` can race
+  between cataloging and opening; standalone generators do not share the
+  full-generation rollback/catalog lifecycle; declarative output is outside
+  the shared protocol catalog contract; filesystem checks are susceptible to
+  check-then-use races against a concurrent local actor.
+- Product boundary: the Agent validates/stages and reports artifacts; normal
+  processing does not apply device configurations. The Provider has typed
+  `artifact.verify` and Cisco IOS SSH executors, not a generic shell executor.
+  The repository contains no integrated coding-agent runtime or OS sandbox.
+- No commit, push, device contact, or hardware/lab validation was performed.
+  Native outputs remain generated text; Cisco `.cfg` is not ZTP, MikroTik
+  `.auto.rsc` is unproven on CHR/hardware, and FortiOS `.conf` is render-only.
+
+> Earlier sections below are historical and must not override this baseline.
+
+## Historical: post-review locking and CI follow-up — 2026-11-14
 
 - Branch `develop`; inspected HEAD: `980f0524810fe32fe94d72365259a95fa40ccddd`.
   The worktree was clean at inspection. Current changes are uncommitted; no

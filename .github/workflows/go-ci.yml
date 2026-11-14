@@ -33,8 +33,6 @@ jobs:
       CGO_ENABLED: "1"
       CC: gcc
     steps:
-      - run: git config core.autocrlf false
-        shell: pwsh
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
