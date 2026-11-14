@@ -1,42 +1,48 @@
 # InfraFlow — Bloc 1 Audit
 
-## Publication safety update — 2026-11-14
+## Post-review locking and CI follow-up — 2026-11-14
 
-- Branch `develop`; starting HEAD `228414a0ea267efbbe07b05f29616d538dfdbd4a`.
-  Publication changes and this update are uncommitted; nothing staged or
-  pushed.
-- `GenerateAllContext` now stages the full generation before touching the
-  output. Under an exclusive lock, it validates the previous catalogs and
-  manifests, snapshots only catalog-owned files, removes only obsolete
-  cataloged paths, then publishes artifacts and manifests in order, with the
-  root manifest last. Unknown user files and empty directories are retained.
-- Write/removal/cancellation failures attempt rollback from the snapshot.
-  Readers using `Catalog` fail closed while generation is active or when an
-  incomplete rollback leaves recovery data. Publication is rollback-capable,
-  not a filesystem-wide atomic swap; interruption/power loss can leave a stale
-  lock or recovery directory requiring manual recovery.
-- Added regression cases for disabled DHCP cleanup, removed-device cleanup,
-  invalid-generation preservation, injected mid-publication failure,
-  traversal/symlink rejection, deterministic repeat output, and preservation
-  of unrelated files. A generation test run passed after adding these cases;
-  after later hardening, the final focused run was blocked by Windows
-  Application Control before test execution.
-- Final validation attempts: `go test ./internal/adapters/generation ./pkg/protocol -count=1`
-  was blocked by Application Control; `go test ./...` failed due to the same
-  policy plus CGO-disabled SQLite, missing Terraform, unavailable network
-  interfaces, and Windows permission/environment assumptions. `go vet ./...`,
-  `go build ./provider/cmd ./agent/cmd`, and `git diff --check` passed.
-  Environment: `CGO_ENABLED=0`, `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; no
-  `gcc` executable was found.
-- GitHub Actions run [43615857215](https://github.com/Nouments/infraflow/actions/runs/43615857215)
-  tested the unchanged remote HEAD, not these local edits. Linux failed in the
-  multisite Agent test because it expected disabled bootstrap artifacts;
-  Windows failed on shell-script startup, missing Terraform, interface/
-  permission assumptions, and a path assertion. No Linux or Windows run
-  validates the uncommitted publication changes.
-- Not ready for release pending execution of focused tests and a passing
-  Linux/Windows CI run on the changed revision. No device or lab validation
-  was performed.
+- Branch `develop`; inspected HEAD: `980f0524810fe32fe94d72365259a95fa40ccddd`.
+  The worktree was clean at inspection. Current changes are uncommitted; no
+  files were staged, committed, or pushed.
+- All exported artifact writers (`Generate`, `GenerateNative`,
+  `GenerateTerraform`, `GenerateBootstrap`, `GenerateDeclarativeConfig`, and
+  `GenerateAllContext`) now acquire an exclusive root lock. `GenerateAllContext`
+  uses private unlocked renderers for its isolated staging directories to
+  avoid recursive locking. `Catalog` and `ReadArtifact` hold shared reader
+  markers through validation and reading; writers fail closed while readers
+  are active. External filesystem actors that ignore InfraFlow locks are not
+  coordinated.
+- Corrupt-prior-generation tests cover malformed root/site metadata, catalog
+  hash mismatch, traversal, symlinked manifests/artifacts, and interrupted
+  publication recovery data. Rejected generations are compared against a
+  pre-call filesystem snapshot. Existing transactional publication remains
+  rollback-capable, not a filesystem-wide atomic swap.
+- CI log review: [run 43619538843](https://github.com/Nouments/infraflow/actions/runs/43619538843)
+  tested the inspected HEAD and failed in both jobs. Linux failed only because
+  the multisite test expected DHCP output although every fixture site opts out.
+  Windows exposed an owner assertion, a missing `.exe` on the integration
+  binary, shell-script fake commands, Terraform fixture lookup, hard-coded
+  `lo`, POSIX permission assumptions, a Windows path assertion, and the
+  unsupported checkout `autocrlf` input. The workflow stops after failed
+  `go test`, so later CI steps were skipped. Local fixes preserve service
+  opt-in and Unix security assertions.
+- Windows local checks: the generation, filesystem, CLI, DHCP, TFTP, TUI, and
+  provider-config packages passed in targeted runs. The toolrunner package
+  passed once with the controlled helper; later local invocations were
+  interrupted by Windows Application Control or timed out while starting
+  helper processes. `go test -count=1 ./...` failed because Application
+  Control blocked test executables and SQLite's CGO-disabled stub failed.
+  `go test -count=1 ./agent/internal/application` failed because local
+  `CGO_ENABLED=0` prevents SQLite from running. `go vet ./...`,
+  `go build ./provider/cmd ./agent/cmd`, modified-Go-file formatting, and
+  `git diff --check` passed.
+- Environment: Windows/amd64, `CGO_ENABLED=0`, `GOOS=windows`,
+  `GOARCH=amd64`, `CC=gcc`; no `gcc` executable was available. No CI run has
+  validated these uncommitted fixes. Do not treat the base-commit CI run as
+  evidence of this patch.
+- Not release-ready pending passing Linux and Windows CI on the modified
+  revision. No device or lab validation was performed.
 
 ## Current stabilization status — 2026-11-12
 

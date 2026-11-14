@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,6 +35,10 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 	tempRoot := t.TempDir()
 	providerBinary := filepath.Join(tempRoot, "infraflow-provider")
 	agentBinary := filepath.Join(tempRoot, "infraflow-agent")
+	if runtime.GOOS == "windows" {
+		providerBinary += ".exe"
+		agentBinary += ".exe"
+	}
 	buildBinary(t, ctx, repoRoot, providerBinary, "./provider/cmd")
 	buildBinary(t, ctx, repoRoot, agentBinary, "./agent/cmd")
 
@@ -175,7 +180,6 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 		if len(manifest.Artifacts) == 0 {
 			t.Fatalf("%s manifest contains no artifacts", credential.siteID)
 		}
-		bootstrapDHCPFound := false
 		for _, artifact := range manifest.Artifacts {
 			if !strings.HasPrefix(artifact.Path, credential.siteID+"/") {
 				t.Errorf("%s manifest contains out-of-scope artifact %q", credential.siteID, artifact.Path)
@@ -193,17 +197,8 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 				t.Errorf("%s stored %s with hash %s, expected %s", credential.agentID, artifact.Path, got, artifact.OutputHash)
 			}
 			if artifact.Type == "bootstrap_dhcp" {
-				bootstrapDHCPFound = true
-				var service struct {
-					Enabled bool `json:"enabled"`
-				}
-				if err := json.Unmarshal(data, &service); err != nil || service.Enabled {
-					t.Errorf("%s DHCP bootstrap artifact must remain disabled: enabled=%t err=%v", credential.siteID, service.Enabled, err)
-				}
+				t.Errorf("%s published DHCP bootstrap despite the explicit service opt-out", credential.siteID)
 			}
-		}
-		if !bootstrapDHCPFound {
-			t.Errorf("%s manifest omitted its explicit disabled bootstrap artifact", credential.siteID)
 		}
 		for _, other := range credentials {
 			if other.siteID == credential.siteID {

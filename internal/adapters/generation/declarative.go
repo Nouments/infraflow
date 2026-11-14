@@ -125,6 +125,12 @@ type declarativeArtifact struct {
 // equipment catalog and writes only configurations supported by a registered
 // template. It never executes the generated configuration on a device.
 func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact, error) {
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return generateDeclarativeConfig(input, root)
+	})
+}
+
+func generateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact, error) {
 	infrastructure, deployment, err := config.ParseNetworkDeployment(input)
 	if err != nil {
 		return nil, err

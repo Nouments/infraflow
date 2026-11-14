@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -792,7 +793,7 @@ func TestArtifactStoreInspectionScenarios(t *testing.T) {
 	}
 
 	// 5. Inaccessible (non-readable) directory
-	if os.Geteuid() != 0 {
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
 		noReadDir := filepath.Join(t.TempDir(), "locked")
 		if err := os.Mkdir(noReadDir, 0o000); err != nil {
 			t.Fatal(err)
@@ -802,6 +803,8 @@ func TestArtifactStoreInspectionScenarios(t *testing.T) {
 		if inaccessible.status != "Inaccessible" {
 			t.Fatalf("expected 'Inaccessible' for locked directory, got %q", inaccessible.status)
 		}
+	} else if runtime.GOOS == "windows" {
+		t.Log("Windows ACLs do not follow the POSIX chmod permission scenario")
 	} else {
 		t.Log("running as root; skipping directory permission denial scenario as root bypasses 0000 mode")
 	}
@@ -977,7 +980,7 @@ func TestLogOutboxInspectionScenarios(t *testing.T) {
 	}
 
 	// 6. Inaccessible file
-	if os.Geteuid() != 0 {
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
 		if err := os.Chmod(outboxPath, 0o000); err != nil {
 			t.Fatal(err)
 		}
@@ -986,6 +989,8 @@ func TestLogOutboxInspectionScenarios(t *testing.T) {
 		if inaccessible.status != "Inaccessible" {
 			t.Fatalf("expected 'Inaccessible', got %q", inaccessible.status)
 		}
+	} else if runtime.GOOS == "windows" {
+		t.Log("Windows ACLs do not follow the POSIX chmod permission scenario")
 	} else {
 		t.Log("running as root; skipping file permission denial scenario")
 	}
@@ -1003,10 +1008,7 @@ func TestToolRunnerInspectionScenarios(t *testing.T) {
 		t.Fatalf("expected Terraform-missing detail, got %q", abs.detail)
 	}
 
-	terraformBin := filepath.Join(emptyBinDir, "terraform")
-	if err := os.WriteFile(terraformBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installTerraformLookPathFixture(t, emptyBinDir)
 	op := inspectToolRunner()
 	if op.status != "Détecté" {
 		t.Fatalf("expected 'Détecté' with Terraform in PATH, got %q", op.status)
@@ -1031,12 +1033,29 @@ func TestToolRunnerLabelCorrespondence(t *testing.T) {
 	}
 
 	// Detected tools
-	if err := os.WriteFile(filepath.Join(emptyBinDir, "terraform"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installTerraformLookPathFixture(t, emptyBinDir)
 	summaryDetected := m.toolRunnerSummary()
 	if !strings.Contains(summaryDetected, "Détecté") || !strings.Contains(summaryDetected, "non vérifié") {
 		t.Fatalf("summary must display Détecté and unverified functioning, got %q", summaryDetected)
+	}
+}
+
+func installTerraformLookPathFixture(t *testing.T, directory string) {
+	t.Helper()
+	name := "terraform"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), data, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 

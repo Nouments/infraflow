@@ -148,6 +148,7 @@ func TestTFTPServeRejectsInvalidRuntimeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	iface, loopback := loopbackBinding(t)
 	for _, test := range []struct {
 		name      string
 		ctx       context.Context
@@ -156,12 +157,12 @@ func TestTFTPServeRejectsInvalidRuntimeBindings(t *testing.T) {
 		port      int
 		wantError string
 	}{
-		{name: "nil context", ctx: nil, iface: "lo", address: "127.0.0.1", port: 69, wantError: "context"},
-		{name: "missing interface", ctx: context.Background(), iface: "", address: "127.0.0.1", port: 69, wantError: "required"},
-		{name: "invalid port", ctx: context.Background(), iface: "lo", address: "127.0.0.1", port: 0, wantError: "required"},
-		{name: "invalid address", ctx: context.Background(), iface: "lo", address: "not-an-ip", port: 69, wantError: "IPv4"},
-		{name: "unknown interface", ctx: context.Background(), iface: "infraflow-missing0", address: "127.0.0.1", port: 69, wantError: "find TFTP interface"},
-		{name: "address not assigned", ctx: context.Background(), iface: "lo", address: "192.0.2.22", port: 69, wantError: "not assigned"},
+		{name: "nil context", ctx: nil, iface: iface, address: loopback.String(), port: 69, wantError: "context"},
+		{name: "missing interface", ctx: context.Background(), iface: "", address: loopback.String(), port: 69, wantError: "required"},
+		{name: "invalid port", ctx: context.Background(), iface: iface, address: loopback.String(), port: 0, wantError: "required"},
+		{name: "invalid address", ctx: context.Background(), iface: iface, address: "not-an-ip", port: 69, wantError: "IPv4"},
+		{name: "unknown interface", ctx: context.Background(), iface: "infraflow-missing0", address: loopback.String(), port: 69, wantError: "find TFTP interface"},
+		{name: "address not assigned", ctx: context.Background(), iface: iface, address: "192.0.2.22", port: 69, wantError: "not assigned"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := server.Serve(test.ctx, test.iface, test.address, test.port)
@@ -170,6 +171,28 @@ func TestTFTPServeRejectsInvalidRuntimeBindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loopbackBinding(t *testing.T) (string, net.IP) {
+	t.Helper()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && ip.IsLoopback() {
+				return iface.Name, ip
+			}
+		}
+	}
+	t.Skip("no IPv4 loopback interface is available")
+	return "", nil
 }
 
 func TestTFTPReadFileRejectsUnsafeMissingAndSymlinkFiles(t *testing.T) {

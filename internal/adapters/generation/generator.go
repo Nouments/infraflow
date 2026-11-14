@@ -111,6 +111,12 @@ func generatedArtifactMode(path string, data []byte) os.FileMode {
 // the validated desired state and topology without selecting a provider or
 // applying any infrastructure changes.
 func GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return generateTerraform(infrastructure, root)
+	})
+}
+
+func generateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems
 	}
@@ -378,6 +384,12 @@ func isHCLCollection(value any) bool {
 }
 
 func Generate(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return generate(infrastructure, root)
+	})
+}
+
+func generate(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems
 	}
@@ -525,10 +537,10 @@ func generateAllLocked(ctx context.Context, infrastructure domain.Infrastructure
 			name string
 			run  func(domain.Infrastructure, string) ([]Artifact, error)
 		}{
-			{"inventory and topology", Generate},
-			{"native configuration", GenerateNative},
-			{"Terraform data", GenerateTerraform},
-			{"bootstrap data", GenerateBootstrap},
+			{"inventory and topology", generate},
+			{"native configuration", generateNative},
+			{"Terraform data", generateTerraform},
+			{"bootstrap data", generateBootstrap},
 		} {
 			if err := ctx.Err(); err != nil {
 				return siteGenerationResult{site: site, stagingRoot: siteRoot, err: err}

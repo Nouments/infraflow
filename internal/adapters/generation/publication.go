@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	generationLockName = ".infraflow-generation.lock"
-	maxManagedFileSize = 32 << 20
+	generationLockName       = ".infraflow-generation.lock"
+	generationReadLockPrefix = ".infraflow-generation-reader-"
+	maxManagedFileSize       = 32 << 20
 )
 
 type generationLock struct {
@@ -36,11 +37,94 @@ func acquireGenerationLock(root string) (generationLock, error) {
 		return generationLock{}, fmt.Errorf("create generation lock token: %w", err)
 	}
 	token := hex.EncodeToString(tokenBytes)
-	lockPath := filepath.Join(root, generationLockName)
+	lock, err := createGenerationLockFile(filepath.Join(root, generationLockName), token)
+	if err != nil {
+		return generationLock{}, err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return generationLock{}, errors.Join(fmt.Errorf("inspect generation readers: %w", err), lock.release())
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), generationReadLockPrefix) {
+			return generationLock{}, errors.Join(
+				fmt.Errorf("output directory is in use by an artifact reader"),
+				lock.release(),
+			)
+		}
+	}
+	return lock, nil
+}
+
+func acquireGenerationReadLock(root string) (string, generationLock, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", generationLock{}, fmt.Errorf("resolve artifact root: %w", err)
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return "", generationLock{}, fmt.Errorf("inspect artifact root: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return "", generationLock{}, fmt.Errorf("artifact root must be a real directory")
+	}
+	tokenBytes := make([]byte, 16)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", generationLock{}, fmt.Errorf("create artifact reader lock token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+	lockPath := filepath.Join(root, generationReadLockPrefix+token+".lock")
+	lock, err := createGenerationLockFile(lockPath, token)
+	if err != nil {
+		return "", generationLock{}, err
+	}
+	_, err = os.Lstat(filepath.Join(root, generationLockName))
+	if err == nil {
+		return "", generationLock{}, errors.Join(
+			fmt.Errorf("generation is in progress for %q", root),
+			lock.release(),
+		)
+	}
+	if !os.IsNotExist(err) {
+		return "", generationLock{}, errors.Join(
+			fmt.Errorf("inspect generation lock: %w", err),
+			lock.release(),
+		)
+	}
+	return root, lock, nil
+}
+
+func withOutputGenerationLock(outputDirectory string, operation func(string) ([]Artifact, error)) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	root, err := filepath.Abs(outputDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output directory: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, fmt.Errorf("output directory must be a real directory")
+	}
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, operationErr := operation(root)
+	if err := lock.release(); err != nil {
+		return nil, errors.Join(operationErr, fmt.Errorf("release generation lock: %w", err))
+	}
+	return artifacts, operationErr
+}
+
+func createGenerationLockFile(lockPath, token string) (generationLock, error) {
 	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
-			return generationLock{}, fmt.Errorf("output directory is locked by another or interrupted generation")
+			return generationLock{}, fmt.Errorf("output directory is locked by another or interrupted operation")
 		}
 		return generationLock{}, fmt.Errorf("create generation lock: %w", err)
 	}
@@ -107,7 +191,7 @@ type previousOutput struct {
 }
 
 func inspectManagedOutput(root string) (previousOutput, error) {
-	artifacts, err := catalogArtifacts(root, true)
+	artifacts, err := catalogArtifacts(root)
 	if err != nil {
 		return previousOutput{}, err
 	}

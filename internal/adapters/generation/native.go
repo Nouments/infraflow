@@ -112,6 +112,12 @@ type nativeTemplateData struct {
 // GenerateNative renders a conservative, text-only native configuration for
 // the existing vendor-family profiles. It never connects to or configures a device.
 func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return generateNative(infrastructure, root)
+	})
+}
+
+func generateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems
 	}

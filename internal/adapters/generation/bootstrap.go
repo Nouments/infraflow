@@ -111,6 +111,12 @@ type bootstrapPXE struct {
 // explicitly enabled by the site. It does not start services, access devices,
 // or include credentials.
 func GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return generateBootstrap(infrastructure, root)
+	})
+}
+
+func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	if problems := config.Validate(infrastructure); len(problems) > 0 {
 		return nil, problems
 	}

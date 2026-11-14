@@ -1,5 +1,74 @@
 # Completion and test campaign report
 
+## Post-review locking and CI follow-up — 2026-11-14
+
+**Branch:** `develop`
+**Inspected HEAD:** `980f0524810fe32fe94d72365259a95fa40ccddd`
+**Repository state:** clean at inspection; current edits are local and uncommitted. No stage, commit, or push.
+
+### Concurrency and corrupted-generation handling
+
+Every exported generator that writes an output root now acquires the exclusive
+generation lock: `Generate`, `GenerateNative`, `GenerateTerraform`,
+`GenerateBootstrap`, `GenerateDeclarativeConfig`, and `GenerateAllContext`.
+The all-sites pipeline continues to call private renderers in isolated staging
+directories, so it does not recursively acquire the final-root lock.
+`Catalog` and `ReadArtifact` acquire unique shared-reader markers and keep them
+through catalog validation and file reading. Writers fail closed if a reader
+is active; readers fail closed if a writer has begun. This coordinates InfraFlow
+operations only; external processes that ignore these lock files are outside
+the guarantee.
+
+Regression cases cover concurrent `GenerateAll` calls, concurrent readers,
+writer/read contention across the public writer APIs, malformed root and site
+metadata, catalog hash mismatch, traversal, symlinked prior manifests and
+artifacts, and interrupted publication recovery data. Rejected prior
+generations are compared with a filesystem snapshot to verify that existing
+files were not changed. The publication transaction remains rollback-capable,
+not a filesystem-wide atomic swap; stale lock/recovery data after process or
+machine interruption may require manual recovery.
+
+### CI fixes made from inspected logs
+
+Reviewed [workflow run 43619538843](https://github.com/Nouments/infraflow/actions/runs/43619538843)
+on inspected HEAD `980f0524810fe32fe94d72365259a95fa40ccddd`. Both Linux and
+Windows jobs failed at `go test -count=1 ./...`; all later job steps were
+skipped.
+
+- Linux: corrected the multisite test to assert that DHCP artifacts are absent
+  when the fixture explicitly opts out. Service opt-in behavior was preserved.
+- Windows: replaced shell-script fake commands with controlled Go test
+  executables; added `.exe` to Provider/Agent test binaries; discovered the
+  IPv4 loopback interface instead of assuming `lo`; restricted POSIX chmod
+  denial assertions to non-Windows while keeping Unix checks; made Provider
+  path assertions use native `filepath` semantics; and moved
+  `git config --global core.autocrlf false` before checkout instead of passing
+  the unsupported checkout `autocrlf` input.
+- Windows private-report verification had failed because the file owner did
+  not match the current user. The Windows implementation now explicitly sets
+  the owner to the current SID while retaining the protected one-user DACL.
+
+The workflow run remains evidence of the pre-fix failure only. No run is
+available for the uncommitted patch; do not treat these changes as CI-verified.
+
+### Commands actually executed
+
+| Command/check | Result |
+|---|---|
+| `go test -count=1 ./internal/adapters/generation ./agent/internal/adapters/filesystem ./agent/internal/application/toolrunner ./agent/internal/delivery/cli ./agent/internal/delivery/dhcp ./agent/internal/delivery/tftpserver ./agent/internal/delivery/tui ./provider/internal/adapters/config` | Generation, filesystem, CLI, DHCP, TFTP, TUI, and Provider config passed in this run. Toolrunner had two `context deadline exceeded` failures while starting helper processes. |
+| `go test -count=1 ./agent/internal/application` | FAIL: Provider reported `go-sqlite3 requires cgo to work`; local `CGO_ENABLED=0`. |
+| `go test -count=1 ./...` | FAIL: Windows Application Control explicitly blocked several package test executables; SQLite-dependent tests failed because CGO is disabled. The multisite integration also failed when its Provider executable could not use SQLite. Packages not blocked by those conditions reported PASS. |
+| `go test -count=1 ./agent/internal/application/toolrunner` | A later focused invocation was stopped by the explicit Windows Application Control policy message. |
+| `go vet ./...` | PASS. |
+| `go build ./provider/cmd ./agent/cmd` | PASS with `CGO_ENABLED=0`; does not establish SQLite runtime behavior. |
+| `gofmt -l` on changed Go files | No unformatted files reported. |
+| `git diff --check` | PASS. |
+
+Environment: Windows/amd64, `CGO_ENABLED=0`, `GOOS=windows`,
+`GOARCH=amd64`, `CC=gcc`; no `gcc` executable was available. Linux/Windows
+workflow success on this revision remains unverified. No device or lab
+validation was performed.
+
 ## Safe artifact publication update — 2026-11-14
 
 **Branch:** `develop`

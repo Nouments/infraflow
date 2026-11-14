@@ -1,41 +1,50 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
-## Publication fiable — 2026-11-14
+## Verrouillage et correctifs CI après revue — 2026-11-14
 
-- Branche `develop`; HEAD de départ inspecté :
-  `228414a0ea267efbbe07b05f29616d538dfdbd4a`. Changements locaux non commités,
-  aucun push.
-- Le pipeline `GenerateAllContext` génère d’abord en staging. Il valide les
-  manifestes/catalogues antérieurs, prend une sauvegarde des seuls fichiers
-  catalogués, retire uniquement les artefacts catalogués devenus obsolètes,
-  puis publie les nouveaux artefacts, manifestes de site, rapport global et
-  manifeste racine en dernier. Les fichiers non catalogués et répertoires
-  vides sont conservés.
-- En cas d’échec d’écriture, suppression ou annulation, le pipeline tente de
-  restaurer les fichiers sauvegardés. `Catalog` refuse la lecture pendant une
-  génération et en présence de données de récupération. Ce mécanisme n’est
-  pas un échange atomique global : une panne du processus ou de la machine peut
-  laisser un verrou ou des données de récupération à traiter manuellement.
-- Tests de régression ajoutés : désactivation DHCP, suppression d’un appareil,
-  génération invalide, panne de publication injectée, traversal/symlink,
-  idempotence et conservation de fichiers externes. Le paquet génération a
-  réussi avant les dernières retouches de durcissement; le dernier lancement
-  ciblé a été bloqué par Application Control avant l’exécution des tests.
-- Commandes finales : `go test ./internal/adapters/generation ./pkg/protocol -count=1`
-  bloqué par Application Control; `go test ./...` échoue avec ces blocages,
-  SQLite sans CGO, Terraform absent, interfaces réseau et hypothèses de
-  permissions/environnement Windows. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`
-  et `git diff --check` réussissent. Environnement : Windows/amd64,
-  `CGO_ENABLED=0`, `CC=gcc`, aucun `gcc` détecté.
-- Le run CI [43615857215](https://github.com/Nouments/infraflow/actions/runs/43615857215)
-  porte sur le HEAD distant inchangé, pas sur ces changements locaux. Linux
-  échoue dans le test Agent multisite qui attend les artefacts bootstrap
-  désactivés; Windows échoue entre autres au démarrage de scripts, à cause de
-  Terraform absent, de tests d’interfaces/permissions et d’une assertion de
-  chemin. Aucun résultat CI Linux/Windows ne valide ce patch.
-- Disponibilité non démontrée tant que les tests ciblés ne peuvent pas être
-  exécutés et qu’un run CI vert n’a pas validé la révision modifiée. Aucune
-  validation sur équipement ou en laboratoire.
+- Branche `develop`; HEAD inspecté : `980f0524810fe32fe94d72365259a95fa40ccddd`.
+  Le worktree était propre au départ. Les modifications actuelles ne sont pas
+  commitées; aucun stage, commit ou push.
+- Toutes les fonctions publiques d’écriture (`Generate`, `GenerateNative`,
+  `GenerateTerraform`, `GenerateBootstrap`, `GenerateDeclarativeConfig` et
+  `GenerateAllContext`) prennent désormais le verrou exclusif de la racine.
+  `GenerateAllContext` appelle des renderers internes non verrouillés dans
+  ses répertoires de staging afin d’éviter le verrouillage récursif.
+  `Catalog` et `ReadArtifact` gardent des marqueurs de lecture partagée pendant
+  la validation et la lecture; les writers échouent sans publier si des
+  lecteurs sont actifs. Les outils externes ignorant ces verrous ne sont pas
+  coordonnés.
+- Les tests ajoutés rejettent métadonnées racine/site invalides, hash
+  incohérent, traversal, manifestes/artefacts symboliques et répertoire de
+  récupération interrompu; ils comparent l’arborescence avant/après rejet.
+  La publication transactionnelle permet un rollback mais ne constitue pas un
+  échange atomique global.
+- Logs CI consultés : [run 43619538843](https://github.com/Nouments/infraflow/actions/runs/43619538843),
+  sur le HEAD inspecté; les jobs Linux et Windows échouent. Linux échoue car
+  un test multisite attend le DHCP alors que les quatre sites désactivent
+  explicitement ce service. Windows révèle aussi une assertion de propriétaire,
+  l’extension `.exe` manquante pour un binaire de test, des scripts shell
+  impossibles à lancer, des fixtures Terraform non trouvées, l’interface
+  supposée `lo`, des attentes POSIX chmod, un chemin de base de données non
+  portable et l’entrée checkout `autocrlf` non prise en charge. Les étapes
+  après `go test` ont été ignorées. Corrections locales apportées sans changer
+  l’opt-in des services ni affaiblir les contrôles Unix.
+- Vérifications Windows locales : les paquets génération, filesystem, CLI,
+  DHCP, TFTP, TUI et configuration Provider ont passé dans des exécutions
+  ciblées. Le paquet toolrunner a passé une fois avec le binaire de test
+  contrôlé; des exécutions ultérieures ont subi timeouts au démarrage ou un
+  blocage explicite d’exécutables par Windows Application Control.
+  `go test -count=1 ./...` échoue aussi pour ces blocages et le stub SQLite
+  compilé sans CGO. `go test -count=1 ./agent/internal/application` échoue
+  avec le message `go-sqlite3 requires cgo to work`. `go vet ./...`,
+  `go build ./provider/cmd ./agent/cmd`, le formatage des fichiers Go modifiés
+  et `git diff --check` ont réussi.
+- Environnement : Windows/amd64, `CGO_ENABLED=0`, `GOOS=windows`,
+  `GOARCH=amd64`, `CC=gcc`; aucun `gcc` n’est disponible. Aucun run CI ne
+  valide ces modifications non commitées. Le run de base ne doit pas être
+  présenté comme une validation du patch.
+- Pas prêt pour release sans CI Linux et Windows verte sur la révision
+  modifiée. Aucune validation sur équipement ou en laboratoire.
 
 ## État de stabilisation — 2026-11-12
 

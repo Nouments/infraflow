@@ -35,10 +35,10 @@ func securePrivateReport(path string) error {
 	}
 	if err := windows.SetNamedSecurityInfo(
 		path, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil, nil, acl, nil,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		user, nil, acl, nil,
 	); err != nil {
-		return fmt.Errorf("protect private report ACL: %w", err)
+		return fmt.Errorf("protect private report owner and ACL: %w", err)
 	}
 	return nil
 }

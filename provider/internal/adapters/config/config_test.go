@@ -72,7 +72,9 @@ token_env: TOKEN
 	if config.ListenAddress != "0.0.0.0:8443" || config.APIListenAddress != "0.0.0.0:8080" || config.TokenEnv != "INFRAFLOW_AGENT_TOKEN" {
 		t.Fatalf("provider listener/token overrides were not applied: %#v", config)
 	}
-	if config.ArtifactDirectory != "/var/lib/infraflow-provider" || config.DatabasePath != "/var/lib/infraflow-provider/.infraflow-users.sqlite3" {
+	expectedDirectory := "/var/lib/infraflow-provider"
+	expectedDatabase := filepath.Join(filepath.FromSlash(expectedDirectory), ".infraflow-users.sqlite3")
+	if config.ArtifactDirectory != expectedDirectory || config.DatabasePath != expectedDatabase {
 		t.Fatalf("provider data paths were not applied: %#v", config)
 	}
 	if config.TLS.CertificateFile != "/run/secrets/provider.crt" || config.TLS.KeyFile != "/run/secrets/provider.key" {

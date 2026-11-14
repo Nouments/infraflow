@@ -695,6 +695,235 @@ func TestGenerateAllPreservesUnrelatedFiles(t *testing.T) {
 	}
 }
 
+func TestConcurrentGenerateAllCallsDoNotInterleavePublication(t *testing.T) {
+	first := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+`)
+	second := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+`)
+	root := t.TempDir()
+	start := make(chan struct{})
+	type result struct {
+		artifacts []Artifact
+		err       error
+	}
+	results := make(chan result, 2)
+	for _, infrastructure := range []domain.Infrastructure{first, second} {
+		infrastructure := infrastructure
+		go func() {
+			<-start
+			artifacts, err := GenerateAll(infrastructure, root)
+			results <- result{artifacts: artifacts, err: err}
+		}()
+	}
+	close(start)
+	succeeded := 0
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			succeeded++
+		} else if !strings.Contains(result.err.Error(), "locked") && !strings.Contains(result.err.Error(), "in use") {
+			t.Fatalf("concurrent generation failed unexpectedly: %v", result.err)
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("neither concurrent generation published successfully")
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("concurrent generation left inconsistent output: %v", err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("catalog rejected concurrent generation output: %v", err)
+	}
+}
+
+func TestCatalogAndReadArtifactUseSharedReaderLocks(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	root, readerOne, err := acquireGenerationReadLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, readerTwo, err := acquireGenerationReadLock(root)
+	if err != nil {
+		_ = readerOne.release()
+		t.Fatal(err)
+	}
+	if _, err := Generate(infrastructure, root); err == nil {
+		t.Fatal("writer started while artifact reader locks were held")
+	}
+	writers := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "GenerateAll", run: func() error { _, err := GenerateAll(infrastructure, root); return err }},
+		{name: "GenerateNative", run: func() error { _, err := GenerateNative(infrastructure, root); return err }},
+		{name: "GenerateTerraform", run: func() error { _, err := GenerateTerraform(infrastructure, root); return err }},
+		{name: "GenerateBootstrap", run: func() error { _, err := GenerateBootstrap(infrastructure, root); return err }},
+		{name: "GenerateDeclarativeConfig", run: func() error {
+			_, err := GenerateDeclarativeConfig([]byte("sites:\n  - name: lab\n"), root)
+			return err
+		}},
+	}
+	for _, writer := range writers {
+		if err := writer.run(); err == nil {
+			t.Errorf("%s started while artifact reader locks were held", writer.name)
+		}
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("concurrent Catalog reader was rejected: %v", err)
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); err != nil {
+		t.Fatalf("concurrent ReadArtifact reader was rejected: %v", err)
+	}
+	if err := readerTwo.release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := readerOne.release(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Catalog(root); err == nil {
+		t.Fatal("Catalog read while a writer held the output lock")
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); err == nil {
+		t.Fatal("ReadArtifact read while a writer held the output lock")
+	}
+	if err := writer.release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("catalog failed after the writer released its lock: %v", err)
+	}
+}
+
+func TestGenerateAllRejectsCorruptPreviousGenerationsWithoutChangingFiles(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{
+			name: "invalid root manifest JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "invalid site catalog JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "invalid site manifest JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "site-manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "cataloged artifact hash mismatch",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "inventory.json"), []byte("tampered"))
+			},
+		},
+		{
+			name: "traversal in prior catalog",
+			mutate: func(t *testing.T, root string) {
+				data, err := os.ReadFile(filepath.Join(root, "lab", "manifest.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var manifest Manifest
+				if err := json.Unmarshal(data, &manifest); err != nil {
+					t.Fatal(err)
+				}
+				manifest.Artifacts[0].Path = "../outside.txt"
+				updated, err := json.Marshal(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, filepath.Join(root, "lab", "manifest.json"), updated)
+			},
+		},
+		{
+			name: "symlinked prior site manifest",
+			mutate: func(t *testing.T, root string) {
+				target := filepath.Join(t.TempDir(), "manifest.json")
+				writeTestFile(t, target, []byte("{}"))
+				path := filepath.Join(root, "lab", "manifest.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+		{
+			name: "symlinked prior artifact",
+			mutate: func(t *testing.T, root string) {
+				target := filepath.Join(t.TempDir(), "artifact.json")
+				writeTestFile(t, target, []byte("outside"))
+				path := filepath.Join(root, "lab", "inventory.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+		{
+			name: "interrupted publication recovery directory",
+			mutate: func(t *testing.T, root string) {
+				recovery := filepath.Join(root, ".infraflow-publish-interrupted")
+				if err := os.Mkdir(recovery, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, filepath.Join(recovery, "recovery-data"), []byte("keep"))
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+			root := t.TempDir()
+			if _, err := GenerateAll(infrastructure, root); err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, filepath.Join(root, "user-data.txt"), []byte("untouched"))
+			test.mutate(t, root)
+			before := snapshotRawOutputFiles(t, root)
+			if _, err := GenerateAll(infrastructure, root); err == nil {
+				t.Fatal("corrupt previous output was accepted")
+			}
+			after := snapshotRawOutputFiles(t, root)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("rejected previous generation changed managed or user files")
+			}
+			if data, err := os.ReadFile(filepath.Join(root, "user-data.txt")); err != nil || string(data) != "untouched" {
+				t.Fatalf("unrelated user file changed: data=%q err=%v", data, err)
+			}
+		})
+	}
+}
+
 func parseGenerationInput(t *testing.T, input string) domain.Infrastructure {
 	t.Helper()
 	infrastructure, err := config.Parse([]byte(input))
@@ -702,6 +931,50 @@ func parseGenerationInput(t *testing.T, input string) domain.Infrastructure {
 		t.Fatal(err)
 	}
 	return infrastructure
+}
+
+func writeTestFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func snapshotRawOutputFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := make(map[string]string)
+	err := filepath.WalkDir(root, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(root, filePath)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(relative)
+		if entry.IsDir() {
+			files[name] = "directory"
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(filePath)
+			if err != nil {
+				return err
+			}
+			files[name] = "symlink:" + target
+			return nil
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		files[name] = "file:" + string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot raw output: %v", err)
+	}
+	return files
 }
 
 func snapshotGenerationFiles(t *testing.T, root string) map[string][]byte {

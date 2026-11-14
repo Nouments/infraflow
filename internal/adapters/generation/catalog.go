@@ -25,20 +25,21 @@ var (
 )
 
 func Catalog(root string) ([]Artifact, error) {
-	return catalogArtifacts(root, false)
+	root, lock, err := acquireGenerationReadLock(root)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, catalogErr := catalogArtifacts(root)
+	if err := lock.release(); err != nil {
+		return nil, errors.Join(catalogErr, fmt.Errorf("release artifact reader lock: %w", err))
+	}
+	return artifacts, catalogErr
 }
 
-func catalogArtifacts(root string, allowActiveGeneration bool) ([]Artifact, error) {
+func catalogArtifacts(root string) ([]Artifact, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact root: %w", err)
-	}
-	if !allowActiveGeneration {
-		if _, err := os.Lstat(filepath.Join(root, generationLockName)); err == nil {
-			return nil, fmt.Errorf("generation is in progress for %q", root)
-		} else if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("inspect generation lock: %w", err)
-		}
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -156,17 +157,25 @@ func catalogArtifacts(root string, allowActiveGeneration bool) ([]Artifact, erro
 }
 
 func ReadArtifact(root, artifactPath string) ([]byte, Artifact, error) {
-	artifacts, err := Catalog(root)
+	root, lock, err := acquireGenerationReadLock(root)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	data, artifact, readErr := readArtifactWithLock(root, artifactPath)
+	if err := lock.release(); err != nil {
+		return nil, Artifact{}, errors.Join(readErr, fmt.Errorf("release artifact reader lock: %w", err))
+	}
+	return data, artifact, readErr
+}
+
+func readArtifactWithLock(root, artifactPath string) ([]byte, Artifact, error) {
+	artifacts, err := catalogArtifacts(root)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
 	for _, artifact := range artifacts {
 		if artifact.Path != artifactPath {
 			continue
-		}
-		root, err := filepath.Abs(root)
-		if err != nil {
-			return nil, Artifact{}, fmt.Errorf("resolve artifact root: %w", err)
 		}
 		file, err := safefs.OpenReadOnly(root, artifact.Path)
 		if err != nil {
