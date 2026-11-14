@@ -1,36 +1,36 @@
 # InfraFlow — Bloc 1 Audit
 
-## M1 — coherent artifact reads
+## Final presentation readiness — 2026-11-14
 
-- Fetched `origin`; branch `develop` remains at
-  `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), the supplied
-  starting reference. No newer remote commits were present. The worktree was
-  clean before these M1 edits.
-- `ArtifactRepository.Open` now calls the lock-protected, hash-verifying
-  `generation.ReadArtifact` path and returns a bounded in-memory snapshot.
-  Concurrent catalog scans now skip transient reserved lock-file entries;
-  reader/writer exclusion is still checked by lock acquisition.
-- A streaming file-handle approach was rejected after Windows testing showed
-  that an open artifact can prevent atomic replacement. The snapshot approach
-  keeps generation publication cross-platform and coherent at a cost of
-  memory proportional to the artifact size (capped at 32 MiB per open).
-- Focused filesystem/executor/gRPC/generation tests passed. The repository
-  reader tests passed ten consecutive runs. `go vet ./...`,
-  `go build ./provider/cmd ./agent/cmd`, and `git diff --check` passed.
-- Latest `go test -count=1 ./...` failed: Windows Application Control blocked
-  the temporary Provider binary in the multisite Agent test, and
-  `CGO_ENABLED=0` prevents SQLite-dependent tests from running. `go test -race`
-  is unavailable because race mode requires CGO. No full-suite pass is claimed.
-- `BenchmarkArtifactRepositoryOpen` measured 12.85 ms/op, 478,601 B/op, and
-  533 allocs/op on this Windows/amd64 machine (i5-6500T); see the completion
-  report for the exact command and limitations of this fixture measurement.
-- Latest CI at the starting commit,
-  [run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997),
-  passed all Linux and Windows steps. It predates these M1 edits; CI for the
-  current worktree is not available without pushing.
-- M1 changes are local and uncommitted. Transaction recovery, standalone
-  publication, artifact contract, and filesystem hardening milestones remain
-  open. No commit, push, or device validation.
+- Fetched `origin`; `develop` and `origin/develop` both point to
+  `093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`). The worktree
+  was clean before this follow-up. No newer remote commit was found.
+- Latest CI,
+  [run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446),
+  passed on this exact commit: Linux full tests, race tests, vet, builds,
+  gofmt, and diff check; Windows full tests, vet, builds, gofmt, and diff
+  check. Windows CI does not run race tests.
+- This follow-up found and fixed an additional Windows race: full-generation
+  inspection could `Lstat` a reader lock marker after a reader had removed it.
+  Inspection now skips reserved lock names, as catalog enumeration already
+  did. The existing concurrent-read/generate regression passed 10 runs after
+  the fix. This local change is uncommitted and is not included in CI run
+  43632705446.
+- Local focused config/generation/protocol/filesystem tests passed after the
+  fix. `go vet ./...` and `go build ./provider/cmd ./agent/cmd` passed.
+  The local full suite failed because `CGO_ENABLED=0` prevents SQLite-backed
+  tests and the temporary Provider process from starting; a pre-fix concurrent
+  reader-lock race was also reproduced and corrected. The race suite cannot
+  run locally without CGO. A targeted CLI test binary and `go run` were blocked
+  by Windows Application Control. The PowerShell demo script itself could not
+  be loaded under the active execution policy; neither policy was changed.
+- Known limits remain: interrupted publication has no automatic recovery;
+  standalone and declarative generators use separate publication contracts;
+  filesystem checks do not defend against a hostile actor changing paths
+  concurrently; artifact read snapshots can retain up to 32 MiB per open with
+  no global read-concurrency cap. No device or hardware validation occurred.
+- No commit or push was made. The final worktree is uncommitted; CI for this
+  local lock-race fix remains unavailable without pushing.
 
 ## Historical Phase 0 baseline (superseded)
 
@@ -66,7 +66,7 @@
   The repository contains no integrated coding-agent runtime or OS sandbox.
 - No commit, push, device contact, or hardware/lab validation was performed.
   Native outputs remain generated text; Cisco `.cfg` is not ZTP, MikroTik
-  `.auto.rsc` is unproven on CHR/hardware, and FortiOS `.conf` is render-only.
+  `.auto.rsc` is unproven on CHR/hardware, and FortiOS `.cfg` is render-only.
 
 > Earlier sections below are historical and must not override this baseline.
 

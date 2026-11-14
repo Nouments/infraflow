@@ -4,13 +4,15 @@
 
 - Repository: `Nouments/infraflow`
 - Branch: `develop`
-- Inspected HEAD: `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`)
+- Inspected HEAD: `093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`)
 - The branch was fetched; `develop` matched `origin/develop` and the supplied
-  starting reference. The initial worktree was clean.
+  starting reference. No newer remote commit was found; the initial worktree
+  was clean.
 - Evidence: checked-in source/tests and GitHub Actions run
-  [43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997).
-  Both Linux and Windows completed all workflow steps successfully on this
-  commit. Local M1 changes are not covered by that run.
+  [43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446).
+  Linux passed full and race tests, vet, builds, gofmt, and diff checks;
+  Windows passed full tests, vet, builds, gofmt, and diff checks. Windows
+  does not run race tests. A follow-up local race fix is not included in CI.
 
 This is a current-state snapshot, not an architecture proposal. Statements
 about device compatibility, deployment, and verification are limited to
@@ -77,8 +79,10 @@ cataloged state on handled publication errors. It derives managed-file
 ownership from validated previous manifests and does not recursively delete
 the output directory. Concurrent catalog scans now ignore reserved lock
 filenames, avoiding a race when another reader removes a marker between
-`ReadDir` and `Lstat`. External processes that ignore InfraFlow locks are not
-coordinated.
+`ReadDir` and `Lstat`. Full-generation inspection now also skips those
+transient lock names; otherwise a Windows `Lstat` could fail after a reader
+removed its marker. This follow-up fix is local and not covered by the cited
+CI. External processes that ignore InfraFlow locks are not coordinated.
 
 This is rollback-capable publication, not a filesystem-wide atomic swap. A
 crash can leave a recovery directory and partial files; catalog access fails
@@ -92,13 +96,18 @@ Filesystem safety rejects traversal and statically detected symlinks, but
 path-based check-then-use operations are not race-proof against another local
 actor that can concurrently modify the output tree.
 
+Artifact reads materialize a snapshot up to the 32 MiB protocol limit. There
+is no global limit on simultaneous readers; concurrent large reads can
+therefore consume substantial memory.
+
 ## Execution and device capability limits
 
-- Native Cisco `.cfg`, MikroTik RouterOS `.auto.rsc`, and FortiOS `.conf`
+- Native Cisco `.cfg`, MikroTik RouterOS `.auto.rsc`, and FortiOS `.cfg`
   outputs are generated text.
 - Cisco `.cfg` generation is not Cisco ZTP or AutoInstall.
 - MikroTik `.auto.rsc` has not been proven on CHR or hardware.
-- FortiOS `.conf` is render-only.
+- FortiOS `.cfg` is render-only (the current native renderer uses `.cfg`, not
+  `.conf`).
 - No vendor is hardware-validated based on this repository's current evidence.
 - Agent processing/staging does not upload or execute generated configs.
 - Planning, generation, delivery, execution, and verification are distinct
@@ -123,13 +132,15 @@ service startup.
 
 ## Test and CI evidence
 
-On the inspected HEAD, Linux and Windows CI passed full tests, race tests, vet,
-command builds, gofmt, and diff checks. The M1 local focused repository,
-executor, gRPC, and generation tests passed, including ten repeated runs of
-the repository concurrency tests. The latest local full suite failed because
-Windows Application Control blocked the temporary Provider executable in the
-multisite Agent test and `CGO_ENABLED=0` prevents SQLite-dependent tests. Local
-race tests cannot run without CGO. Exact results are in
+On the inspected HEAD, Linux and Windows CI passed the steps listed above.
+After the uncommitted inspection-race fix, focused config, generation,
+protocol, and filesystem tests passed; the targeted reader/generator
+concurrency regression passed ten runs. Local `go test -count=1 ./...` failed
+because `CGO_ENABLED=0` prevents SQLite-dependent tests and the temporary
+Provider process from starting; a concurrent lock-marker race in that run was
+then corrected and stress-tested. Local race tests cannot run without CGO.
+Application Control blocked a targeted CLI test binary and `go run`; PowerShell
+refused to load the demo script under the active policy. Exact results are in
 [`../COMPLETION_AND_TEST_REPORT.md`](../COMPLETION_AND_TEST_REPORT.md).
 
 ## Architecture sources

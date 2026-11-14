@@ -1,11 +1,97 @@
 # Completion and test campaign report
 
-## M1 — ArtifactRepository read consistency
+## Final presentation-readiness follow-up — 2026-11-14
+
+**Repository/branch:** `Nouments/infraflow`, `develop`
+**Fetched starting HEAD:** `093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`), matching `origin/develop`; no newer remote commit.
+**Initial worktree:** clean. One local code change and documentation updates are uncommitted; no commit or push.
+
+### CI evidence
+
+GitHub Actions
+[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+completed successfully on the exact starting HEAD. Retrieved Linux logs show
+`go test -count=1 ./...` and `go test -race -count=1 ./...` passed, followed by
+vet, command builds, gofmt, and `git diff --check`. Retrieved Windows logs show
+full tests, vet, command builds, gofmt, and diff check passed. The Windows
+workflow does not run race tests. This run predates the uncommitted change
+described below.
+
+### Confirmed issue fixed locally
+
+The local full test run exposed a race in `inspectManagedOutput`: a reader
+marker could be returned by `ReadDir` and removed by its reader before the
+publisher's `Lstat`. This made a valid concurrent generation fail on Windows.
+Inspection now skips the reserved generation writer/reader marker names. The
+existing concurrent repository-open/generation regression passed ten
+consecutive runs after the fix. No test was weakened. This fix has not run in
+CI because pushing is prohibited.
+
+The supported native renderer output extensions were also checked against
+source and tests: Cisco `.cfg`, MikroTik `.auto.rsc`, FortiOS `.cfg`. Older
+documentation that called the FortiOS file `.conf` was inaccurate; current
+architecture, README, and vendor audit documentation have been corrected.
+
+### Local validation results
+
+Environment: `go1.27.3 windows/amd64`, `CGO_ENABLED=0`, `GOOS=windows`,
+`GOARCH=amd64`.
+
+| Command/action | Actual result |
+|---|---|
+| `git fetch origin`; inspect `git status`, HEAD and recent commits | PASS. Branch and remote both at `093ed33944fc3f35ac477079cd6b0cc63f575f01`; initially clean. |
+| `go test -count=1 ./internal/adapters/config ./internal/adapters/generation ./pkg/protocol ./provider/internal/adapters/filesystem` | PASS after the lock-marker fix. |
+| `go test -count=10 -run '^TestArtifactRepositoryOpenConcurrentWithGeneration$' ./provider/internal/adapters/filesystem` | PASS (10 runs) after the fix. |
+| `go test -count=1 -run '^(TestCommandsValidatePlanAndGenerate|TestGenerateAllPublishesCompleteAgentCatalog|TestGenerateDeviceConfigRejectsUnsupportedOSPFWithoutOutput)$' ./provider/internal/delivery/cli` | FAIL to launch test binary: Windows Application Control explicitly blocked `cli.test.exe`. |
+| `go test -count=1 ./...` | Latest post-fix run FAIL: Windows Application Control blocked several test binaries; `CGO_ENABLED=0` caused SQLite tests and the temporary Provider process in the multisite Agent test to fail. The earlier pre-fix run also reproduced the reader-marker race; it was corrected and the targeted regression then passed ten runs. |
+| `go test -race -count=1 ./...` | NOT RUN: Go reported `-race requires cgo; enable cgo by setting CGO_ENABLED=1`. |
+| `go vet ./...` | PASS. |
+| `go build ./provider/cmd ./agent/cmd` | PASS. |
+| `gofmt -l` over tracked Go files | Raw Windows worktree listed 99 files; the source files contain CRLF. LF-normalizing temporary copies of all 129 tracked Go files and running gofmt passed. No source was mass-formatted. Linux and Windows CI gofmt checks also passed on the starting HEAD. |
+| `git diff --check` | PASS after documentation/code edits. |
+
+### Demonstration attempt
+
+The documented one-command demo is
+`.\scripts\demo-provisioning.ps1`. Loading it was denied by the active
+PowerShell execution policy. A direct CLI attempt (`go run
+./provider/cmd validate -f examples/provisioning-generation.yaml`) then failed
+because Windows Application Control blocked Go's generated command executable.
+No execution policy or Application Control setting was changed or bypassed.
+Consequently, a local complete demo run and current-revision manifest/hash
+inspection are **not claimed**. The script is designed to generate in fresh
+unique temporary roots for `provisioning-generation.yaml`, `infra.yaml`, and
+`multisite-preparation.yaml`, validate site/root manifests, artifact sizes and
+SHA-256 values, display Cisco and MikroTik outputs, and reject unsupported
+OSPF without publishing output. Generation content is also covered by
+`TestGenerateNativeRendersSupportedIntent` and
+`TestProvisioningGenerationExampleProducesVerifiableArtifacts`; physical
+device behavior is not.
+
+### Remaining critical limits
+
+- Interrupted publication leaves a recovery directory and fails closed; there
+  is no automatic recovery to the last valid generation.
+- Standalone and declarative generators do not share the full generation
+  transaction/catalog lifecycle.
+- Path defenses reject static traversal/symlinks but are not race-proof against
+  a hostile local actor changing the output tree.
+- Each artifact read materializes up to 32 MiB; there is no global concurrent
+  reader/memory cap.
+- Cisco, MikroTik, and FortiOS output remains generated text. No hardware or
+  vendor-parser validation was performed. Cisco `.cfg` is not ZTP; RouterOS
+  `.auto.rsc` is unproven on CHR/hardware; FortiOS `.cfg` is render-only.
+
+**Readiness:** credible for a presentation only with explicit disclosure of
+these limits and the local policy-blocked demo. The checked-in starting commit
+has green Linux/Windows CI; the local lock-marker fix has not been CI-verified.
+
+## Historical M1 — ArtifactRepository read consistency (stabilization4)
 
 **Branch:** `develop`
 **Starting/inspected HEAD:** `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`)
 **Initial worktree:** clean; fetched `origin/develop` matched this commit. No newer remote commits were present.
-**Current implementation changes:** local and uncommitted; no commit or push.
+**M1 changes at that time:** local and uncommitted; later included in `stabilization5`.
 
 ### Defect and implementation
 
@@ -64,10 +150,10 @@ checkout, full tests, build, vet, formatting, and diff checks successfully.
 This run predates the local M1 patch; no CI result is available for the
 uncommitted changes because pushing is prohibited.
 
-M1 read consistency is implemented locally. Transaction recovery, standalone
-generator atomicity, artifact contract consistency, filesystem hardening,
-determinism, and broader test coverage remain. No device or lab validation
-was performed.
+M1 read consistency was implemented locally at that time and later included
+in `stabilization5`. Transaction recovery, standalone generator atomicity,
+artifact contract consistency, filesystem hardening, determinism, and broader
+test coverage remained. No device or lab validation was performed.
 
 ## Historical Phase 0 repository baseline
 
@@ -341,7 +427,7 @@ production-readiness score. **Release readiness: NOT READY** until focused
 tests, the full suite, and Linux CI pass on the modified revision.
 
 Cisco `.cfg` is generated text, not Cisco ZTP. MikroTik `.auto.rsc` is rendered
-but not proven on CHR or hardware. FortiOS `.conf` is render-only. No vendor is
+but not proven on CHR or hardware. FortiOS `.cfg` is render-only. No vendor is
 hardware-validated. Generation, delivery, execution, and verification are
 separate; no device was contacted, and no lab evidence is available.
 

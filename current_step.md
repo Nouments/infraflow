@@ -1,38 +1,32 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
-## M1 — cohérence des lectures d’artefacts
+## Préparation de la présentation — 2026-11-14
 
-- `git fetch origin` confirme que `develop` est à
-  `23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), identique à la
-  référence fournie; aucun commit distant plus récent. Le worktree était propre
-  avant M1.
-- `ArtifactRepository.Open` utilise maintenant `generation.ReadArtifact`,
-  qui lit métadonnées et contenu sous le même verrou et vérifie le SHA-256.
-  Le lecteur retourné expose ce snapshot borné à 32 Mio. Le catalogue ignore
-  aussi les fichiers réservés de verrouillage, dont la disparition pendant
-  `ReadDir`/`Lstat` causait des erreurs concurrentes; les contrôles de verrou
-  writer/reader restent actifs.
-- Une approche par descripteur de fichier a été écartée après un échec Windows :
-  un fichier ouvert peut empêcher son remplacement atomique. Le snapshot
-  préserve la publication interplateforme, avec une mémoire proportionnelle à
-  la taille du fichier (maximum 32 Mio par ouverture).
-- Tests ciblés filesystem, executors, gRPC et generation : PASS. Les tests
-  concurrents de lecture ont réussi dix répétitions. `go vet ./...`,
-  `go build ./provider/cmd ./agent/cmd` et `git diff --check` : PASS.
-- Dernier `go test -count=1 ./...` : FAIL. Windows Application Control a
-  bloqué le binaire Provider temporaire du test Agent multisite et
-  `CGO_ENABLED=0` empêche les tests SQLite. Aucun succès de suite complète
-  n’est revendiqué. `go test -race` exige aussi CGO.
-- `BenchmarkArtifactRepositoryOpen` : 12,85 ms/op, 478 601 B/op,
-  533 allocs/op sur Windows/amd64 (i5-6500T); commande et limites dans le
-  rapport de tests.
-- Le dernier run CI sur le commit initial,
-  [43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997),
-  a réussi tous les tests et étapes Linux et Windows. Il précède les
-  modifications M1; elles n’ont pas encore de résultat CI.
-- Corrections locales non commitées. La récupération transactionnelle,
-  les générateurs autonomes, le contrat d’artefacts et le durcissement
-  filesystem restent à traiter. Aucun push/commit ni accès à un équipement.
+- `git fetch origin` confirme `develop` et `origin/develop` au SHA
+  `093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`). Aucun commit
+  distant plus récent; le worktree était propre avant ce suivi.
+- Le CI le plus récent,
+  [43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446),
+  a réussi sur ce SHA. Linux a passé tests complets et race, vet, builds,
+  gofmt et diff; Windows a passé tests complets, vet, builds, gofmt et diff
+  (le workflow Windows ne lance pas `-race`).
+- Ce suivi a corrigé une course Windows supplémentaire : l’inspection de
+  génération pouvait faire `Lstat` d’un marqueur reader après sa suppression.
+  Elle ignore maintenant les noms réservés. Le test concurrent existant a
+  réussi 10 exécutions après le correctif. Ce changement local n’est pas inclus
+  dans le run CI.
+- Tests ciblés config/generation/protocol/filesystem, `go vet ./...` et
+  `go build ./provider/cmd ./agent/cmd` : PASS. `go test -count=1 ./...` :
+  FAIL local, `CGO_ENABLED=0` empêchant SQLite et le Provider temporaire du
+  test multisite. La suite race exige CGO. Application Control a bloqué le
+  binaire d’un test CLI et `go run`; la stratégie PowerShell a aussi refusé
+  le script demo. Aucun contrôle n’a été contourné.
+- Limites importantes : aucune reprise automatique après crash, publication
+  autonome/déclarative distincte, opérations filesystem check-then-use,
+  snapshots de lecture jusqu’à 32 Mio chacun sans limite globale de lecteurs.
+  Aucun équipement n’a été contacté ni validé.
+- Aucun commit/push. Le correctif local attend une validation CI; voir le
+  rapport de test pour les commandes, les détails du demo et les limites.
 
 ## Historique — Phase 0 audit architecture et capacités
 
@@ -164,7 +158,7 @@
   **Pas prêt pour release** tant que les tests ciblés/complets et la CI Linux
   ne réussissent pas sur la révision modifiée.
 - Cisco `.cfg` = texte rendu, pas Cisco ZTP; MikroTik `.auto.rsc` = rendu non
-  prouvé sur CHR ou matériel; FortiOS `.conf` = rendu uniquement. Aucun vendor
+  prouvé sur CHR ou matériel; FortiOS `.cfg` = rendu uniquement. Aucun vendor
   n’est validé matériellement. Génération, livraison, exécution et vérification
   restent des étapes distinctes.
 

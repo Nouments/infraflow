@@ -1,13 +1,33 @@
 # Vendor provisioning audit
 
-**Audit date:** 2026-10-30; stabilization evidence updated 2026-11-12
+**Audit date:** 2026-10-30; current-state evidence updated 2026-11-14
 **Scope:** repository state on `develop`, official-source review, and the
 requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 **Evidence rule:** generated text and mock tests are not proof of device
 compatibility. No capability below is marked `IMPLEMENTED` or `LAB-VERIFIED`
 unless an actual implementation and matching evidence exist.
 
-## Current stabilization evidence — 2026-11-12
+## Current presentation-readiness evidence — 2026-11-14
+
+The requested starting branch was fetched at
+`develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`
+(`stabilization5`); it matched `origin/develop` and the initial worktree was
+clean. GitHub Actions
+[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed on that commit. Linux passed full and race tests, vet, builds, gofmt,
+and diff checks; Windows passed full tests, vet, builds, gofmt, and diff checks
+(the Windows workflow does not run race tests).
+
+Source and tests show the native renderer writes Cisco `.cfg`, MikroTik
+`.auto.rsc`, and FortiOS `.cfg` files. Previous references to FortiOS `.conf`
+were incorrect and have been corrected. The three providers' example rendering
+is checked in generation tests; this is template-content evidence only, not a
+vendor parser, hardware, or lab result. A local full demo was blocked by
+PowerShell execution policy and Windows Application Control; no policy was
+changed. A local lock-marker inspection fix is uncommitted and is not included
+in the cited CI run. See the completion report for exact commands and limits.
+
+## Historical stabilization evidence — 2026-11-12
 
 Inspected branch `develop` at starting HEAD
 `986d2a7b15fe9aee46f4579688b694862dd64485`; the current fixes remain
@@ -53,11 +73,11 @@ atomic publication, artifact hash rejection, secret redaction, and site-scoped
 authorization. Those tests are not claimed as passed in this run because the
 full test suite remains blocked.
 
-**Current readiness: NOT READY for release** until the focused/full Go tests
-and Linux CI pass on the modified revision. No device/lab evidence is
-available. Cisco `.cfg` is generated text, not Cisco ZTP; MikroTik `.auto.rsc`
-is rendered but not proven on CHR or hardware; FortiOS `.conf` is render-only.
-No vendor should be described as hardware-validated.
+**Readiness at that historical snapshot: NOT READY for release** until the
+focused/full Go tests and Linux CI pass on the modified revision. No device/lab
+evidence is available. Cisco `.cfg` is generated text, not Cisco ZTP; MikroTik
+`.auto.rsc` is rendered but not proven on CHR or hardware; FortiOS `.cfg` is
+render-only. No vendor should be described as hardware-validated.
 
 ## Historical implementation update — 2026-11-11
 

@@ -32,27 +32,24 @@ go run ./provider/cmd validate -f examples/network-deployment.yaml
 
 ### Current repository and CI baseline
 
-The generation-engine follow-up started on `develop` at
-`23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), matching
-`origin/develop`; the worktree was clean before this local change. GitHub
-Actions [run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997)
-passed all Linux and Windows steps on that commit, including checkout, full
-tests, vet, builds, formatting, and diff checks. Local M1 changes are not
-covered by that CI run.
+The presentation-readiness review started on `develop` at
+`093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`), matching
+`origin/develop`; the worktree was clean. GitHub Actions
+[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed on that commit. Linux passed full and race tests, vet, command builds,
+formatting, and diff checks. Windows passed full tests, vet, command builds,
+formatting, and diff checks; the workflow does not run Windows race tests.
 
-M1 fixes `ArtifactRepository.Open` to return content and metadata from the
-same lock-protected, hash-verified artifact snapshot. Focused repository,
-executor, gRPC, and generation tests passed; the repository concurrency tests
-also passed ten repeated runs. On the audit machine (`go1.27.3
-windows/amd64`, `CGO_ENABLED=0`), the latest `go test -count=1 ./...` failed:
-Windows Application Control blocked the temporary Provider executable in the
-multisite Agent test, and SQLite-backed tests require CGO. `go test -race`
-could not run because Go requires CGO. `Open` retains an in-memory snapshot
-bounded by the 32 MiB artifact limit; this avoids Windows file-replacement
-conflicts observed with a streaming file handle. Remaining
-publication recovery, standalone generator, artifact-contract, and filesystem
-hardening work is not complete. See the [completion report](docs/COMPLETION_AND_TEST_REPORT.md)
-and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md).
+The local follow-up corrected a concurrent-generation race while inspecting
+transient reader-lock files. Focused generation-related tests passed, including
+ten runs of the reader/generator regression. This local change has not been
+covered by CI. The full local test suite fails with `CGO_ENABLED=0` SQLite and
+temporary Provider runtime errors; the race command requires CGO. Windows
+Application Control blocked a targeted CLI test executable and `go run`, and
+the active PowerShell policy refused to load the demo script. No policy was
+changed or bypassed. See the [completion report](docs/COMPLETION_AND_TEST_REPORT.md)
+and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md) for
+exact evidence and unresolved risks.
 
 ### Historical stabilization evidence (2026-11-12)
 
@@ -88,9 +85,11 @@ fixture, generates into a fresh temporary directory, verifies manifests,
 artifact sizes and SHA-256 values, displays the Cisco `.cfg` and MikroTik
 `.auto.rsc`, and confirms unsupported OSPF intent is rejected without output.
 The output remains under the printed `%TEMP%` path for inspection. On the
-stabilization machine, invoking the script was blocked by the local PowerShell
-execution policy; it was not changed or bypassed. The CLI commands and output
-checks were run separately. Follow local policy when running the script.
+current review machine, PowerShell policy refused to load the script and
+Windows Application Control blocked `go run`'s generated command executable.
+Neither control was changed or bypassed, so no local end-to-end demo pass is
+claimed. The exact CI test results and local limitations are in the
+[completion report](docs/COMPLETION_AND_TEST_REPORT.md).
 
 The YAML parser accepts either `site` or `sites`, based on which top-level key
 is present, and rejects documents containing both. Network validation rejects
@@ -150,9 +149,9 @@ model/version matrix or evidence of syntax validation. Unsupported intent is
 rejected rather than silently omitted. Generated files are never applied
 automatically.
 The Cisco `.cfg` is generated text, not Cisco ZTP. The MikroTik `.auto.rsc`
-is rendered but has not been proven on CHR or hardware. FortiOS `.conf` output
-is render-only. No vendor is hardware-validated, and generation is not delivery,
-execution, or verification.
+is rendered but has not been proven on CHR or hardware. The current FortiOS
+native renderer writes `.cfg` text and is render-only. No vendor is
+hardware-validated, and generation is not delivery, execution, or verification.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
 and physical-device validation as `not_performed`. No IOS parser or device

@@ -3,36 +3,38 @@
 ## Active generation-engine follow-up
 
 **Starting reference:** `develop` at
-`23f3325ad24651d506f96d962f1b5de25c03ebbc` (`stabilization4`), fetched and
-confirmed equal to `origin/develop`; initial worktree clean. M1 changes are
-local and uncommitted.
+`093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`), fetched and
+confirmed equal to `origin/develop`; initial worktree clean. CI run
+[43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed on this commit (Linux full/race tests; Windows full tests; both vet,
+build, format, and diff checks).
 
 M1 implements coherent `ArtifactRepository.Open` reads by reusing the
 lock-protected, hash-verifying `ReadArtifact` path. It returns a bounded byte
 snapshot; concurrent catalog scans also ignore transient reserved lock files.
 A streaming descriptor was rejected because Windows can prevent atomic
-replacement while the file remains open. Focused tests passed, including ten
-repeated concurrent-reader runs. The latest full local suite is blocked by
-Windows Application Control on the temporary Provider executable in the
-multisite test and `CGO_ENABLED=0` SQLite runtime failures. Local race testing
-is unavailable without CGO.
+replacement while the file remains open. The follow-up fixed a second
+Windows-only inspection race where a reader marker disappeared between
+`ReadDir` and `Lstat`; its existing concurrency regression passed ten runs.
+That fix remains local and is not included in CI. The latest full local suite
+is blocked by `CGO_ENABLED=0` SQLite runtime failures; local race testing is
+unavailable without CGO. The CLI test binary/go run were blocked by Windows
+Application Control, and the demo script by PowerShell execution policy.
 
-The latest CI run on the starting commit,
-[43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997),
-passed all Linux and Windows steps. It predates M1 changes; post-change CI is
-unverified because no push is authorized.
+The CI run covers the checked-in starting commit only; post-change CI is
+unverified because pushing is explicitly prohibited.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M1 | Reproduce and fix `ArtifactRepository.Open` consistency; cover generation changes, deletion, readers, and writer contention. | Implemented locally; targeted tests pass. |
-| M2 | Audit and strengthen transactional publication; inject failures by publication phase. | Not started. |
-| M3 | Implement conservative crash recovery or explicit manual-recovery state. | Not started. |
+| M1 | Reproduce and fix `ArtifactRepository.Open` consistency; cover generation changes, deletion, readers, and writer contention. | Included in starting commit; focused tests and CI passed. |
+| M2 | Audit and strengthen transactional publication; inject failures by publication phase. | Existing rollback covers returned errors; crash recovery remains. |
+| M3 | Implement conservative crash recovery or explicit manual-recovery state. | Not started; current behavior fails closed and needs operator recovery. |
 | M4 | Harden and document the public reader/writer locking contract, including cancellation and stale-lock behavior. | Not started. |
 | M5 | Harmonize declarative, standalone, site, and catalog artifact contracts with compatible metadata. | Not started. |
-| M6 | Harden filesystem operations and document portable threat-model limits. | Not started. |
-| M7 | Verify deterministic output across implemented Cisco, MikroTik, and Fortinet paths. | Not started. |
-| M8 | Expand independent generation, manifest, integrity, concurrency, recovery, and security tests. | M1-specific tests added; broader milestone not started. |
-| M9 | Verify Linux and Windows CI on the changed revision. | Starting-reference CI is green; M1 revision still needs CI. |
+| M6 | Harden filesystem operations and document portable threat-model limits. | Static traversal/symlink defenses exist; hostile concurrent path mutation remains out of scope. |
+| M7 | Verify deterministic output across implemented Cisco, MikroTik, and Fortinet paths. | Template rendering and test content covered; no vendor syntax/hardware validation. |
+| M8 | Expand independent generation, manifest, integrity, concurrency, recovery, and security tests. | Existing broad generation tests plus the M1 regressions; crash recovery and global read limits remain unproven. |
+| M9 | Verify Linux and Windows CI on the changed revision. | Starting commit CI is green; the local inspection-race fix still needs CI. |
 
 This mission is limited to the generation engine. Developer/Reviewer agents,
 orchestration, and unrelated vendor capabilities are explicitly out of scope.

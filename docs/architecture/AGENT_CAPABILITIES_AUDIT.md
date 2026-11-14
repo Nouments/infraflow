@@ -1,10 +1,20 @@
 # Agent Capabilities Audit
 
+## Current status — 2026-11-14
+
+The current review baseline is `develop` HEAD
+`093ed33944fc3f35ac477079cd6b0cc63f575f01`; the latest CI
+[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed Linux tests/race/vet/build/format/diff and Windows
+tests/vet/build/format/diff on that commit. The audit below describes the
+checked-in Agent boundaries, which remain unchanged by the local generation
+lock-marker fix. That local fix has not been CI-verified.
+
 ## Scope and baseline
 
 Reviewed the Agent runtime, CLI, generic processor, filesystem state handling,
 Terraform toolrunner, TUI, Provider execution registration, and authorization
-boundaries at `develop` HEAD
+boundaries at the earlier `develop` HEAD
 `9f60e0e51104e59875a5156bc13c9ac31c388baf`.
 
 ## What the Agent does today

@@ -1,10 +1,12 @@
 # Generation Engine Audit
 
-## M1 follow-up status — `develop` HEAD `23f3325ad24651d506f96d962f1b5de25c03ebbc`
+## Current presentation-readiness follow-up — `develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`
 
-The branch was fetched and verified against `origin/develop`; HEAD matches the
-supplied starting reference, with no newer remote commits. The initial
-worktree was clean. M1 changes are local and uncommitted.
+`develop` and `origin/develop` were fetched and confirmed at this starting
+commit; no newer remote commit was found. The initial worktree was clean.
+Latest CI [run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed on this exact commit: Linux full tests/race/vet/build/format/diff and
+Windows full tests/vet/build/format/diff. Windows CI does not run race tests.
 
 `ArtifactRepository.Open` now delegates to `generation.ReadArtifact`, which
 holds the shared reader marker through catalog validation, file reading, and
@@ -24,7 +26,13 @@ Windows stress testing also found that inspection of a writer lock during
 creation can temporarily return access denied. Read-lock acquisition now
 classifies that as generation-in-progress and releases its reader marker.
 
-### M1 evidence
+The current local follow-up also reproduced `inspectManagedOutput` failing on
+Windows when a reader marker disappeared between `ReadDir` and `Lstat`.
+Publication inspection now skips the reserved generation lock and reader
+marker names. The existing concurrent reader/generator regression passed ten
+repetitions after this fix. The fix is uncommitted and has no post-change CI.
+
+### Historical M1 evidence — stabilization4 (`23f3325`)
 
 - `go test -count=1 ./provider/internal/adapters/filesystem ./provider/internal/adapters/executors ./provider/internal/delivery/grpcapi ./internal/adapters/generation` — Earlier run: PASS. Latest revalidation had a transient timeout in unrelated `TestSSHSessionOutputLimitFailsAndCloses`; isolated rerun passed, and filesystem/generation passed on rerun.
 - `go test -count=10 -run '^TestArtifactRepositoryOpen' ./provider/internal/adapters/filesystem` — PASS.
@@ -37,13 +45,15 @@ classifies that as generation-in-progress and releases its reader marker.
 - `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, and
   `git diff --check` — PASS locally.
 - GitHub Actions [run 43624108997](https://github.com/Nouments/infraflow/actions/runs/43624108997)
-  on the starting commit `23f3325` passed every Linux and Windows step,
-  including checkout, full tests, build, vet, formatting, and diff checks.
-  This run predates the M1 working-tree changes; no CI result exists for them.
+  on `23f3325` passed Linux and Windows steps. This evidence predates the later
+  `stabilization5` commit and is retained only as historical context.
 
-Remaining M1 scope includes the separate transactional-publication,
-crash-recovery, standalone-generator, and declarative artifact-contract
-findings. M2 and later milestones have not started.
+The former M1 status and evidence above are historical; the read-consistency
+fix was included in `stabilization5`. Remaining findings include
+transactional-publication crash recovery, standalone-generator consistency,
+and the declarative artifact contract. The current evidence and the later
+lock-marker race fix are recorded in the completion report and the
+presentation-readiness section above.
 
 ## Historical audit scope and baseline
 
@@ -100,11 +110,11 @@ interrupted recovery directory, not recovery to the previous valid generation.
 **Impact:** operator intervention may be required after a crash; output can be
 unavailable until recovered. This is not a global atomic directory swap.
 
-### P1 — Provider artifact repository could return bytes from a different generation — fixed locally
+### P1 — Provider artifact repository could return bytes from a different generation — fixed
 
-`provider/internal/adapters/filesystem/artifacts.go` calls `Catalog`, then
-opened an artifact after the catalog's reader lock had been released. A writer
-could publish between those operations, and the opened bytes were not checked
+Historical source at the audit baseline called `Catalog`, then opened an
+artifact after the catalog's reader lock had been released. A writer could
+publish between those operations, and the opened bytes were not checked
 against the catalog hash. `ArtifactRepository.Open` now uses
 `generation.ReadArtifact` to look up metadata and read/hash the target under
 one reader lock. The returned reader wraps that verified byte snapshot.

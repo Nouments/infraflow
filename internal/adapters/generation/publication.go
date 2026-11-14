@@ -215,6 +215,9 @@ func inspectManagedOutput(root string) (previousOutput, error) {
 		return previousOutput{}, fmt.Errorf("read output directory: %w", err)
 	}
 	for _, entry := range entries {
+		if entry.Name() == generationLockName || strings.HasPrefix(entry.Name(), generationReadLockPrefix) {
+			continue
+		}
 		entryPath := filepath.Join(root, entry.Name())
 		info, err := os.Lstat(entryPath)
 		if err != nil {
