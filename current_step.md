@@ -1,5 +1,42 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
+## Publication fiable — 2026-11-14
+
+- Branche `develop`; HEAD de départ inspecté :
+  `228414a0ea267efbbe07b05f29616d538dfdbd4a`. Changements locaux non commités,
+  aucun push.
+- Le pipeline `GenerateAllContext` génère d’abord en staging. Il valide les
+  manifestes/catalogues antérieurs, prend une sauvegarde des seuls fichiers
+  catalogués, retire uniquement les artefacts catalogués devenus obsolètes,
+  puis publie les nouveaux artefacts, manifestes de site, rapport global et
+  manifeste racine en dernier. Les fichiers non catalogués et répertoires
+  vides sont conservés.
+- En cas d’échec d’écriture, suppression ou annulation, le pipeline tente de
+  restaurer les fichiers sauvegardés. `Catalog` refuse la lecture pendant une
+  génération et en présence de données de récupération. Ce mécanisme n’est
+  pas un échange atomique global : une panne du processus ou de la machine peut
+  laisser un verrou ou des données de récupération à traiter manuellement.
+- Tests de régression ajoutés : désactivation DHCP, suppression d’un appareil,
+  génération invalide, panne de publication injectée, traversal/symlink,
+  idempotence et conservation de fichiers externes. Le paquet génération a
+  réussi avant les dernières retouches de durcissement; le dernier lancement
+  ciblé a été bloqué par Application Control avant l’exécution des tests.
+- Commandes finales : `go test ./internal/adapters/generation ./pkg/protocol -count=1`
+  bloqué par Application Control; `go test ./...` échoue avec ces blocages,
+  SQLite sans CGO, Terraform absent, interfaces réseau et hypothèses de
+  permissions/environnement Windows. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`
+  et `git diff --check` réussissent. Environnement : Windows/amd64,
+  `CGO_ENABLED=0`, `CC=gcc`, aucun `gcc` détecté.
+- Le run CI [43615857215](https://github.com/Nouments/infraflow/actions/runs/43615857215)
+  porte sur le HEAD distant inchangé, pas sur ces changements locaux. Linux
+  échoue dans le test Agent multisite qui attend les artefacts bootstrap
+  désactivés; Windows échoue entre autres au démarrage de scripts, à cause de
+  Terraform absent, de tests d’interfaces/permissions et d’une assertion de
+  chemin. Aucun résultat CI Linux/Windows ne valide ce patch.
+- Disponibilité non démontrée tant que les tests ciblés ne peuvent pas être
+  exécutés et qu’un run CI vert n’a pas validé la révision modifiée. Aucune
+  validation sur équipement ou en laboratoire.
+
 ## État de stabilisation — 2026-11-12
 
 - Branche `develop`; HEAD inspecté au départ :

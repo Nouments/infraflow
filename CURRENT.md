@@ -1,5 +1,43 @@
 # InfraFlow — Bloc 1 Audit
 
+## Publication safety update — 2026-11-14
+
+- Branch `develop`; starting HEAD `228414a0ea267efbbe07b05f29616d538dfdbd4a`.
+  Publication changes and this update are uncommitted; nothing staged or
+  pushed.
+- `GenerateAllContext` now stages the full generation before touching the
+  output. Under an exclusive lock, it validates the previous catalogs and
+  manifests, snapshots only catalog-owned files, removes only obsolete
+  cataloged paths, then publishes artifacts and manifests in order, with the
+  root manifest last. Unknown user files and empty directories are retained.
+- Write/removal/cancellation failures attempt rollback from the snapshot.
+  Readers using `Catalog` fail closed while generation is active or when an
+  incomplete rollback leaves recovery data. Publication is rollback-capable,
+  not a filesystem-wide atomic swap; interruption/power loss can leave a stale
+  lock or recovery directory requiring manual recovery.
+- Added regression cases for disabled DHCP cleanup, removed-device cleanup,
+  invalid-generation preservation, injected mid-publication failure,
+  traversal/symlink rejection, deterministic repeat output, and preservation
+  of unrelated files. A generation test run passed after adding these cases;
+  after later hardening, the final focused run was blocked by Windows
+  Application Control before test execution.
+- Final validation attempts: `go test ./internal/adapters/generation ./pkg/protocol -count=1`
+  was blocked by Application Control; `go test ./...` failed due to the same
+  policy plus CGO-disabled SQLite, missing Terraform, unavailable network
+  interfaces, and Windows permission/environment assumptions. `go vet ./...`,
+  `go build ./provider/cmd ./agent/cmd`, and `git diff --check` passed.
+  Environment: `CGO_ENABLED=0`, `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; no
+  `gcc` executable was found.
+- GitHub Actions run [43615857215](https://github.com/Nouments/infraflow/actions/runs/43615857215)
+  tested the unchanged remote HEAD, not these local edits. Linux failed in the
+  multisite Agent test because it expected disabled bootstrap artifacts;
+  Windows failed on shell-script startup, missing Terraform, interface/
+  permission assumptions, and a path assertion. No Linux or Windows run
+  validates the uncommitted publication changes.
+- Not ready for release pending execution of focused tests and a passing
+  Linux/Windows CI run on the changed revision. No device or lab validation
+  was performed.
+
 ## Current stabilization status — 2026-11-12
 
 - Branch: `develop`. Inspected starting HEAD: `986d2a7b15fe9aee46f4579688b694862dd64485`.

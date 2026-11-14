@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
@@ -24,9 +25,20 @@ var (
 )
 
 func Catalog(root string) ([]Artifact, error) {
+	return catalogArtifacts(root, false)
+}
+
+func catalogArtifacts(root string, allowActiveGeneration bool) ([]Artifact, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact root: %w", err)
+	}
+	if !allowActiveGeneration {
+		if _, err := os.Lstat(filepath.Join(root, generationLockName)); err == nil {
+			return nil, fmt.Errorf("generation is in progress for %q", root)
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("inspect generation lock: %w", err)
+		}
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -36,6 +48,9 @@ func Catalog(root string) ([]Artifact, error) {
 	var artifacts []Artifact
 	seenPaths := make(map[string]struct{})
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+			return nil, fmt.Errorf("publication recovery is required for %q", filepath.Join(root, entry.Name()))
+		}
 		entryPath := filepath.Join(root, entry.Name())
 		info, err := os.Lstat(entryPath)
 		if err != nil {

@@ -1,5 +1,67 @@
 # Completion and test campaign report
 
+## Safe artifact publication update — 2026-11-14
+
+**Branch:** `develop`
+**Inspected starting HEAD:** `228414a0ea267efbbe07b05f29616d538dfdbd4a`
+**Changes:** local and uncommitted; nothing staged or pushed.
+
+### Publication lifecycle and guarantees
+
+`GenerateAllContext` stages the complete generation outside the output tree,
+then acquires an exclusive output lock. Publication validates the prior site
+catalogs and the global/site manifests, sizes, and hashes; it derives ownership
+from those validated catalogs; snapshots only affected managed regular files;
+invalidates old catalog entry points; removes obsolete cataloged artifacts;
+publishes artifacts and site catalogs; then publishes the global report and
+root manifest last. It does not recursively delete the output directory.
+Uncataloged files and empty directories are preserved.
+
+On write, remove, or cancellation failure, publication attempts reverse-order
+restoration from the snapshots. A failed rollback retains recovery data and
+`Catalog` fails closed. This is not a filesystem-wide atomic swap: a process or
+machine interruption can leave a lock or recovery directory that needs manual
+recovery. Concurrent InfraFlow generators are excluded by the lock; readers
+using `Catalog` are rejected while it exists. External actors that bypass this
+lock are outside that coordination boundary.
+
+Focused regression cases were added for disabled DHCP cleanup, removed-device
+cleanup, invalid second-generation preservation, injected publication failure
+and rollback, unsafe traversal/symlink paths, idempotency, and unrelated-file
+preservation. They also validate cataloged hashes and consistency of the
+published manifests. The generation package passed once after those cases
+were added. Subsequent hardening changes were formatted and compiled by the
+latest test attempt, but Windows Application Control blocked both focused test
+executables before tests ran; the final code therefore has no successful
+focused-test execution result.
+
+### Validation and CI evidence
+
+| Command/result | Evidence |
+|---|---|
+| `gofmt -w` on modified Go files | Completed successfully. |
+| `go test ./internal/adapters/generation ./pkg/protocol -count=1` | Failed to execute: Windows Application Control blocked both test binaries. |
+| `go test ./...` | Failed. Application Control blocked some binaries; SQLite reported CGO disabled; other environment-dependent failures included missing Terraform, absent/unavailable network interfaces, Windows permission assumptions, and an Agent multisite test unable to find its temporary Provider executable. |
+| `go vet ./...` | PASS. |
+| `go build ./provider/cmd ./agent/cmd` | PASS (`CGO_ENABLED=0`; does not establish SQLite runtime behavior). |
+| `git diff --check` | PASS. |
+| Go environment | `CGO_ENABLED=0`, `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; no `gcc` executable was found. |
+
+GitHub Actions run
+[43615857215](https://github.com/Nouments/infraflow/actions/runs/43615857215)
+ran on remote `develop` HEAD `228414a0ea267efbbe07b05f29616d538dfdbd4a`,
+before these local changes. Both jobs failed. Linux failed in
+`TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts` because the test
+expected explicitly disabled bootstrap artifacts. Windows failures included
+shell scripts failing to start, missing Terraform, interface and permission
+environment assumptions, and a provider data-path assertion. It is not
+evidence for the publication patch. No CI run on the modified revision is
+available without committing/pushing; neither was authorized.
+
+**Readiness:** not release-ready. The targeted regression suite must execute
+successfully and Linux/Windows CI must pass on the modified revision. No device
+or lab validation was performed.
+
 ## Current stabilization run — 2026-11-12
 
 **Branch:** `develop`

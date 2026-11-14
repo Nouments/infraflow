@@ -407,11 +407,351 @@ func TestGenerateAllPreflightsSitePublicationBeforeWritingArtifacts(t *testing.T
 			t.Errorf("site publication left a partial artifact %s: %v", path, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "lab", "site-manifest.json")); err != nil {
-		t.Fatalf("failure status manifest was not retained: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "lab", "site-manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("publication failure left a site manifest: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("publication failure left a global manifest: %v", err)
 	}
 	if catalog, err := Catalog(root); err != nil || len(catalog) != 0 {
 		t.Fatalf("failed site's partial artifacts became Agent-visible: catalog=%#v err=%v", catalog, err)
+	}
+}
+
+func TestGenerateAllRemovesArtifactsForDisabledService(t *testing.T) {
+	enabled := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: true
+`)
+	disabled := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(enabled, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "keep.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("user data\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(disabled, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "bootstrap", "dhcp", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("disabled DHCP artifact remains: %v", err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range catalog {
+		if strings.HasPrefix(artifact.Path, "lab/bootstrap/") {
+			t.Errorf("disabled service remains in catalog: %q", artifact.Path)
+		}
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "user data\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllRemovesArtifactsForRemovedDevice(t *testing.T) {
+	twoDevices := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: router1
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+      - name: router2
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+`)
+	oneDevice := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: router1
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(twoDevices, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "native", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(unrelatedPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("keep me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(oneDevice, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "native", "device-router2.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("removed device configuration remains: %v", err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range catalog {
+		if strings.Contains(artifact.Path, "device-router2") {
+			t.Errorf("removed device artifact remains in catalog: %q", artifact.Path)
+		}
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "keep me\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllFailurePreservesPreviousGeneration(t *testing.T) {
+	valid := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	invalid := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/31
+    services:
+      dhcp: true
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(valid, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	if _, err := GenerateAll(invalid, root); err == nil {
+		t.Fatal("expected invalid second generation to fail")
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is no longer valid: %v", err)
+	}
+}
+
+func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), infrastructure, root, publicationHooks{
+		beforeWrite: func(path string) error {
+			if path == "lab/site-manifest.json" {
+				return os.ErrPermission
+			}
+			return nil
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil {
+		t.Fatal("expected injected publication failure")
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is no longer valid: %v", err)
+	}
+}
+
+func TestPublicationRejectsUnsafeStalePathsAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "keep.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSiteFiles(context.Background(), root, nil, []string{"../keep.txt"},
+		map[string]struct{}{"../keep.txt": {}}, publicationHooks{}); err == nil {
+		t.Fatal("expected traversal path to be rejected")
+	}
+	if err := os.Mkdir(filepath.Join(root, "lab"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	symlinkPath := filepath.Join(root, "lab", "managed.cfg")
+	if err := os.Symlink(outsideFile, symlinkPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := publishSiteFiles(context.Background(), root, nil, []string{"lab/managed.cfg"},
+		map[string]struct{}{"lab/managed.cfg": {}}, publicationHooks{}); err == nil {
+		t.Fatal("expected symlinked stale artifact to be rejected")
+	}
+	if err := publishSiteFiles(context.Background(), root, []publicationFile{{
+		pendingFile: pendingFile{path: "../keep.txt", data: []byte("overwritten")},
+		phase:       publicationPhaseArtifacts,
+	}}, nil, nil, publicationHooks{}); err == nil {
+		t.Fatal("expected traversal publication path to be rejected")
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := publishSiteFiles(context.Background(), root, []publicationFile{{
+		pendingFile: pendingFile{path: "linked/new.cfg", data: []byte("overwritten")},
+		phase:       publicationPhaseArtifacts,
+	}}, nil, nil, publicationHooks{}); err == nil {
+		t.Fatal("expected symlinked publication parent to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("symlinked publication wrote outside the output root: %v", err)
+	}
+	if got, err := os.ReadFile(outsideFile); err != nil || string(got) != "outside\n" {
+		t.Fatalf("unsafe publication changed outside file: data=%q err=%v", got, err)
+	}
+}
+
+func TestGenerateAllIsIdempotent(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: true
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	first, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstFiles := snapshotGenerationFiles(t, root)
+	firstCatalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondFiles := snapshotGenerationFiles(t, root)
+	secondCatalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) || !reflect.DeepEqual(firstCatalog, secondCatalog) {
+		t.Fatalf("artifact metadata changed between runs:\nfirst=%#v\nsecond=%#v", firstCatalog, secondCatalog)
+	}
+	if !reflect.DeepEqual(firstFiles, secondFiles) {
+		t.Fatal("generated file contents or manifest metadata changed between identical runs")
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllPreservesUnrelatedFiles(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "user-data", "notes.txt")
+	if err := os.MkdirAll(filepath.Dir(unrelatedPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("not managed by InfraFlow\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "not managed by InfraFlow\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+}
+
+func parseGenerationInput(t *testing.T, input string) domain.Infrastructure {
+	t.Helper()
+	infrastructure, err := config.Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return infrastructure
+}
+
+func snapshotGenerationFiles(t *testing.T, root string) map[string][]byte {
+	t.Helper()
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("validate generated manifests: %v", err)
+	}
+	artifacts, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range artifacts {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatalf("read cataloged artifact %q: %v", artifact.Path, err)
+		}
+		if protocol.SHA256(data) != artifact.OutputHash {
+			t.Fatalf("catalog metadata does not match artifact %q", artifact.Path)
+		}
+	}
+	files := make(map[string][]byte)
+	err = filepath.WalkDir(root, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, filePath)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relative)] = data
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot generated files: %v", err)
+	}
+	return files
+}
+
+func assertGenerationFilesEqual(t *testing.T, root string, expected map[string][]byte) {
+	t.Helper()
+	actual := snapshotGenerationFiles(t, root)
+	if !reflect.DeepEqual(expected, actual) {
+		t.Fatal("failed generation changed the previous artifacts or manifests")
 	}
 }
 
