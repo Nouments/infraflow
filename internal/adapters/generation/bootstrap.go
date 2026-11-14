@@ -111,23 +111,41 @@ type bootstrapPXE struct {
 // explicitly enabled by the site. It does not start services, access devices,
 // or include credentials.
 func GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	files, artifacts, err := prepareBootstrapArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
+	}
 	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
-		return generateBootstrap(infrastructure, root)
+		if err := writeBootstrapArtifacts(root, files); err != nil {
+			return nil, err
+		}
+		return artifacts, nil
 	})
 }
 
 func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
+	files, artifacts, err := prepareBootstrapArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
+	if err := writeBootstrapArtifacts(outputDirectory, files); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func prepareBootstrapArtifacts(infrastructure domain.Infrastructure) ([]bootstrapPendingFile, []Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, nil, problems
 	}
 
 	canonical := canonicalize(infrastructure)
 	canonicalInput, err := json.Marshal(canonical)
 	if err != nil {
-		return nil, fmt.Errorf("encode normalized input: %w", err)
+		return nil, nil, fmt.Errorf("encode normalized input: %w", err)
 	}
 	inputHash := protocol.SHA256(canonicalInput)
 	files := make([]bootstrapPendingFile, 0, len(canonical.Sites)*6)
@@ -144,7 +162,7 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 		if bootstrapServiceEnabled(site, "dhcp") {
 			dhcp, err := buildBootstrapDHCP(site)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			jsonFiles = append(jsonFiles, bootstrapJSONFile{
 				name: "dhcp/config.json", template: "templates/bootstrap/dhcp/config.json.tmpl",
@@ -154,7 +172,7 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 		if bootstrapServiceEnabled(site, "dns") {
 			dns, err := buildBootstrapDNS(site)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			jsonFiles = append(jsonFiles, bootstrapJSONFile{
 				name: "dns/config.json", template: "templates/bootstrap/dns/config.json.tmpl",
@@ -177,7 +195,7 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 		for _, item := range jsonFiles {
 			data, err := renderBootstrapJSON(item.template, item.value)
 			if err != nil {
-				return nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
+				return nil, nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
 			}
 			appendBootstrapArtifact(&files, &artifacts, site.Name, item.name, item.typeName, data, inputHash)
 		}
@@ -193,7 +211,7 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 			} {
 				data, err := renderBootstrapTemplate(item.template, map[string]string{"SiteName": site.Name})
 				if err != nil {
-					return nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
+					return nil, nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
 				}
 				appendBootstrapArtifact(&files, &artifacts, site.Name, item.name, item.typeName, data, inputHash)
 			}
@@ -209,7 +227,7 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 			Artifacts:        siteArtifacts,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("render bootstrap manifest for site %q: %w", site.Name, err)
+			return nil, nil, fmt.Errorf("render bootstrap manifest for site %q: %w", site.Name, err)
 		}
 		files = append(files, bootstrapPendingFile{
 			path: filepath.ToSlash(filepath.Join(site.Name, "manifest.json")),
@@ -217,19 +235,23 @@ func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 		})
 	}
 
+	return files, artifacts, nil
+}
+
+func writeBootstrapArtifacts(outputDirectory string, files []bootstrapPendingFile) error {
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("resolve output directory: %w", err)
+		return fmt.Errorf("resolve output directory: %w", err)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
+		return fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
 		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
-			return nil, fmt.Errorf("write bootstrap artifact %q: %w", file.path, err)
+			return fmt.Errorf("write bootstrap artifact %q: %w", file.path, err)
 		}
 	}
-	return artifacts, nil
+	return nil
 }
 
 func appendBootstrapArtifact(files *[]bootstrapPendingFile, artifacts *[]Artifact, site, name, typeName string, data []byte, inputHash string) {

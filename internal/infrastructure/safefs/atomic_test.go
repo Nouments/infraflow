@@ -3,6 +3,7 @@ package safefs
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,46 @@ func TestAtomicWriteCreatesAndReplacesRegularFile(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(root, "site", "inventory.json"))
 	if err != nil || string(data) != "second" {
 		t.Fatalf("unexpected output %q, %v", data, err)
+	}
+}
+
+func TestAtomicWriteSyncFailurePreservesExistingTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "state.json")
+	if err := os.WriteFile(target, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := AtomicWriteWithHooks(root, "state.json", []byte("next"), 0o600, AtomicWriteHooks{
+		BeforeSync: func() error {
+			return errors.New("injected sync failure")
+		},
+	})
+	if err == nil {
+		t.Fatal("expected staged-file sync failure")
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil || string(data) != "previous" {
+		t.Fatalf("sync failure replaced the previous target: data=%q err=%v", data, readErr)
+	}
+}
+
+func TestAtomicWriteReplacementFailurePreservesExistingTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "state.json")
+	if err := os.WriteFile(target, []byte("previous"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := AtomicWriteWithHooks(root, "state.json", []byte("next"), 0o600, AtomicWriteHooks{
+		BeforeReplace: func() error {
+			return errors.New("injected replacement failure")
+		},
+	})
+	if err == nil {
+		t.Fatal("expected replacement failure")
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil || string(data) != "previous" {
+		t.Fatalf("replacement failure changed the previous target: data=%q err=%v", data, readErr)
 	}
 }
 

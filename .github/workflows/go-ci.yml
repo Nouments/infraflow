@@ -2,7 +2,7 @@ name: Go CI
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, 'feature/**']
   pull_request:
     branches: [develop, main]
 
@@ -20,10 +20,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Check reachable vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: go test -count=1 ./...
       - run: go test -race -count=1 ./...
       - run: go vet ./...
       - run: go build ./provider/cmd ./agent/cmd
+      - name: Enforce Agent package coverage
+        run: |
+          go test -count=1 -coverprofile=agent-processor.cover ./agent/internal/adapters/processor
+          go test -count=1 -coverprofile=agent-cli.cover ./agent/internal/delivery/cli
+          processor_coverage=$(go tool cover -func=agent-processor.cover | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          cli_coverage=$(go tool cover -func=agent-cli.cover | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          awk -v processor="$processor_coverage" -v cli="$cli_coverage" 'BEGIN {
+            if (processor < 90 || cli < 65) {
+              printf "Agent coverage below threshold: processor=%s%% (need 90%%), cli=%s%% (need 65%%)\n", processor, cli
+              exit 1
+            }
+            printf "Agent coverage thresholds met: processor=%s%%, cli=%s%%\n", processor, cli
+          }'
       - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
       - run: git diff --check
 

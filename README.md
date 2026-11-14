@@ -83,6 +83,13 @@ one combined manifest; it does not contact infrastructure or apply a plan.
 Bootstrap service artifacts are omitted unless the corresponding service is
 explicitly enabled.
 
+`generate-device-config` parses, resolves templates, and renders before
+acquiring the output-root lock; generic standalone generators validate before
+creating the root. Those rejected requests leave a previously absent `-out`
+path absent and do not change a pre-existing directory. `generate-all`
+intentionally may publish a `partial_failure` report when an individual site
+fails. Existing output directories are never recursively deleted.
+
 Full-generation publication uses a bounded journal and verified rollback
 copies. If a reader process is interrupted, its
 `.infraflow-generation-reader-*.lock` marker may remain and writers fail
@@ -91,8 +98,11 @@ root and confirming no reader is active, an operator may remove those exact
 reader marker files. Do not remove active reader markers. A stale
 `.infraflow-generation.lock` similarly requires confirming no writer is active
 before removing only that lock file; the next generation then attempts journal
-recovery. This rollback mechanism is not a filesystem-wide atomic swap, and
-parent-directory durability is not guaranteed across filesystems.
+recovery. If rollback cannot be verified, generation and artifact reads expose
+`ErrRecoveryRequired` and retain the journal/backup data instead of presenting
+a partial catalog as valid. This rollback mechanism is not a filesystem-wide
+atomic swap, and parent-directory durability is not guaranteed across
+filesystems.
 
 Run the scripted presentation demo from a Linux shell or Git Bash at the
 repository root:
@@ -178,7 +188,11 @@ native renderer writes `.cfg` text and is render-only. No vendor is
 hardware-validated, and generation is not delivery, execution, or verification.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
-and physical-device validation as `not_performed`. No IOS parser or device
+and physical-device validation as `not_performed`. A separate
+`config_syntax_validation` status is `not_available`: no offline vendor syntax
+parser is registered for Cisco IOS-XE, RouterOS 7, or FortiOS. Exact-output
+tests verify the renderer's output, not vendor syntax acceptance.
+`examples/fortios-native.yaml` is a render-only FortiOS example. No device
 connection is used by this demo.
 
 ### RouterOS `.auto.rsc` render-only demo
@@ -328,6 +342,14 @@ When site manifests are published, Provider startup verifies that every
 published site has exactly one configured Agent credential and rejects
 credentials for sites absent from the published catalog.
 The shared-token legacy gRPC mode remains limited to a single-site catalog.
+Each scoped Agent credential requires a future `expires_at` timestamp and is
+checked on every gRPC request. A remote single-site deployment, or a remote
+HTTP registration listener using the legacy global token, must set
+`token_expires_at`; the global token is checked on both HTTP and gRPC requests.
+Rotation and revocation are
+configuration-driven: update the secret environment value or remove the
+scoped credential, then restart the Provider; the old token is no longer
+accepted by the restarted service. The Provider does not hot-reload tokens.
 
 For example, the Provider's site credentials and one Agent's token references
 have this shape (all referenced environment values must be secret and at least
@@ -337,10 +359,16 @@ machine token):
 ```yaml
 # Provider configuration
 token_env: INFRAFLOW_AGENT_TOKEN
+token_expires_at: "2099-12-31T23:59:59Z" # replace with the approved rotation deadline
+tls:
+  certificate_file: /run/secrets/provider.crt
+  key_file: /run/secrets/provider.key
+  client_ca_file: /run/secrets/agent-ca.crt
 agent_credentials:
   - agent_id: agent-site-a
     site_id: site-a
     token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
+    expires_at: "2099-12-31T23:59:59Z" # replace with the approved rotation deadline
 ```
 
 ```yaml
@@ -356,7 +384,18 @@ provider:
   artifact_token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
   tls:
     enabled: true
+    ca_file: /etc/infraflow/provider-ca.pem
+    certificate_file: /run/secrets/agent.crt
+    key_file: /run/secrets/agent.key
 ```
+
+For optional gRPC mutual TLS, configure `tls.client_ca_file` on the Provider
+with a CA that issues Agent client certificates, and configure the matching
+Agent `certificate_file` and `key_file`. The Agent always verifies the
+Provider certificate using the configured CA file or the operating system
+trust store; there is no verification-disable option. Mutual TLS applies to
+the Agent gRPC channel. The separate HTTP registration/API listener continues
+to use server-authenticated TLS and its existing bearer/session authentication.
 
 This scenario proves local generation, authenticated transfer, hash checks,
 and report acceptance only. Agent status `completed` means supported artifact
@@ -481,6 +520,14 @@ ARCHITECTURE.md      Service boundaries and safety rules
 ```
 
 ## Development
+
+The Linux CI workflow runs `govulncheck` in source mode, which fails when it
+finds a reachable vulnerability. It also enforces package coverage floors of
+90% for `agent/internal/adapters/processor` and 65% for
+`agent/internal/delivery/cli`; the current measured results are 93.2% and
+66.9%, respectively. `BenchmarkGenerateAll` measures repeated generation, and
+`BenchmarkArtifactRepositoryOpen` measures verified artifact reads. Benchmarks
+are available via `go test -run=^$ -bench 'BenchmarkGenerateAll|BenchmarkArtifactRepositoryOpen' -benchmem ./internal/adapters/generation ./provider/internal/adapters/filesystem`.
 
 ```sh
 make fmt

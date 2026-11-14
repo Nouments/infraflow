@@ -308,6 +308,41 @@ func TestPlannerDoesNotImportNetworkOrCommandExecutionPackages(t *testing.T) {
 	}
 }
 
+func FuzzBuildPlanDeterministic(f *testing.F) {
+	f.Add("lab", "R1", "GigabitEthernet1", "netconf")
+	f.Add("../site", "device/1", "port 1", "unknown")
+	f.Fuzz(func(t *testing.T, siteName, deviceName, interfaceName, method string) {
+		if len(siteName) > 256 || len(deviceName) > 256 || len(interfaceName) > 256 || len(method) > 256 {
+			return
+		}
+		infrastructure := domain.Infrastructure{Sites: []domain.Site{{
+			Name: siteName,
+			Devices: []domain.Device{{
+				Name:         deviceName,
+				Provisioning: domain.Provisioning{Method: domain.ProvisioningMethod(method)},
+				Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+					Name: interfaceName,
+				}}},
+			}},
+		}}}
+		first, err := json.Marshal(Build(infrastructure))
+		if err != nil {
+			t.Fatalf("marshal first plan: %v", err)
+		}
+		plan := Build(infrastructure)
+		second, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatalf("marshal second plan: %v", err)
+		}
+		if string(first) != string(second) {
+			t.Fatal("same infrastructure produced different plans")
+		}
+		if !strings.HasPrefix(plan.ID, "plan/sha256-") || len(plan.Tasks) != 1 {
+			t.Fatalf("planner returned an invalid plan shape: %#v", plan)
+		}
+	})
+}
+
 func assertPlannedLifecycle(t *testing.T, lifecycle domain.LifecycleState) {
 	t.Helper()
 	if !lifecycle.Desired || !lifecycle.Planned || lifecycle.Generated || lifecycle.Executed || lifecycle.Verified || lifecycle.Observed {

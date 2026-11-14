@@ -18,6 +18,39 @@ import (
 
 const nativeTemplateVersion = "1"
 
+const configSyntaxValidationUnavailable = "not_available"
+const configSyntaxValidationName = "CONFIG_SYNTAX_VALIDATION"
+
+type ConfigSyntaxValidationResult struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func configSyntaxValidationFor(vendor, family string, generated bool) ConfigSyntaxValidationResult {
+	if !generated {
+		return ConfigSyntaxValidationResult{
+			Name:    configSyntaxValidationName,
+			Status:  "not_run",
+			Message: "No configuration was generated; syntax validation was not run.",
+		}
+	}
+	label := strings.TrimSpace(vendor + " " + family)
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "cisco":
+		label = "Cisco IOS-XE"
+	case "mikrotik":
+		label = "MikroTik RouterOS 7"
+	case "fortinet", "fortigate":
+		label = "Fortinet FortiOS"
+	}
+	return ConfigSyntaxValidationResult{
+		Name:    configSyntaxValidationName,
+		Status:  configSyntaxValidationUnavailable,
+		Message: fmt.Sprintf("No offline syntax parser is registered for %s; vendor syntax remains unverified.", label),
+	}
+}
+
 var (
 	nativeIdentifier = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,62}$`)
 	nativeHostname   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,34}$`)
@@ -26,35 +59,37 @@ var (
 )
 
 type nativeManifest struct {
-	TemplateVersion string               `json:"template_version"`
-	InputHash       string               `json:"input_hash"`
-	Status          string               `json:"status"`
-	ExecutionMode   string               `json:"execution_mode"`
-	Warnings        []string             `json:"warnings"`
-	Devices         []nativeDeviceReport `json:"devices"`
+	TemplateVersion        string                       `json:"template_version"`
+	InputHash              string                       `json:"input_hash"`
+	Status                 string                       `json:"status"`
+	ExecutionMode          string                       `json:"execution_mode"`
+	ConfigSyntaxValidation ConfigSyntaxValidationResult `json:"config_syntax_validation"`
+	Warnings               []string                     `json:"warnings"`
+	Devices                []nativeDeviceReport         `json:"devices"`
 }
 
 type nativeDeviceReport struct {
-	ID                  string   `json:"id,omitempty"`
-	Name                string   `json:"name"`
-	Vendor              string   `json:"vendor"`
-	Family              string   `json:"family"`
-	Model               string   `json:"model,omitempty"`
-	OSVersion           string   `json:"os_version,omitempty"`
-	ProvisioningMethod  string   `json:"provisioning_method,omitempty"`
-	TemplateID          string   `json:"template_id"`
-	TemplateVersion     string   `json:"template_version"`
-	TemplateHash        string   `json:"template_hash,omitempty"`
-	InputHash           string   `json:"input_hash"`
-	OutputHash          string   `json:"output_hash"`
-	SupportedFeatures   []string `json:"supported_features,omitempty"`
-	ValidationStatus    string   `json:"validation_status"`
-	Compatibility       string   `json:"compatibility,omitempty"`
-	CompatibilityStatus string   `json:"compatibility_status"`
-	VerificationStatus  string   `json:"verification_status"`
-	SourceReferences    []string `json:"source_references"`
-	Path                string   `json:"path"`
-	Status              string   `json:"status"`
+	ID                     string                       `json:"id,omitempty"`
+	Name                   string                       `json:"name"`
+	Vendor                 string                       `json:"vendor"`
+	Family                 string                       `json:"family"`
+	Model                  string                       `json:"model,omitempty"`
+	OSVersion              string                       `json:"os_version,omitempty"`
+	ProvisioningMethod     string                       `json:"provisioning_method,omitempty"`
+	TemplateID             string                       `json:"template_id"`
+	TemplateVersion        string                       `json:"template_version"`
+	TemplateHash           string                       `json:"template_hash,omitempty"`
+	InputHash              string                       `json:"input_hash"`
+	OutputHash             string                       `json:"output_hash"`
+	SupportedFeatures      []string                     `json:"supported_features,omitempty"`
+	ValidationStatus       string                       `json:"validation_status"`
+	ConfigSyntaxValidation ConfigSyntaxValidationResult `json:"config_syntax_validation"`
+	Compatibility          string                       `json:"compatibility,omitempty"`
+	CompatibilityStatus    string                       `json:"compatibility_status"`
+	VerificationStatus     string                       `json:"verification_status"`
+	SourceReferences       []string                     `json:"source_references"`
+	Path                   string                       `json:"path"`
+	Status                 string                       `json:"status"`
 }
 
 type nativeOutput struct {
@@ -112,35 +147,53 @@ type nativeTemplateData struct {
 // GenerateNative renders a conservative, text-only native configuration for
 // the existing vendor-family profiles. It never connects to or configures a device.
 func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	files, artifacts, err := prepareNativeArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
+	}
 	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
-		return generateNative(infrastructure, root)
+		if err := writeNativeArtifacts(root, files); err != nil {
+			return nil, err
+		}
+		return artifacts, nil
 	})
 }
 
 func generateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
+	files, artifacts, err := prepareNativeArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
+	if err := writeNativeArtifacts(outputDirectory, files); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func prepareNativeArtifacts(infrastructure domain.Infrastructure) ([]pendingFile, []Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, nil, problems
 	}
 
 	canonical := canonicalize(infrastructure)
 	canonicalInput, err := json.Marshal(canonical)
 	if err != nil {
-		return nil, fmt.Errorf("encode normalized input: %w", err)
+		return nil, nil, fmt.Errorf("encode normalized input: %w", err)
 	}
 	inputHash := protocol.SHA256(canonicalInput)
 	templates, err := loadDeviceTemplates()
 	if err != nil {
-		return nil, fmt.Errorf("load local device templates: %w", err)
+		return nil, nil, fmt.Errorf("load local device templates: %w", err)
 	}
 	files := make([]pendingFile, 0)
 	artifacts := make([]Artifact, 0)
 	for _, site := range canonical.Sites {
 		outputs, err := renderNativeSite(site, templates)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(outputs) == 0 {
 			continue
@@ -150,6 +203,11 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 			InputHash:       inputHash,
 			Status:          "rendered_unverified",
 			ExecutionMode:   "render-only; review manually; no device connection or execution",
+			ConfigSyntaxValidation: ConfigSyntaxValidationResult{
+				Name:    configSyntaxValidationName,
+				Status:  configSyntaxValidationUnavailable,
+				Message: "No offline syntax parser is registered for generated native configurations; see per-device details.",
+			},
 			Warnings: []string{
 				"command syntax and behavior were not validated against a physical device",
 				"vendor family profiles do not certify compatibility with the reported model or software version",
@@ -161,7 +219,7 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 		for _, output := range outputs {
 			profile, err := nativeProfileFor(output.device)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			manifest.Devices = append(manifest.Devices, nativeDeviceReport{
 				ID: output.device.ID, Name: output.device.Name, Vendor: nativeVendor(profile),
@@ -170,8 +228,11 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 				ProvisioningMethod: output.provisioningMethod,
 				TemplateVersion:    output.templateVersion, TemplateHash: output.templateHash, InputHash: inputHash,
 				OutputHash: protocol.SHA256(output.data), Compatibility: "unknown", CompatibilityStatus: "unknown",
-				SupportedFeatures:  append([]string(nil), output.supportedFeatures...),
-				ValidationStatus:   output.validationStatus,
+				SupportedFeatures: append([]string(nil), output.supportedFeatures...),
+				ValidationStatus:  output.validationStatus,
+				ConfigSyntaxValidation: configSyntaxValidationFor(
+					nativeVendor(profile), nativeFamily(profile), true,
+				),
 				VerificationStatus: "not_performed", SourceReferences: append([]string(nil), output.sourceReferences...),
 				Path: output.path, Status: "rendered_unverified",
 			})
@@ -183,7 +244,7 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 		}
 		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
-			return nil, fmt.Errorf("encode native manifest for site %q: %w", site.Name, err)
+			return nil, nil, fmt.Errorf("encode native manifest for site %q: %w", site.Name, err)
 		}
 		manifestBytes = append(manifestBytes, '\n')
 		manifestPath := filepath.ToSlash(filepath.Join(site.Name, "native", "native-manifest.json"))
@@ -193,23 +254,24 @@ func generateNative(infrastructure domain.Infrastructure, outputDirectory string
 			OutputHash: protocol.SHA256(manifestBytes),
 		})
 	}
-	if len(files) == 0 {
-		return artifacts, nil
-	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return files, artifacts, nil
+}
+
+func writeNativeArtifacts(outputDirectory string, files []pendingFile) error {
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("resolve output directory: %w", err)
+		return fmt.Errorf("resolve output directory: %w", err)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
+		return fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
 		if err := safefs.AtomicWrite(root, file.path, file.data, generatedArtifactMode(file.path, file.data)); err != nil {
-			return nil, fmt.Errorf("write native artifact %q: %w", file.path, err)
+			return fmt.Errorf("write native artifact %q: %w", file.path, err)
 		}
 	}
-	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
-	return artifacts, nil
+	return nil
 }
 
 func renderNativeSite(site domain.Site, templates []templateCandidate) ([]nativeOutput, error) {

@@ -28,6 +28,14 @@ const (
 	maxPublicationJournal    = 1 << 20
 )
 
+// ErrRecoveryRequired marks output roots that readers and writers must not use
+// until the retained publication journal and backups have been recovered.
+var ErrRecoveryRequired = errors.New("publication recovery required")
+
+func recoveryRequiredError(reason string) error {
+	return fmt.Errorf("%w: %s", ErrRecoveryRequired, reason)
+}
+
 type generationLock struct {
 	path  string
 	token string
@@ -504,6 +512,9 @@ type publicationFile struct {
 
 type publicationHooks struct {
 	beforeWrite        func(string) error
+	beforeStage        func(string, string) error
+	beforeSync         func(string) error
+	beforeReplace      func(string) error
 	afterWrite         func(string)
 	beforeRemove       func(string) error
 	beforeJournalWrite func(committed bool) error
@@ -654,7 +665,7 @@ func publishSiteFiles(
 	sort.Strings(affectedPaths)
 
 	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); err == nil {
-		return fmt.Errorf("publication recovery is required before publishing")
+		return recoveryRequiredError("a prior publication journal exists before publishing")
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect publication journal: %w", err)
 	}
@@ -753,7 +764,18 @@ func publishSiteFiles(
 					return rollbackPublication(root, fmt.Errorf("publish artifact %q: %w", file.path, err))
 				}
 			}
-			if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
+			atomicHooks := safefs.AtomicWriteHooks{}
+			if hooks.beforeSync != nil {
+				atomicHooks.BeforeSync = func() error {
+					return hooks.beforeSync(file.path)
+				}
+			}
+			if hooks.beforeReplace != nil {
+				atomicHooks.BeforeReplace = func() error {
+					return hooks.beforeReplace(file.path)
+				}
+			}
+			if err := safefs.AtomicWriteWithHooks(root, file.path, file.data, 0o644, atomicHooks); err != nil {
 				return rollbackPublication(root, fmt.Errorf("publish artifact %q: %w", file.path, err))
 			}
 			if hooks.afterWrite != nil {
@@ -774,10 +796,8 @@ func publishSiteFiles(
 		return rollbackPublication(root, fmt.Errorf("commit publication journal: %w", err))
 	}
 	if err := cleanupPublicationJournal(root, journal); err != nil {
-		return fmt.Errorf(
-			"generation committed but recovery journal cleanup is incomplete; catalog reads remain blocked until recovery: %w",
-			err,
-		)
+		return fmt.Errorf("%w: generation committed but recovery journal cleanup is incomplete; catalog reads remain blocked until recovery: %w",
+			ErrRecoveryRequired, err)
 	}
 	return nil
 }
@@ -1053,7 +1073,7 @@ func recoverInterruptedPublication(root string) error {
 	journalInfo, err := os.Lstat(filepath.Join(root, generationJournalName))
 	if os.IsNotExist(err) {
 		if len(backupDirectories) != 0 {
-			return fmt.Errorf("publication recovery is required for backup without a journal")
+			return recoveryRequiredError("publication backup exists without a journal")
 		}
 		return nil
 	}
@@ -1061,36 +1081,42 @@ func recoverInterruptedPublication(root string) error {
 		return fmt.Errorf("inspect publication journal: %w", err)
 	}
 	if journalInfo.Mode()&os.ModeSymlink != 0 || !journalInfo.Mode().IsRegular() {
-		return fmt.Errorf("publication journal must be a regular file")
+		return recoveryRequiredError("publication journal must be a regular file")
 	}
 	journal, err := readPublicationJournal(root)
 	if err != nil {
-		return fmt.Errorf("publication recovery is required: %w", err)
+		return fmt.Errorf("%w: %w", ErrRecoveryRequired, err)
 	}
 	if journal.Committed {
 		if len(backupDirectories) > 1 ||
 			(len(backupDirectories) == 1 && backupDirectories[0] != journal.BackupDirectory) {
-			return fmt.Errorf("publication recovery is required: journal and backup directory do not match")
+			return recoveryRequiredError("journal and backup directory do not match")
 		}
-		return cleanupPublicationJournal(root, journal)
+		if err := cleanupPublicationJournal(root, journal); err != nil {
+			return fmt.Errorf("%w: committed publication cleanup failed: %v", ErrRecoveryRequired, err)
+		}
+		return nil
 	}
 	if len(backupDirectories) > 1 ||
 		(len(backupDirectories) == 1 && backupDirectories[0] != journal.BackupDirectory) {
-		return fmt.Errorf("publication recovery is required: journal and backup directory do not match")
+		return recoveryRequiredError("journal and backup directory do not match")
 	}
 	backupRoot := filepath.Join(root, journal.BackupDirectory)
 	if err := restorePublicationJournal(root, backupRoot, journal); err != nil {
-		return fmt.Errorf("restore interrupted publication; recovery data retained: %w", err)
+		return fmt.Errorf("%w: restore interrupted publication; recovery data retained: %w", ErrRecoveryRequired, err)
 	}
 	if err := removeCreatedDirectoriesFromJournal(root, journal.CreatedDirectories); err != nil {
-		return fmt.Errorf("clean interrupted publication directories: %w", err)
+		return fmt.Errorf("%w: clean interrupted publication directories: %w", ErrRecoveryRequired, err)
 	}
-	return cleanupPublicationJournal(root, journal)
+	if err := cleanupPublicationJournal(root, journal); err != nil {
+		return fmt.Errorf("%w: interrupted publication cleanup failed: %w", ErrRecoveryRequired, err)
+	}
+	return nil
 }
 
 func rollbackPublication(root string, cause error) error {
 	if err := recoverInterruptedPublication(root); err != nil {
-		return errors.Join(cause, fmt.Errorf("publication rollback failed; recovery data retained: %w", err))
+		return errors.Join(cause, fmt.Errorf("%w: rollback failed; recovery data retained: %w", ErrRecoveryRequired, err))
 	}
 	return cause
 }

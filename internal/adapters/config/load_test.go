@@ -39,6 +39,34 @@ func TestParseValidInfrastructure(t *testing.T) {
 	}
 }
 
+func FuzzParseYAML(f *testing.F) {
+	f.Add([]byte(validYAML))
+	f.Add([]byte("sites:\n  - name: ["))
+	f.Add([]byte("---\nsites: []\n---\nsites: []\n"))
+	f.Add([]byte("apiVersion: infraflow/v1\nkind: NetworkDeployment\n"))
+	f.Add([]byte(`apiVersion: infraflow/v1
+kind: NetworkDeployment
+metadata:
+  name: fuzz-seed
+spec:
+  site: lab
+  devices:
+    - name: R1
+      vendor: cisco
+      model: ios-xe
+      os: ios-xe
+      interfaces:
+        - name: GigabitEthernet1
+          ipv4: 192.0.2.1/24
+`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > MaxInputBytes {
+			return
+		}
+		_, _ = Parse(data)
+	})
+}
+
 func TestMultiSiteReferenceExamplePassesBusinessValidation(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "examples", "multisite-preparation.yaml")
 	data, err := os.ReadFile(path)

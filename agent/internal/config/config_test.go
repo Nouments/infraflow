@@ -112,6 +112,8 @@ func TestLoadAppliesGNS3EnvironmentOverrides(t *testing.T) {
 	t.Setenv("INFRAFLOW_AGENT_TOKEN_ENV", "INFRAFLOW_AGENT_TOKEN")
 	t.Setenv("INFRAFLOW_AGENT_ARTIFACT_TOKEN_ENV", "INFRAFLOW_SITE_TOKEN")
 	t.Setenv("INFRAFLOW_AGENT_PROVIDER_CA", "/run/secrets/provider-ca.pem")
+	t.Setenv("INFRAFLOW_AGENT_PROVIDER_TLS_CERTIFICATE", "/run/secrets/agent.crt")
+	t.Setenv("INFRAFLOW_AGENT_PROVIDER_TLS_KEY", "/run/secrets/agent.key")
 	t.Setenv("INFRAFLOW_AGENT_TLS_ENABLED", "true")
 
 	path := writeConfig(t, `agent:
@@ -137,8 +139,55 @@ provider:
 	if config.Provider.Address != "192.168.0.3:8443" || config.Provider.APIAddress != "https://192.168.0.3:8080" || config.Provider.TokenEnv != "INFRAFLOW_AGENT_TOKEN" || config.Provider.ArtifactTokenEnv != "INFRAFLOW_SITE_TOKEN" {
 		t.Fatalf("provider environment overrides were not applied: %#v", config.Provider)
 	}
-	if !config.Provider.TLS.Enabled || config.Provider.TLS.CAFile != "/run/secrets/provider-ca.pem" {
+	if !config.Provider.TLS.Enabled || config.Provider.TLS.CAFile != "/run/secrets/provider-ca.pem" ||
+		config.Provider.TLS.CertificateFile != "/run/secrets/agent.crt" || config.Provider.TLS.KeyFile != "/run/secrets/agent.key" {
 		t.Fatalf("TLS environment overrides were not applied: %#v", config.Provider.TLS)
+	}
+}
+
+func TestLoadValidatesOptionalMTLSClientCertificate(t *testing.T) {
+	valid := writeConfig(t, `agent:
+  id: agent-01
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  token_env: TOKEN
+  tls:
+    enabled: true
+    certificate_file: /run/secrets/agent.crt
+    key_file: /run/secrets/agent.key
+`)
+	if _, err := Load(valid); err != nil {
+		t.Fatalf("valid optional mTLS configuration was rejected: %v", err)
+	}
+
+	incomplete := writeConfig(t, `agent:
+  id: agent-01
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  token_env: TOKEN
+  tls:
+    enabled: true
+    certificate_file: /run/secrets/agent.crt
+`)
+	if _, err := Load(incomplete); err == nil || !strings.Contains(err.Error(), "must be configured together") {
+		t.Fatalf("expected incomplete client certificate configuration to be rejected, got %v", err)
+	}
+
+	disabled := writeConfig(t, `agent:
+  id: agent-01
+  state_directory: ./state
+provider:
+  address: localhost:8443
+  token_env: TOKEN
+  tls:
+    enabled: false
+    certificate_file: /run/secrets/agent.crt
+    key_file: /run/secrets/agent.key
+`)
+	if _, err := Load(disabled); err == nil || !strings.Contains(err.Error(), "require TLS to be enabled") {
+		t.Fatalf("expected client certificates without TLS to be rejected, got %v", err)
 	}
 }
 

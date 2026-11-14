@@ -18,6 +18,10 @@ chunk_size: 65536
 tls:
   certificate_file: ""
   key_file: ""
+  # For optional gRPC mTLS, configure the CA that issued Agent certificates.
+  # client_ca_file: /run/secrets/agent-ca.crt
 
 # For remote or cloud deployments, bind to the public interface and provide a TLS
 # certificate/key pair for the provider listener and API listener.
+# A remote single-site deployment using the global token also requires
+# token_expires_at. Scoped Agent credentials require expires_at individually.
