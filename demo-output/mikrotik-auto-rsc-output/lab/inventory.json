@@ -1,0 +1,42 @@
+{
+  "site": "lab",
+  "devices": [
+    {
+      "id": "r1",
+      "name": "edge-r1",
+      "vendor": "mikrotik",
+      "family": "routeros",
+      "model": "RB750Gr3",
+      "os_version": "7.x",
+      "identity": {},
+      "management": {},
+      "provisioning": {
+        "method": "auto-rsc",
+        "template_version": "1"
+      },
+      "network": {
+        "interfaces": [
+          {
+            "name": "ether1",
+            "role": "wan",
+            "ipv4_mode": "static",
+            "ipv4_address": "198.51.100.1/24"
+          },
+          {
+            "name": "ether2",
+            "role": "lan",
+            "ipv4_mode": "dhcp"
+          }
+        ],
+        "routes": [
+          {
+            "destination": "203.0.113.0/24",
+            "next_hop": "198.51.100.254",
+            "interface": "ether1"
+          }
+        ],
+        "nat": {}
+      }
+    }
+  ]
+}

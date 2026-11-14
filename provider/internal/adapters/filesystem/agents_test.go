@@ -3,6 +3,7 @@ package filesystem
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -30,8 +31,11 @@ func TestAgentStorePersistsAndProtectsAgentState(t *testing.T) {
 		t.Fatalf("agent was not loaded: %#v, %v", loaded, err)
 	}
 	info, err := os.Stat(filepath.Join(root, ".agents", agent.ID+".json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("agent file should be private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("agent file permissions are %04o, want 0600", info.Mode().Perm())
 	}
 
 	updated := agent

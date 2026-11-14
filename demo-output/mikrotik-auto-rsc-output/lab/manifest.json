@@ -1,0 +1,123 @@
+{
+  "generator_version": "0.1.0",
+  "template_version": "1",
+  "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+  "site_id": "lab",
+  "status": "succeeded",
+  "artifacts": [
+    {
+      "type": "bootstrap_dhcp",
+      "path": "lab/bootstrap/dhcp/config.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "92fe16b41ce74ce82b7d28beb036f2a72df74019a6e33722f94af2945502d739"
+    },
+    {
+      "type": "bootstrap_dns",
+      "path": "lab/bootstrap/dns/config.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "4672026a606488a57781fb19fcf2df16429dfbf8d6999b0c6ffbd7b0709aa8bf"
+    },
+    {
+      "type": "bootstrap_ipxe_script",
+      "path": "lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "faa0d3e17dcf66845baafdc0ea6da234e19a05bf45415649878468c3deaa3670"
+    },
+    {
+      "type": "bootstrap_ipxe_menu",
+      "path": "lab/bootstrap/pxe/ipxe/menu.ipxe",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "c25dc0c182f939b14c3467c2616e6bb9ccd5749f47d4f44fc327bba94f2a4185"
+    },
+    {
+      "type": "bootstrap_pxe",
+      "path": "lab/bootstrap/pxe/metadata.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "a2a6f4d6bb924a277e9ab227963c80694f8176837fdcec3881ed94538477f730"
+    },
+    {
+      "type": "bootstrap_tftp",
+      "path": "lab/bootstrap/tftp/config.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "67f46e10466b9baaea47041d9dd46985f53e7916c289f6cedea54f5438afc8a3"
+    },
+    {
+      "type": "generation_report",
+      "path": "lab/generation-report.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "28434a7657864f9bd27ea84877689fedcb5fef70b45dda5c121be3c5116ed72e"
+    },
+    {
+      "type": "inventory",
+      "path": "lab/inventory.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "5adc87588be8c96cd88b8e61999be7998b6df4b3e90f6d2b13bb114162b4c903"
+    },
+    {
+      "type": "native_device_config",
+      "path": "lab/native/device-r1.auto.rsc",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "abcb02a9765b4f514f86fa327679c518f74a5afcc1eb0e23ac8d51f6d0201243"
+    },
+    {
+      "type": "native_manifest",
+      "path": "lab/native/native-manifest.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "1a0f891e428f165fc9cd0d134792adb7480a06b568221175528cb464b695ba76"
+    },
+    {
+      "type": "site_manifest",
+      "path": "lab/site-manifest.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "a7f8ad33413c6c5e9411f7a11c376b84ff77be610023ec0365847a3a38997711"
+    },
+    {
+      "type": "terraform_locals",
+      "path": "lab/terraform/locals.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "1864218a7fe8b1d658cb21024c66583f418b616cbc95a4e5eeec38bf265a93ca"
+    },
+    {
+      "type": "terraform_main",
+      "path": "lab/terraform/main.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e"
+    },
+    {
+      "type": "terraform_outputs",
+      "path": "lab/terraform/outputs.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94"
+    },
+    {
+      "type": "terraform_providers",
+      "path": "lab/terraform/providers.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62"
+    },
+    {
+      "type": "terraform_tfvars_example",
+      "path": "lab/terraform/terraform.tfvars.example",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6"
+    },
+    {
+      "type": "terraform_variables",
+      "path": "lab/terraform/variables.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4"
+    },
+    {
+      "type": "terraform_versions",
+      "path": "lab/terraform/versions.tf",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f"
+    },
+    {
+      "type": "topology",
+      "path": "lab/topology.json",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "2c3a29b286cfae1150298dedd505afb406be3239fc89715920e0c2e2f46f1eb7"
+    }
+  ]
+}

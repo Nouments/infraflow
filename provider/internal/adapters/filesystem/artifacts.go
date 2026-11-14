@@ -1,13 +1,10 @@
 package filesystem
 
 import (
-	"fmt"
+	"bytes"
 	"io"
-	"os"
-	"path/filepath"
 
 	coregeneration "infraflow/internal/adapters/generation"
-	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 )
 
@@ -24,36 +21,9 @@ func (repository *ArtifactRepository) Catalog() ([]protocol.Artifact, error) {
 }
 
 func (repository *ArtifactRepository) Open(path string) (io.ReadCloser, protocol.Artifact, error) {
-	catalog, err := repository.Catalog()
+	data, published, err := coregeneration.ReadArtifact(repository.root, path)
 	if err != nil {
 		return nil, protocol.Artifact{}, err
 	}
-	var published protocol.Artifact
-	for _, artifact := range catalog {
-		if artifact.Path == path {
-			published = artifact
-			break
-		}
-	}
-	if published.Path == "" {
-		return nil, protocol.Artifact{}, os.ErrNotExist
-	}
-	root, err := filepath.Abs(repository.root)
-	if err != nil {
-		return nil, protocol.Artifact{}, fmt.Errorf("resolve artifact root: %w", err)
-	}
-	file, err := safefs.OpenReadOnly(root, published.Path)
-	if err != nil {
-		return nil, protocol.Artifact{}, err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, protocol.Artifact{}, err
-	}
-	if info.Size() > protocol.MaxArtifactBytes {
-		_ = file.Close()
-		return nil, protocol.Artifact{}, coregeneration.ErrArtifactTooLarge
-	}
-	return file, published, nil
+	return io.NopCloser(bytes.NewReader(data)), published, nil
 }

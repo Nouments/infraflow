@@ -1,0 +1,52 @@
+sites:
+  - name: cisco-render-demo
+    bootstrap:
+      network: 192.0.2.0/24
+      gateway: 192.0.2.254
+    devices:
+      - name: CiscoR1
+        id: cisco-r1
+        role: router
+        vendor: cisco
+        family: iosxe
+        model: unspecified
+        os_version: unknown
+        management:
+          ipv4: 192.0.2.10
+        provisioning:
+          method: ssh
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+              enabled: true
+
+  - name: routeros-auto-rsc-demo
+    bootstrap:
+      network: 198.51.100.0/24
+      gateway: 198.51.100.254
+    devices:
+      - name: MikroTikR1
+        id: mikrotik-r1
+        role: router
+        vendor: mikrotik
+        family: routeros
+        model: RB750Gr3
+        os_version: "7.x"
+        management:
+          ipv4: 198.51.100.10
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        network:
+          interfaces:
+            - name: ether1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 198.51.100.254
+              interface: ether1

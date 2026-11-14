@@ -109,7 +109,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 				continue
 			}
 			result.Tasks[taskIndex].Capability = profile.Status
-			device.Provisioning.Method = method
+			device.Provisioning.Method = domain.ProvisioningMethod(method)
 			filteredSite.Devices = append(filteredSite.Devices, device)
 		}
 		if len(filteredSite.Devices) > 0 {
@@ -277,7 +277,7 @@ func interfaceGeneratorSupport(device domain.Device) (domain.VendorProfile, stri
 	if !ok {
 		return domain.VendorProfile{}, "", fmt.Sprintf("no native configuration profile for %s/%s", device.Vendor, device.Family)
 	}
-	method := strings.TrimSpace(device.Provisioning.Method)
+	method := strings.TrimSpace(string(device.Provisioning.Method))
 	if method == "" {
 		method = profile.DefaultMethod
 	}

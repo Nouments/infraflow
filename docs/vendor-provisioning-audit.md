@@ -1,20 +1,111 @@
 # Vendor provisioning audit
 
-**Audit date:** 2026-10-30  
+**Audit date:** 2026-10-30; current-state evidence updated 2026-11-14
 **Scope:** repository state on `develop`, official-source review, and the
 requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 **Evidence rule:** generated text and mock tests are not proof of device
 compatibility. No capability below is marked `IMPLEMENTED` or `LAB-VERIFIED`
 unless an actual implementation and matching evidence exist.
 
+## Current presentation-readiness evidence — 2026-11-14
+
+The requested starting branch was fetched at
+`develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`
+(`stabilization5`); it matched `origin/develop` and the initial worktree was
+clean. GitHub Actions
+[run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446)
+passed on that commit. Linux passed full and race tests, vet, builds, gofmt,
+and diff checks; Windows passed full tests, vet, builds, gofmt, and diff checks
+(the Windows workflow does not run race tests).
+
+Source and tests show the native renderer writes Cisco `.cfg`, MikroTik
+`.auto.rsc`, and FortiOS `.cfg` files. Previous references to FortiOS `.conf`
+were incorrect and have been corrected. The three providers' example rendering
+is checked in generation tests; this is template-content evidence only, not a
+vendor parser, hardware, or lab result. Generation reports expose the separate
+`config_syntax_validation` status as `not_available`, with a device-specific
+reason because no offline Cisco IOS-XE, RouterOS 7, or FortiOS parser is
+registered. A local full demo was blocked by
+PowerShell execution policy and Windows Application Control; no policy was
+changed. A local lock-marker inspection fix is uncommitted and is not included
+in the cited CI run. See the completion report for exact commands and limits.
+
+## Historical stabilization evidence — 2026-11-12
+
+Inspected branch `develop` at starting HEAD
+`986d2a7b15fe9aee46f4579688b694862dd64485`; the current fixes remain
+uncommitted. The Provider CLI validated and generated all three existing
+fixtures into fresh temporary output roots:
+
+| Fixture | Output evidence |
+|---|---|
+| `examples/provisioning-generation.yaml` | 30 files; 2 site manifests; 13 catalog artifacts per site; Cisco `.cfg` and MikroTik `.auto.rsc`; no bootstrap artifacts |
+| `examples/infra.yaml` | 19 files; 1 site manifest; 16 catalog artifacts, including five explicitly enabled DHCP/TFTP/PXE artifacts |
+| `examples/multisite-preparation.yaml` | 50 files; 4 independent site manifests; 11 catalog artifacts per site |
+
+JSON manifests/reports parsed successfully; catalog paths, disk files, byte
+sizes, and SHA-256 values matched. Unsupported OSPF intent failed without
+publishing an output directory. These were generation/integrity checks only;
+they did not exercise device delivery, execution, or verification.
+
+The local Go test runs did not pass as a complete baseline. The focused
+config/generation/protocol command had config passing while Application
+Control blocked generation/protocol test executables. Provider, Agent, and
+full-suite commands were blocked by Application Control and Windows/CGO
+integration constraints. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`,
+and `git diff --check` passed. Direct local `gofmt -l` listed all files because
+the Windows working tree uses CRLF while Git blobs use LF; the check on
+LF-normalized temporary copies passed. The Windows CI checkout now disables
+CRLF conversion; this has not yet run in CI. The environment was
+`go1.27.3 windows/amd64`,
+`CGO_ENABLED=0`, with no C compiler available; the build is not evidence that
+SQLite works at runtime.
+
+The latest available GitHub Actions run on the inspected HEAD,
+[43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432),
+failed: Linux reported an unregistered SQLite driver; Windows reported `go:
+command not found` in its MSYS2 shell. The uncommitted changes restore SQLite
+driver registration, use PowerShell for Windows CI commands, and disable
+Windows checkout CRLF conversion for formatting, but have no post-change CI
+result. Multisite success output is verified; existing tests
+for mixed-site failure and authorized/hash-checked Agent transfer did not
+complete in the local run.
+
+Current security test coverage includes traversal and symlink rejection,
+atomic publication, artifact hash rejection, secret redaction, and site-scoped
+authorization. Those tests are not claimed as passed in this run because the
+full test suite remains blocked.
+
+**Readiness at that historical snapshot: NOT READY for release** until the
+focused/full Go tests and Linux CI pass on the modified revision. No device/lab
+evidence is available. Cisco `.cfg` is generated text, not Cisco ZTP; MikroTik
+`.auto.rsc` is rendered but not proven on CHR or hardware; FortiOS `.cfg` is
+render-only. No vendor should be described as hardware-validated.
+
+## Historical implementation update — 2026-11-11
+
+The Provider now renders a versioned RouterOS `.auto.rsc` template through
+`generate-all` for declared model `RB750Gr3`, OS train `7.x`, and template
+version `1`. The site and catalog manifests record the method, template,
+source references, input/output hashes, `compatibility_status: unknown`, and
+`verification_status: not_performed`. This is syntax-by-template rendering
+only: exact hardware/release behavior is not verified, and there is no upload,
+execution, or `.auto.log` reader. The existing Agent stages the artifact as
+native text without applying it.
+
+Cisco ZTP generation remains blocked because the repository's selected
+HTTP/TFTP examples do not establish a model/release profile compatible with
+the TLS-only requirement. Cisco AutoInstall discovery/file naming and
+Fortinet enrollment selection remain unsupported for lack of exact profiles.
+
 ## Current-state summary
 
-InfraFlow already has a common network declaration, planning, native text
-rendering, artifact manifests, authenticated publication, and hash-checked
-Agent transfer. It does not have the requested vendor-specific bootstrap
-generators or MikroTik/FortiOS API executors. Most multi-vendor native output
-is family-level render-only text; it is not selected by exact model and
-software release and is not proof of accepted device syntax.
+InfraFlow has a common network declaration, planning, native text rendering,
+artifact manifests, authenticated publication, and hash-checked Agent
+transfer. The limited RouterOS `.auto.rsc` renderer is an opt-in, render-only
+profile; it is not an upload workflow or proof of device syntax. Most other
+multi-vendor native output remains family-level render-only text and is not
+selected by exact model and software release.
 
 The current Agent stages verified files and processes the generic inventory,
 topology, and manifest formats. It does not execute a vendor configuration
@@ -32,7 +123,7 @@ constitute Cisco ZTP or AutoInstall.
 | Cisco ZTP | Generic DHCP/bootstrap output and an explicitly started bootstrap HTTP service exist. No Cisco ZTP script, option-67 profile, or ZTP artifact workflow is implemented. | Model the documented first-boot/DHCP/script/Guest Shell flow separately from device configuration; emit only justified artifacts and report outcomes. | `internal/adapters/generation/`, `agent/internal/delivery/{dhcp,artifacts}/`, `pkg/protocol/` |
 | Cisco AutoInstall | Not implemented. No AutoInstall-specific file discovery profile or artifact type exists. | A separate, model/release-evidenced backend; never reuse the ZTP bootstrap implicitly. | `internal/adapters/generation/`, `pkg/protocol/`, `provider/internal/` |
 | MikroTik API | RouterOS family is recognized and text rendering exists. No typed RouterOS API client or operation-plan executor exists. | Typed allowlisted operations over authenticated TLS, with preflight, read-back, idempotency controls, and mock coverage. | `internal/domain/`, `provider/internal/adapters/executors/`, `agent/internal/` |
-| MikroTik `.auto.rsc` | No RouterOS-native `.auto.rsc` generator, publication type, or `.auto.log` verification flow exists. | An explicit, versioned upload-triggered path, separate from API and Netinstall; SFTP preferred and log read-back required. | `internal/adapters/generation/`, `pkg/protocol/`, `agent/internal/`, `provider/internal/` |
+| MikroTik `.auto.rsc` | Render-only RouterOS 7 template for declared RB750Gr3 / `7.x`; hash-verified native artifact. No device upload or `.auto.log` verification. | Verify exact model/release behavior; separately authorize any upload and implement log review before claiming provisioning. | `internal/adapters/generation/templates/vendors/mikrotik/routeros7/`, `internal/adapters/generation/native.go`, `pkg/protocol/` |
 | MikroTik Netinstall | Not implemented. | Separate, explicitly authorized installation/reinstallation workflow with destructive-operation confirmation and preconditions; never an ordinary apply action. | `provider/internal/`, `agent/internal/`, `pkg/protocol/` |
 | FortiGate ZTP | Neither FortiDeploy enrollment nor FortiManager DHCP-option ZTP is generated. The repository has an explanatory FortiGate workflow dossier. | Separate Cloud enrollment and FortiManager workflows; backend, model/release, ownership, DHCP values, and authorization must be explicit. | `internal/adapters/generation/`, `agent/internal/delivery/dhcp/`, `pkg/protocol/` |
 | FortiOS API | FortiOS family-level text rendering exists. No FortiOS HTTPS API client, typed operations, token integration, or device read-back executor exists. | External token, verified TLS, explicit VDOM, typed allowlisted operations, policy-order-aware diff, and read-back verification. | `provider/internal/adapters/executors/`, `internal/domain/`, `agent/internal/` |

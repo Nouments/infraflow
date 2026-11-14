@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"infraflow/agent/internal/testutil"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
@@ -129,6 +130,7 @@ func TestServeDHCPRequiresExplicitNetworkBinding(t *testing.T) {
 }
 
 func TestServeDHCPRejectsDisabledConfiguration(t *testing.T) {
+	iface, loopback := loopbackBinding(t)
 	configPath := filepath.Join(t.TempDir(), "dhcp.json")
 	data := []byte(`{"version":1,"service":"dhcp","enabled":false,"site":"lab","network":"192.168.50.0/24","gateway":"192.168.50.1","pools":[{"start":"192.168.50.20","end":"192.168.50.30"}],"reserved_addresses":["192.168.50.1"],"reservations":[],"options":{"dns_servers":[],"next_server":"","next_server_source":"agent_runtime","boot_mode":"ipxe","boot_filename":"undionly.kpxe","tftp_directory":"tftp","ipxe_script":"pxe/ipxe/bootstrap.ipxe"}}`)
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
@@ -136,7 +138,7 @@ func TestServeDHCPRejectsDisabledConfiguration(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run([]string{"serve-dhcp", "-config", configPath, "-interface", "lo", "-listen", "127.0.0.1"}, &stdout, &stderr)
+	code := Run([]string{"serve-dhcp", "-config", configPath, "-interface", iface, "-listen", loopback.String()}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "service is disabled") {
 		t.Fatalf("serve-dhcp accepted a disabled service: code=%d stderr=%q", code, stderr.String())
 	}
@@ -167,6 +169,7 @@ func TestServeArtifactsRequiresAuthForRemoteListen(t *testing.T) {
 }
 
 func TestBootstrapServersRejectInvalidOrUnassignedAddresses(t *testing.T) {
+	iface, _ := loopbackBinding(t)
 	for _, command := range []string{"serve-bootstrap", "serve-tftp"} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
@@ -189,7 +192,7 @@ func TestBootstrapServersRejectInvalidOrUnassignedAddresses(t *testing.T) {
 			}
 			args = append(args, "-config", configPath, "-root", bootstrapRoot)
 		}
-		args = append(args, "-interface", "lo", "-listen", "not-an-ip")
+		args = append(args, "-interface", iface, "-listen", "not-an-ip")
 		if code := Run(args, &stdout, &stderr); code != wantRuntimeCode || !strings.Contains(stderr.String(), "must be IPv4") {
 			t.Errorf("%s did not reject an invalid listen address: code=%d stderr=%q", command, code, stderr.String())
 		}
@@ -202,6 +205,7 @@ func TestBootstrapServersRejectInvalidOrUnassignedAddresses(t *testing.T) {
 }
 
 func TestServeTFTPRejectsDisabledConfiguration(t *testing.T) {
+	iface, loopback := loopbackBinding(t)
 	configPath := filepath.Join(t.TempDir(), "tftp.json")
 	data := []byte(`{"version":1,"service":"tftp","enabled":false,"site":"lab","root_directory":"tftp","read_only":true,"allowed_files":[{"path":"undionly.kpxe","source":"agent_runtime"}]}`)
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
@@ -209,7 +213,7 @@ func TestServeTFTPRejectsDisabledConfiguration(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run([]string{"serve-tftp", "-config", configPath, "-root", t.TempDir(), "-interface", "lo", "-listen", "127.0.0.1"}, &stdout, &stderr)
+	code := Run([]string{"serve-tftp", "-config", configPath, "-root", t.TempDir(), "-interface", iface, "-listen", loopback.String()}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "service is disabled") {
 		t.Fatalf("serve-tftp accepted disabled service: code=%d stderr=%q", code, stderr.String())
 	}
@@ -379,12 +383,35 @@ func TestCLIModesConfigValidation(t *testing.T) {
 }
 
 func TestInterfaceAddressValidation(t *testing.T) {
-	if !interfaceHasIPv4Address("lo", net.ParseIP("127.0.0.1")) {
+	iface, loopback := loopbackBinding(t)
+	if !interfaceHasIPv4Address(iface, loopback) {
 		t.Fatal("loopback IP was not found on the loopback interface")
 	}
-	if interfaceHasIPv4Address("infraflow-missing0", net.ParseIP("127.0.0.1")) || interfaceHasIPv4Address("lo", net.ParseIP("192.0.2.9")) {
+	if interfaceHasIPv4Address("infraflow-missing0", loopback) || interfaceHasIPv4Address(iface, net.ParseIP("192.0.2.9")) {
 		t.Fatal("invalid interface/address pair was accepted")
 	}
+}
+
+func loopbackBinding(t *testing.T) (string, net.IP) {
+	t.Helper()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && ip.IsLoopback() {
+				return iface.Name, ip
+			}
+		}
+	}
+	t.Skip("no IPv4 loopback interface is available")
+	return "", nil
 }
 
 func TestTerraformValidationRunsOnExpectedArtifacts(t *testing.T) {
@@ -509,8 +536,7 @@ func writeCLIArtifact(t *testing.T, root, relativePath, contents string) {
 func installCLITool(t *testing.T, name string) {
 	t.Helper()
 	directory := t.TempDir()
-	filename := filepath.Join(directory, name)
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\"\n"), 0o700); err != nil {
+	if _, err := testutil.BuildFakeCommand(directory, name); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))

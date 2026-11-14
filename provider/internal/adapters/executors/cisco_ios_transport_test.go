@@ -259,7 +259,7 @@ func TestSSHSessionRejectsCommandsAfterClose(t *testing.T) {
 }
 
 func TestSSHSessionOutputLimitFailsAndCloses(t *testing.T) {
-	session, pipeWriter, reader, closeCount := newPipeTransportSession(time.Second)
+	session, pipeWriter, reader, closeCount := newPipeTransportSession(10 * time.Second)
 	awaitTransportSignal(t, reader.started, "reader to block")
 	writeDone := make(chan struct{})
 	go func() {

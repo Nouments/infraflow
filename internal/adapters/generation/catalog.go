@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
@@ -24,6 +25,18 @@ var (
 )
 
 func Catalog(root string) ([]Artifact, error) {
+	root, lock, err := acquireGenerationReadLock(root)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, catalogErr := catalogArtifacts(root)
+	if err := lock.release(); err != nil {
+		return nil, errors.Join(catalogErr, fmt.Errorf("release artifact reader lock: %w", err))
+	}
+	return artifacts, catalogErr
+}
+
+func catalogArtifacts(root string) ([]Artifact, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact root: %w", err)
@@ -36,6 +49,15 @@ func Catalog(root string) ([]Artifact, error) {
 	var artifacts []Artifact
 	seenPaths := make(map[string]struct{})
 	for _, entry := range entries {
+		if entry.Name() == generationJournalName {
+			return nil, fmt.Errorf("%w: %q", ErrRecoveryRequired, filepath.Join(root, entry.Name()))
+		}
+		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+			return nil, fmt.Errorf("%w: %q", ErrRecoveryRequired, filepath.Join(root, entry.Name()))
+		}
+		if entry.Name() == generationLockName || strings.HasPrefix(entry.Name(), generationReadLockPrefix) {
+			continue
+		}
 		entryPath := filepath.Join(root, entry.Name())
 		info, err := os.Lstat(entryPath)
 		if err != nil {
@@ -141,17 +163,25 @@ func Catalog(root string) ([]Artifact, error) {
 }
 
 func ReadArtifact(root, artifactPath string) ([]byte, Artifact, error) {
-	artifacts, err := Catalog(root)
+	root, lock, err := acquireGenerationReadLock(root)
+	if err != nil {
+		return nil, Artifact{}, err
+	}
+	data, artifact, readErr := readArtifactWithLock(root, artifactPath)
+	if err := lock.release(); err != nil {
+		return nil, Artifact{}, errors.Join(readErr, fmt.Errorf("release artifact reader lock: %w", err))
+	}
+	return data, artifact, readErr
+}
+
+func readArtifactWithLock(root, artifactPath string) ([]byte, Artifact, error) {
+	artifacts, err := catalogArtifacts(root)
 	if err != nil {
 		return nil, Artifact{}, err
 	}
 	for _, artifact := range artifacts {
 		if artifact.Path != artifactPath {
 			continue
-		}
-		root, err := filepath.Abs(root)
-		if err != nil {
-			return nil, Artifact{}, fmt.Errorf("resolve artifact root: %w", err)
 		}
 		file, err := safefs.OpenReadOnly(root, artifact.Path)
 		if err != nil {

@@ -49,8 +49,10 @@ type ProviderConfig struct {
 }
 
 type TLSConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	CAFile  string `yaml:"ca_file,omitempty"`
+	Enabled         bool   `yaml:"enabled"`
+	CAFile          string `yaml:"ca_file,omitempty"`
+	CertificateFile string `yaml:"certificate_file,omitempty"`
+	KeyFile         string `yaml:"key_file,omitempty"`
 }
 
 func Load(path string) (Config, error) {
@@ -117,6 +119,8 @@ func applyEnvironment(config *Config) error {
 	setIfPresent("INFRAFLOW_AGENT_TOKEN_ENV", &config.Provider.TokenEnv)
 	setIfPresent("INFRAFLOW_AGENT_ARTIFACT_TOKEN_ENV", &config.Provider.ArtifactTokenEnv)
 	setIfPresent("INFRAFLOW_AGENT_PROVIDER_CA", &config.Provider.TLS.CAFile)
+	setIfPresent("INFRAFLOW_AGENT_PROVIDER_TLS_CERTIFICATE", &config.Provider.TLS.CertificateFile)
+	setIfPresent("INFRAFLOW_AGENT_PROVIDER_TLS_KEY", &config.Provider.TLS.KeyFile)
 	if value, exists := os.LookupEnv("INFRAFLOW_AGENT_CAPABILITIES"); exists {
 		config.Agent.Capabilities = nil
 		for _, capability := range strings.Split(value, ",") {
@@ -188,6 +192,14 @@ func (config Config) Validate() error {
 		if config.Provider.TLS.CAFile != "" {
 			return fmt.Errorf("provider.tls.ca_file requires TLS to be enabled")
 		}
+		if config.Provider.TLS.CertificateFile != "" || config.Provider.TLS.KeyFile != "" {
+			return fmt.Errorf("provider.tls client certificate and key require TLS to be enabled")
+		}
+	}
+	certificateSet := config.Provider.TLS.CertificateFile != ""
+	keySet := config.Provider.TLS.KeyFile != ""
+	if certificateSet != keySet {
+		return fmt.Errorf("provider.tls.certificate_file and key_file must be configured together")
 	}
 	if config.Provider.APIAddress != "" {
 		parsed, err := url.Parse(config.Provider.APIAddress)

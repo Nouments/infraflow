@@ -10,122 +10,234 @@
     {
       "type": "bootstrap_dhcp",
       "path": "vendor-pilot/bootstrap/dhcp/config.json",
-      "size_bytes": 517,
-      "sha256": "23b7949de2fc18058ba1a1e652371f6ffdf00db49cbf06251faa2538a6aba514"
+      "size_bytes": 518,
+      "sha256": "51d6abf12f291df45877ecbf49bcafd8a518468d5696a41356384a54ac8242b2",
+      "documentation_references": null
     },
     {
       "type": "bootstrap_dns",
       "path": "vendor-pilot/bootstrap/dns/config.json",
-      "size_bytes": 1040,
-      "sha256": "789b5539ebf7850321a139ab83774f9825928e44d5ced3c483f4cd419c3b0596"
+      "size_bytes": 1041,
+      "sha256": "8076adaa3f2a09b841dd14b076b9c1e87bf3bd2ff27bf1dd7e29c4dda4a0aa6b",
+      "documentation_references": null
     },
     {
       "type": "bootstrap_ipxe_script",
       "path": "vendor-pilot/bootstrap/pxe/ipxe/bootstrap.ipxe",
-      "size_bytes": 373,
-      "sha256": "707313f2d28bd582b9f8fcb41cae8f2cbd9ee2f43e16d82af1cf33d98de1731f"
+      "size_bytes": 385,
+      "sha256": "b5194bd5d42ffa0ec803d36409ab31ef058b89f63c85f43ce9dac5a69bff7e8c",
+      "documentation_references": null
     },
     {
       "type": "bootstrap_ipxe_menu",
       "path": "vendor-pilot/bootstrap/pxe/ipxe/menu.ipxe",
-      "size_bytes": 239,
-      "sha256": "256c5cd3fbc3e430a21f9fbefa577af4fd3ee5a226be658aa56d99274a754ff6"
+      "size_bytes": 245,
+      "sha256": "682796652cab09f8877a6559e8029c0a375dbc24fa57540e20ea81c242126744",
+      "documentation_references": null
     },
     {
       "type": "bootstrap_pxe",
       "path": "vendor-pilot/bootstrap/pxe/metadata.json",
-      "size_bytes": 225,
-      "sha256": "a49dfc7bc05902f250154558b2553d4fe3859e1c8bdfc8a3948705f32e226122"
+      "size_bytes": 226,
+      "sha256": "440bc0ab845164e6b8a160ff93eb6837e731ff284e424fd00285ee540cc1ff39",
+      "documentation_references": null
     },
     {
       "type": "bootstrap_tftp",
       "path": "vendor-pilot/bootstrap/tftp/config.json",
-      "size_bytes": 308,
-      "sha256": "7afe76bbfd1d7db8c30d83eb76b7b7fd788b1dd805588c7616ad6a8d5fac2195"
+      "size_bytes": 309,
+      "sha256": "5e8004b4ac2eb9772531b10ff6cf2f0c13a417dcc2dcabfa928ded4db5dcc8f7",
+      "documentation_references": null
     },
     {
       "type": "inventory",
       "path": "vendor-pilot/inventory.json",
       "size_bytes": 1697,
-      "sha256": "8eef32c9a0273fd1789a430d3457cd4ea7693ee9c1abdc75fe0957ef26113ede"
+      "sha256": "8eef32c9a0273fd1789a430d3457cd4ea7693ee9c1abdc75fe0957ef26113ede",
+      "documentation_references": null
     },
     {
       "type": "native_device_config",
       "path": "vendor-pilot/native/device-CiscoR1.cfg",
       "size_bytes": 86,
-      "sha256": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f"
+      "sha256": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f",
+      "site_id": "vendor-pilot",
+      "device_id": "CiscoR1",
+      "vendor": "cisco",
+      "family": "iosxe",
+      "model": "isr-1100",
+      "artifact_format": "text/plain",
+      "template_id": "infraflow.cisco.iosxe.native",
+      "template_version": "1",
+      "template_hash": "dad3ba77537b40c6880092fb174df674377977c16852d54adf4a163d1960d61d",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "ff53132360e10d35ea86a7e295641a92605b68d45555befbef93ac343deb9d0f",
+      "provisioning_method": "ssh",
+      "supported_features": [
+        "system.hostname",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.admin_state",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
+      "generation_status": "rendered_unverified",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "documentation_references": [
+        "docs/vendor-provisioning-audit.md",
+        "docs/cisco-ios-executor.md"
+      ],
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "docs/cisco-ios-executor.md"
+      ]
     },
     {
       "type": "native_device_config",
       "path": "vendor-pilot/native/device-FortiGate1.cfg",
-      "size_bytes": 289,
-      "sha256": "41665a8999a479b4e41e94ba264ba860957cbcce949d0293b6c22a6ad2b08c70"
+      "size_bytes": 288,
+      "sha256": "6d529bb1e3845fa8e9c6af0529398589990f19689b575f4060a377884b35a7b4",
+      "site_id": "vendor-pilot",
+      "device_id": "FortiGate1",
+      "vendor": "fortinet",
+      "family": "fortios",
+      "model": "unspecified",
+      "artifact_format": "text/plain",
+      "template_id": "infraflow.fortinet.fortios.native",
+      "template_version": "1",
+      "template_hash": "1b14460053e7a4e2ac6678f846299720efdcb19ce13c77bed3e888bf1cd42596",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "6d529bb1e3845fa8e9c6af0529398589990f19689b575f4060a377884b35a7b4",
+      "provisioning_method": "https",
+      "supported_features": [
+        "system.hostname",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.admin_state",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
+      "generation_status": "rendered_unverified",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "documentation_references": [
+        "docs/vendor-provisioning-audit.md",
+        "demo-output/equipment/fortinet/fortigate-ztp.md"
+      ],
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "demo-output/equipment/fortinet/fortigate-ztp.md"
+      ]
     },
     {
       "type": "native_device_config",
       "path": "vendor-pilot/native/device-MikroTikR1.cfg",
       "size_bytes": 98,
-      "sha256": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0"
+      "sha256": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0",
+      "site_id": "vendor-pilot",
+      "device_id": "MikroTikR1",
+      "vendor": "mikrotik",
+      "family": "routeros",
+      "model": "RB750Gr3",
+      "os_version": "7.x",
+      "artifact_format": "text/plain",
+      "template_id": "infraflow.mikrotik.routeros7.native",
+      "template_version": "1",
+      "template_hash": "6da19558e4a3dceed29b76dbb63f7161879485e42a60bd74277ff06769d4e466",
+      "input_hash": "2b3c41a89b7b307282e41242d92d0ff8ff103eae45ea6e0363db1278422f27aa",
+      "output_hash": "f0bfe9afe35b4a98a7a9f29a70f594831f673f55e8a0560735c00bb2c5d6e1f0",
+      "provisioning_method": "api",
+      "supported_features": [
+        "system.identity",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "routes.static_ipv4"
+      ],
+      "validation_status": "render-only",
+      "generation_status": "rendered_unverified",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "documentation_references": [
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ],
+      "source_references": [
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ]
     },
     {
       "type": "native_manifest",
       "path": "vendor-pilot/native/native-manifest.json",
-      "size_bytes": 1340,
-      "sha256": "cb4003433413e0c5aabd0f39f5a017caf62a97ab66d7f8911b452c09ae38e2c1"
+      "size_bytes": 4000,
+      "sha256": "67c5b480007787488e0b5feeb9c7ce3aa4e2c425b0ae5dbbdbefed7a10bb7d93",
+      "documentation_references": null
     },
     {
       "type": "terraform_locals",
       "path": "vendor-pilot/terraform/locals.tf",
       "size_bytes": 1895,
-      "sha256": "96d418c93786b97ce7608f629bb66eedc4437037c1662dc6792ce63a96497d2d"
+      "sha256": "96d418c93786b97ce7608f629bb66eedc4437037c1662dc6792ce63a96497d2d",
+      "documentation_references": null
     },
     {
       "type": "terraform_main",
       "path": "vendor-pilot/terraform/main.tf",
       "size_bytes": 187,
-      "sha256": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e"
+      "sha256": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e",
+      "documentation_references": null
     },
     {
       "type": "terraform_outputs",
       "path": "vendor-pilot/terraform/outputs.tf",
       "size_bytes": 429,
-      "sha256": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94"
+      "sha256": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94",
+      "documentation_references": null
     },
     {
       "type": "terraform_providers",
       "path": "vendor-pilot/terraform/providers.tf",
       "size_bytes": 71,
-      "sha256": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62"
+      "sha256": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62",
+      "documentation_references": null
     },
     {
       "type": "terraform_tfvars_example",
       "path": "vendor-pilot/terraform/terraform.tfvars.example",
       "size_bytes": 95,
-      "sha256": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6"
+      "sha256": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6",
+      "documentation_references": null
     },
     {
       "type": "terraform_variables",
       "path": "vendor-pilot/terraform/variables.tf",
       "size_bytes": 280,
-      "sha256": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4"
+      "sha256": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4",
+      "documentation_references": null
     },
     {
       "type": "terraform_versions",
       "path": "vendor-pilot/terraform/versions.tf",
       "size_bytes": 46,
-      "sha256": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f"
+      "sha256": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f",
+      "documentation_references": null
     },
     {
       "type": "topology",
       "path": "vendor-pilot/topology.json",
       "size_bytes": 610,
-      "sha256": "057033835650e9d9a2f59de56be15d2b28cc48769f24da44740332dfd4d8bb89"
+      "sha256": "057033835650e9d9a2f59de56be15d2b28cc48769f24da44740332dfd4d8bb89",
+      "documentation_references": null
     },
     {
       "type": "generation_report",
       "path": "vendor-pilot/generation-report.json",
       "size_bytes": 423,
-      "sha256": "2f62ca504d0bdf651fa610ac55eb4a215574fe26d3d51046db5b645ab3e95b18"
+      "sha256": "2f62ca504d0bdf651fa610ac55eb4a215574fe26d3d51046db5b645ab3e95b18",
+      "documentation_references": null
     }
   ],
   "capabilities": [

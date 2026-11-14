@@ -12,7 +12,7 @@
       "status": "succeeded",
       "artifact_count": 21,
       "site_manifest_path": "vendor-pilot/site-manifest.json",
-      "site_manifest_sha256": "aa97ae1b424d77efe12ab0a7e71f0a9da1a0fb337e2d19743df1fc5981ad429b",
+      "site_manifest_sha256": "4e4c77330e0bb49a1e21cefe623b0883af99154882f81cdb55de932e6f8e1411",
       "generation_report_path": "vendor-pilot/generation-report.json"
     }
   ]

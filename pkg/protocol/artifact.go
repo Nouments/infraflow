@@ -32,10 +32,17 @@ type SiteArtifact struct {
 	Format                  string   `json:"artifact_format,omitempty"`
 	TemplateID              string   `json:"template_id,omitempty"`
 	TemplateVersion         string   `json:"template_version,omitempty"`
+	TemplateHash            string   `json:"template_hash,omitempty"`
 	InputHash               string   `json:"input_hash,omitempty"`
+	OutputHash              string   `json:"output_hash,omitempty"`
+	ProvisioningMethod      string   `json:"provisioning_method,omitempty"`
+	SupportedFeatures       []string `json:"supported_features,omitempty"`
+	ValidationStatus        string   `json:"validation_status,omitempty"`
 	GenerationStatus        string   `json:"generation_status,omitempty"`
 	CompatibilityStatus     string   `json:"compatibility_status,omitempty"`
+	VerificationStatus      string   `json:"verification_status,omitempty"`
 	DocumentationReferences []string `json:"documentation_references"`
+	SourceReferences        []string `json:"source_references,omitempty"`
 }
 
 type GenerationCapability struct {
@@ -122,10 +129,19 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 	case "site_manifest":
 		return len(parts) == 2 && parts[1] == "site-manifest.json"
 	case "native_device_config":
-		if len(parts) != 3 || parts[1] != "native" || !strings.HasPrefix(parts[2], "device-") || !strings.HasSuffix(parts[2], ".cfg") {
+		if len(parts) != 3 || parts[1] != "native" || !strings.HasPrefix(parts[2], "device-") {
 			return false
 		}
-		index := strings.TrimSuffix(strings.TrimPrefix(parts[2], "device-"), ".cfg")
+		fileName := strings.TrimPrefix(parts[2], "device-")
+		var index string
+		switch {
+		case strings.HasSuffix(fileName, ".cfg"):
+			index = strings.TrimSuffix(fileName, ".cfg")
+		case strings.HasSuffix(fileName, ".auto.rsc"):
+			index = strings.TrimSuffix(fileName, ".auto.rsc")
+		default:
+			return false
+		}
 		return len(index) <= 63 && ValidSiteName(index)
 	case "native_manifest":
 		return len(parts) == 3 && parts[1] == "native" && parts[2] == "native-manifest.json"
@@ -171,8 +187,10 @@ func ValidSiteArtifactMetadata(siteID, manifestInputHash string, artifact SiteAr
 	hasMetadata := artifact.SiteID != "" || artifact.DeviceID != "" || artifact.Vendor != "" ||
 		artifact.Family != "" || artifact.Model != "" || artifact.OSVersion != "" ||
 		artifact.Format != "" || artifact.TemplateID != "" || artifact.TemplateVersion != "" ||
-		artifact.InputHash != "" || artifact.GenerationStatus != "" ||
-		artifact.CompatibilityStatus != "" || artifact.DocumentationReferences != nil
+		artifact.TemplateHash != "" || artifact.InputHash != "" || artifact.OutputHash != "" || artifact.ProvisioningMethod != "" ||
+		artifact.SupportedFeatures != nil || artifact.ValidationStatus != "" ||
+		artifact.GenerationStatus != "" || artifact.CompatibilityStatus != "" ||
+		artifact.VerificationStatus != "" || artifact.DocumentationReferences != nil || artifact.SourceReferences != nil
 	if !hasMetadata {
 		return true
 	}
@@ -186,7 +204,37 @@ func ValidSiteArtifactMetadata(siteID, manifestInputHash string, artifact SiteAr
 		IsSHA256(artifact.InputHash) && artifact.InputHash == manifestInputHash &&
 		artifact.GenerationStatus == "rendered_unverified" &&
 		artifact.CompatibilityStatus == "unknown" &&
-		artifact.DocumentationReferences != nil
+		artifact.DocumentationReferences != nil &&
+		validateExtendedSiteArtifactMetadata(artifact)
+}
+
+func validateExtendedSiteArtifactMetadata(artifact SiteArtifact) bool {
+	hasExtendedMetadata := artifact.TemplateHash != "" || artifact.OutputHash != "" ||
+		artifact.ProvisioningMethod != "" || artifact.SupportedFeatures != nil ||
+		artifact.ValidationStatus != "" || artifact.VerificationStatus != "" || artifact.SourceReferences != nil
+	if !hasExtendedMetadata {
+		return true
+	}
+	if artifact.OutputHash != artifact.SHA256 || artifact.ProvisioningMethod == "" ||
+		!IsSHA256(artifact.TemplateHash) || len(artifact.SupportedFeatures) == 0 ||
+		artifact.ValidationStatus != "render-only" || artifact.VerificationStatus != "not_performed" ||
+		len(artifact.SourceReferences) == 0 {
+		return false
+	}
+	for _, feature := range artifact.SupportedFeatures {
+		if strings.TrimSpace(feature) == "" {
+			return false
+		}
+	}
+	for _, reference := range artifact.SourceReferences {
+		if strings.TrimSpace(reference) == "" {
+			return false
+		}
+	}
+	if artifact.DocumentationReferences == nil {
+		return false
+	}
+	return true
 }
 
 func SHA256(data []byte) string {

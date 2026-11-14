@@ -1,0 +1,49 @@
+{
+  "template_version": "1",
+  "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+  "status": "rendered_unverified",
+  "execution_mode": "render-only; review manually; no device connection or execution",
+  "warnings": [
+    "command syntax and behavior were not validated against a physical device",
+    "vendor family profiles do not certify compatibility with the reported model or software version",
+    "only hostname, IPv4 interface, and static-route intent is rendered; NAT and other intent are rejected",
+    "generated files are inert text and are not automatically applied"
+  ],
+  "devices": [
+    {
+      "id": "r1",
+      "name": "edge-r1",
+      "vendor": "mikrotik",
+      "family": "routeros",
+      "model": "RB750Gr3",
+      "os_version": "7.x",
+      "provisioning_method": "auto-rsc",
+      "template_id": "infraflow.mikrotik.routeros7.auto-rsc",
+      "template_version": "1",
+      "template_hash": "8ae7a004c83a9b507ed66de779f4d2b1f9cb881bbb69a457fcf91cfaf66b65db",
+      "input_hash": "325faf829441a6ca2bd4452c91e9fc9310e0e047d07b9fb48f03891fd402bfe9",
+      "output_hash": "abcb02a9765b4f514f86fa327679c518f74a5afcc1eb0e23ac8d51f6d0201243",
+      "supported_features": [
+        "system.identity",
+        "interfaces.ipv4_static",
+        "interfaces.ipv4_dhcp",
+        "interfaces.idempotent_owned_update",
+        "routes.static_ipv4",
+        "routes.idempotent_owned_update"
+      ],
+      "validation_status": "render-only",
+      "compatibility": "unknown",
+      "compatibility_status": "unknown",
+      "verification_status": "not_performed",
+      "source_references": [
+        "https://manual.mikrotik.com/docs/getting-started/configuration-management/",
+        "https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting",
+        "docs/vendor-provisioning-audit.md",
+        "design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md",
+        "demo-output/equipment/mikrotik/hex-rb750gr3.md"
+      ],
+      "path": "lab/native/device-r1.auto.rsc",
+      "status": "rendered_unverified"
+    }
+  ]
+}

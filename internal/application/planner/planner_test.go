@@ -234,7 +234,7 @@ func TestBuildPlanMethodDoesNotImplyVerification(t *testing.T) {
 		name   string
 		vendor string
 		family string
-		method string
+		method domain.ProvisioningMethod
 	}{
 		{name: "netconf", vendor: "cisco", family: "iosxe", method: "netconf"},
 		{name: "api", vendor: "mikrotik", family: "routeros", method: "api"},
@@ -250,7 +250,7 @@ func TestBuildPlanMethodDoesNotImplyVerification(t *testing.T) {
 				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "Gi1"}}},
 			}
 			plan := Build(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}})
-			if len(plan.Tasks) != 1 || plan.Tasks[0].Method != test.method {
+			if len(plan.Tasks) != 1 || plan.Tasks[0].Method != string(test.method) {
 				t.Fatalf("configured method was not preserved: %#v", plan.Tasks)
 			}
 			profile, ok := domain.VendorProfileFor(device)
@@ -306,6 +306,41 @@ func TestPlannerDoesNotImportNetworkOrCommandExecutionPackages(t *testing.T) {
 			t.Errorf("planner imports forbidden side-effect package %q", path)
 		}
 	}
+}
+
+func FuzzBuildPlanDeterministic(f *testing.F) {
+	f.Add("lab", "R1", "GigabitEthernet1", "netconf")
+	f.Add("../site", "device/1", "port 1", "unknown")
+	f.Fuzz(func(t *testing.T, siteName, deviceName, interfaceName, method string) {
+		if len(siteName) > 256 || len(deviceName) > 256 || len(interfaceName) > 256 || len(method) > 256 {
+			return
+		}
+		infrastructure := domain.Infrastructure{Sites: []domain.Site{{
+			Name: siteName,
+			Devices: []domain.Device{{
+				Name:         deviceName,
+				Provisioning: domain.Provisioning{Method: domain.ProvisioningMethod(method)},
+				Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+					Name: interfaceName,
+				}}},
+			}},
+		}}}
+		first, err := json.Marshal(Build(infrastructure))
+		if err != nil {
+			t.Fatalf("marshal first plan: %v", err)
+		}
+		plan := Build(infrastructure)
+		second, err := json.Marshal(plan)
+		if err != nil {
+			t.Fatalf("marshal second plan: %v", err)
+		}
+		if string(first) != string(second) {
+			t.Fatal("same infrastructure produced different plans")
+		}
+		if !strings.HasPrefix(plan.ID, "plan/sha256-") || len(plan.Tasks) != 1 {
+			t.Fatalf("planner returned an invalid plan shape: %#v", plan)
+		}
+	})
 }
 
 func assertPlannedLifecycle(t *testing.T, lifecycle domain.LifecycleState) {

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -464,9 +465,9 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	service := application.NewServiceWithJobsAgentsEvents(artifactRepo, reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
-		transportCredentials, err = credentials.NewServerTLSFromFile(settings.TLS.CertificateFile, settings.TLS.KeyFile)
+		transportCredentials, err = grpcTransportCredentials(settings.TLS)
 		if err != nil {
-			fmt.Fprintf(stderr, "infraflow-provider: load TLS certificate: %v\n", err)
+			fmt.Fprintf(stderr, "infraflow-provider: configure gRPC TLS: %v\n", err)
 			return 2
 		}
 	}
@@ -478,16 +479,17 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		agentCredentials = append(agentCredentials, grpcapi.AgentCredential{
-			AgentID: configured.AgentID, SiteID: configured.SiteID, Token: token,
+			AgentID: configured.AgentID, SiteID: configured.SiteID, Token: token, ExpiresAt: configured.ExpiresAt,
 		})
 	}
-	server, err := grpcapi.NewServerWithAgentCredentials(
-		service, os.Getenv(settings.TokenEnv), agentCredentials, settings.ChunkSize, transportCredentials, logger,
+	server, err := grpcapi.NewServerWithTokenExpiry(
+		service, os.Getenv(settings.TokenEnv), settings.TokenExpiresAt, agentCredentials, settings.ChunkSize, transportCredentials, logger,
 	)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 		return 2
 	}
+
 	var authenticator *application.Authenticator
 	var userStore *sqlite.Store
 	if settings.APIListenAddress != "" {
@@ -521,7 +523,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	}
 	var apiListener net.Listener
 	if settings.APIListenAddress != "" {
-		handler, err := httpapi.NewHandler(service, os.Getenv(settings.TokenEnv), authenticator)
+		handler, err := httpapi.NewHandlerWithTokenExpiry(service, os.Getenv(settings.TokenEnv), settings.TokenExpiresAt, authenticator)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
 			return 2
@@ -598,6 +600,38 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	}
 	_ = emit("provider.stopped", "provider stopped", "shutdown", "STOPPED", nil)
 	return 0
+}
+
+func grpcTransportCredentials(settings config.TLSConfig) (credentials.TransportCredentials, error) {
+	configuration, err := grpcTLSConfiguration(settings)
+	if err != nil {
+		return nil, err
+	}
+	return credentials.NewTLS(configuration), nil
+}
+
+func grpcTLSConfiguration(settings config.TLSConfig) (*tls.Config, error) {
+	certificate, err := tls.LoadX509KeyPair(settings.CertificateFile, settings.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server certificate: %w", err)
+	}
+	configuration := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	}
+	if settings.ClientCAFile != "" {
+		authorities, err := os.ReadFile(settings.ClientCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read client CA: %w", err)
+		}
+		clientCAs := x509.NewCertPool()
+		if !clientCAs.AppendCertsFromPEM(authorities) {
+			return nil, fmt.Errorf("client CA file contains no valid certificates")
+		}
+		configuration.ClientCAs = clientCAs
+		configuration.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return configuration, nil
 }
 
 func ensureProviderRuntimeDirectories(settings config.Config) error {

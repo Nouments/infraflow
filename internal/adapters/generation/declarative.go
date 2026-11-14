@@ -29,16 +29,20 @@ import (
 var vendorTemplateFiles embed.FS
 
 type deviceTemplateMetadata struct {
-	ID           string   `yaml:"id"`
-	Version      string   `yaml:"version"`
-	Manufacturer string   `yaml:"manufacturer"`
-	Model        string   `yaml:"model"`
-	OSFamily     string   `yaml:"os_family"`
-	OSVersions   []string `yaml:"os_versions"`
-	Features     []string `yaml:"features"`
-	Variables    []string `yaml:"variables"`
-	Status       string   `yaml:"status"`
-	Source       string   `yaml:"source"`
+	ID                 string   `yaml:"id"`
+	Version            string   `yaml:"version"`
+	Manufacturer       string   `yaml:"manufacturer"`
+	Model              string   `yaml:"model"`
+	OSFamily           string   `yaml:"os_family"`
+	OSVersions         []string `yaml:"os_versions"`
+	ProvisioningMethod string   `yaml:"provisioning_method,omitempty"`
+	TemplateFile       string   `yaml:"template_file,omitempty"`
+	Features           []string `yaml:"features"`
+	Variables          []string `yaml:"variables"`
+	RequiredVariables  []string `yaml:"required_variables,omitempty"`
+	Status             string   `yaml:"status"`
+	Source             string   `yaml:"source"`
+	SourceReferences   []string `yaml:"source_references,omitempty"`
 }
 
 type templateCandidate struct {
@@ -66,36 +70,38 @@ type TemplateEvaluation struct {
 }
 
 type DeviceGenerationReport struct {
-	Device          string               `json:"device"`
-	Manufacturer    string               `json:"manufacturer"`
-	Model           string               `json:"model"`
-	OS              string               `json:"os"`
-	OSVersion       string               `json:"os_version,omitempty"`
-	CatalogID       string               `json:"catalog_id"`
-	CatalogStatus   string               `json:"catalog_status"`
-	TemplateID      string               `json:"template_id,omitempty"`
-	TemplateVersion string               `json:"template_version,omitempty"`
-	TemplateHash    string               `json:"template_hash,omitempty"`
-	SelectionReason string               `json:"selection_reason,omitempty"`
-	Candidates      []TemplateEvaluation `json:"candidates"`
-	Variables       map[string]any       `json:"variables,omitempty"`
-	ConfigPath      string               `json:"config_path,omitempty"`
-	ConfigHash      string               `json:"config_hash,omitempty"`
-	Status          string               `json:"status"`
-	Limits          []string             `json:"limits,omitempty"`
+	Device                 string                       `json:"device"`
+	Manufacturer           string                       `json:"manufacturer"`
+	Model                  string                       `json:"model"`
+	OS                     string                       `json:"os"`
+	OSVersion              string                       `json:"os_version,omitempty"`
+	CatalogID              string                       `json:"catalog_id"`
+	CatalogStatus          string                       `json:"catalog_status"`
+	TemplateID             string                       `json:"template_id,omitempty"`
+	TemplateVersion        string                       `json:"template_version,omitempty"`
+	TemplateHash           string                       `json:"template_hash,omitempty"`
+	SelectionReason        string                       `json:"selection_reason,omitempty"`
+	Candidates             []TemplateEvaluation         `json:"candidates"`
+	Variables              map[string]any               `json:"variables,omitempty"`
+	ConfigPath             string                       `json:"config_path,omitempty"`
+	ConfigHash             string                       `json:"config_hash,omitempty"`
+	Status                 string                       `json:"status"`
+	Limits                 []string                     `json:"limits,omitempty"`
+	ConfigSyntaxValidation ConfigSyntaxValidationResult `json:"config_syntax_validation"`
 }
 
 type DeclarativeGenerationReport struct {
-	APIVersion               string                   `json:"api_version"`
-	Deployment               string                   `json:"deployment"`
-	Site                     string                   `json:"site"`
-	Validation               string                   `json:"validation"`
-	CompatibilityScope       string                   `json:"compatibility_scope"`
-	CommandSyntaxValidation  string                   `json:"command_syntax_validation"`
-	PhysicalDeviceValidation string                   `json:"physical_device_validation"`
-	Status                   string                   `json:"status"`
-	Devices                  []DeviceGenerationReport `json:"devices"`
-	Incompatibilities        []string                 `json:"incompatibilities,omitempty"`
+	APIVersion               string                       `json:"api_version"`
+	Deployment               string                       `json:"deployment"`
+	Site                     string                       `json:"site"`
+	Validation               string                       `json:"validation"`
+	CompatibilityScope       string                       `json:"compatibility_scope"`
+	CommandSyntaxValidation  string                       `json:"command_syntax_validation"`
+	ConfigSyntaxValidation   ConfigSyntaxValidationResult `json:"config_syntax_validation"`
+	PhysicalDeviceValidation string                       `json:"physical_device_validation"`
+	Status                   string                       `json:"status"`
+	Devices                  []DeviceGenerationReport     `json:"devices"`
+	Incompatibilities        []string                     `json:"incompatibilities,omitempty"`
 }
 
 type renderedInterface struct {
@@ -121,12 +127,22 @@ type declarativeArtifact struct {
 // equipment catalog and writes only configurations supported by a registered
 // template. It never executes the generated configuration on a device.
 func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact, error) {
-	infrastructure, deployment, err := config.ParseNetworkDeployment(input)
+	if strings.TrimSpace(outputDirectory) == "" {
+		return nil, fmt.Errorf("output directory is required")
+	}
+	pending, err := prepareDeclarativeArtifacts(input)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(outputDirectory) == "" {
-		return nil, fmt.Errorf("output directory is required")
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		return publishDeclarativeArtifacts(root, input, pending)
+	})
+}
+
+func prepareDeclarativeArtifacts(input []byte) ([]declarativeArtifact, error) {
+	infrastructure, deployment, err := config.ParseNetworkDeployment(input)
+	if err != nil {
+		return nil, err
 	}
 	equipmentCatalog, err := catalog.Load()
 	if err != nil {
@@ -141,12 +157,17 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 	}
 
 	report := DeclarativeGenerationReport{
-		APIVersion:               config.NetworkDeploymentAPIVersion,
-		Deployment:               deployment.Metadata.Name,
-		Site:                     deployment.Spec.Site,
-		Validation:               "passed",
-		CompatibilityScope:       "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified",
-		CommandSyntaxValidation:  "not_performed",
+		APIVersion:              config.NetworkDeploymentAPIVersion,
+		Deployment:              deployment.Metadata.Name,
+		Site:                    deployment.Spec.Site,
+		Validation:              "passed",
+		CompatibilityScope:      "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified",
+		CommandSyntaxValidation: "not_performed",
+		ConfigSyntaxValidation: ConfigSyntaxValidationResult{
+			Name:    configSyntaxValidationName,
+			Status:  configSyntaxValidationUnavailable,
+			Message: "No offline syntax parser is registered for generated vendor configurations; see per-device details.",
+		},
 		PhysicalDeviceValidation: "not_performed",
 		Status:                   "rendered_unverified",
 	}
@@ -162,7 +183,8 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 			Device: declared.Name, Manufacturer: declared.Vendor, Model: declared.Model,
 			OS: declared.OS, OSVersion: declared.OSVersion,
 			CatalogID: record.ID, CatalogStatus: record.ValidationStatus, Candidates: evaluation,
-			Status: "blocked",
+			Status:                 "blocked",
+			ConfigSyntaxValidation: configSyntaxValidationFor(declared.Vendor, declared.OS, false),
 		}
 		if err != nil {
 			deviceReport.Limits = []string{err.Error()}
@@ -175,6 +197,7 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 		deviceReport.TemplateHash = selected.Hash
 		deviceReport.SelectionReason = "highest deterministic score among admissible templates matching the declared manufacturer, model, OS family, and requested features; physical-device compatibility is unverified"
 		deviceReport.Status = "rendered_unverified"
+		deviceReport.ConfigSyntaxValidation = configSyntaxValidationFor(declared.Vendor, declared.OS, true)
 		deviceReport.Limits = []string{
 			"catalog record is partial; manufacturer-specific hardware interfaces and OS versions are not verified",
 			"rendering does not prove command acceptance or device state",
@@ -211,7 +234,7 @@ func GenerateDeclarativeConfig(input []byte, outputDirectory string) ([]Artifact
 		Data: reportBytes,
 	})
 
-	return publishDeclarativeArtifacts(outputDirectory, input, pending)
+	return pending, nil
 }
 
 func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending []declarativeArtifact) ([]Artifact, error) {
@@ -298,7 +321,7 @@ func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending [
 
 	artifacts := make([]Artifact, 0, len(pending))
 	for _, item := range pending {
-		if err := safefs.AtomicWrite(root, item.Path, item.Data, 0o644); err != nil {
+		if err := safefs.AtomicWrite(root, item.Path, item.Data, generatedArtifactMode(item.Path, item.Data)); err != nil {
 			writeErr := fmt.Errorf("write generated artifact %q: %w", item.Path, err)
 			return nil, errors.Join(writeErr, restoreBackups())
 		}
@@ -381,11 +404,16 @@ func loadDeviceTemplates() ([]templateCandidate, error) {
 			return nil, fmt.Errorf("duplicate local template id %q", metadata.ID)
 		}
 		seenIDs[normalizedID] = struct{}{}
-		templatePath := strings.TrimSuffix(metadataPath, "metadata.yaml") + "interfaces.cfg.tmpl"
+		templateFile := metadata.TemplateFile
+		if templateFile == "" {
+			templateFile = "interfaces.cfg.tmpl"
+		}
+		templatePath := strings.TrimSuffix(metadataPath, "metadata.yaml") + templateFile
 		content, err := vendorTemplateFiles.ReadFile(templatePath)
 		if err != nil {
 			return nil, fmt.Errorf("template %q references missing file %q: %w", metadata.ID, templatePath, err)
 		}
+		content = []byte(strings.ReplaceAll(string(content), "\r\n", "\n"))
 		parsed, err := template.New(metadata.ID).Option("missingkey=error").Parse(string(content))
 		if err != nil {
 			return nil, fmt.Errorf("parse template %q: %w", metadata.ID, err)

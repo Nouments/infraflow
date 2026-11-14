@@ -3,9 +3,11 @@ package generator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,135 @@ import (
 	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
+
+func BenchmarkGenerateAll(b *testing.B) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        model: ios-xe
+`))
+	if err != nil {
+		b.Fatal(err)
+	}
+	output := b.TempDir()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := GenerateAll(infrastructure, output); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestGeneratedShellScriptIsExecutable(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := publishDeclarativeArtifacts(root, []byte("sites:\n  - name: lab\n"), []declarativeArtifact{{
+		Path: "lab/run.sh",
+		Type: "script",
+		Data: []byte("#!/bin/sh\necho ok\n"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected one artifact, got %#v", artifacts)
+	}
+	info, err := os.Stat(filepath.Join(root, "lab", "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if got, want := info.Mode().Perm(), os.FileMode(0o755); got != want {
+			t.Fatalf("generated shell script mode = %o, want %o", got, want)
+		}
+	}
+}
+
+func rejectedGenerationInfrastructure() domain.Infrastructure {
+	return domain.Infrastructure{Sites: []domain.Site{
+		{Name: "duplicate"},
+		{Name: "duplicate"},
+	}}
+}
+
+func assertRejectedGenerationPreservesOutputRoot(t *testing.T, generate func(string) error) {
+	t.Helper()
+	t.Run("new output root remains absent", func(t *testing.T) {
+		output := filepath.Join(t.TempDir(), "not-created")
+		if err := generate(output); err == nil {
+			t.Fatal("expected invalid generation input to be rejected")
+		}
+		if _, err := os.Lstat(output); !os.IsNotExist(err) {
+			t.Fatalf("rejected generation left output root behind: %v", err)
+		}
+	})
+	t.Run("existing output root remains unchanged", func(t *testing.T) {
+		output := t.TempDir()
+		if err := os.WriteFile(filepath.Join(output, "user-data.txt"), []byte("keep me\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before := snapshotRawOutputFiles(t, output)
+		if err := generate(output); err == nil {
+			t.Fatal("expected invalid generation input to be rejected")
+		}
+		if after := snapshotRawOutputFiles(t, output); !reflect.DeepEqual(before, after) {
+			t.Fatalf("rejected generation changed existing output: before=%#v after=%#v", before, after)
+		}
+	})
+}
+
+func TestGenerateRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := Generate(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateNativeRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateNative(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateTerraformRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateTerraform(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateBootstrapRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateBootstrap(infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateAllPreflightRejectsWithoutChangingOutputRoot(t *testing.T) {
+	infrastructure := rejectedGenerationInfrastructure()
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateAllContext(context.Background(), infrastructure, output)
+		return err
+	})
+}
+
+func TestGenerateDeclarativeConfigRejectsWithoutChangingOutputRoot(t *testing.T) {
+	input, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "network-deployment-unsupported-ospf.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateDeclarativeConfig(input, output)
+		return err
+	})
+}
 
 func TestGenerateIsDeterministic(t *testing.T) {
 	firstInput := `sites:
@@ -214,7 +345,7 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != len(artifacts) || len(catalog) != 17 {
+	if len(catalog) != len(artifacts) || len(catalog) != 16 {
 		t.Fatalf("combined manifest published %d of %d generated artifacts", len(catalog), len(artifacts))
 	}
 	for _, path := range []string{
@@ -265,6 +396,37 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 		if !seenTypes[artifactType] {
 			t.Errorf("combined manifest omitted %s", artifactType)
 		}
+	}
+}
+
+func TestGenerateAllOmitsBootstrapArtifactsWithoutExplicitOptIn(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	generated, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(generated) != len(catalog) {
+		t.Fatalf("catalog contains %d artifacts; GenerateAll returned %d", len(catalog), len(generated))
+	}
+	for _, artifact := range catalog {
+		if strings.HasPrefix(artifact.Path, "lab/bootstrap/") {
+			t.Errorf("bootstrap artifact %q was emitted without an enabled service", artifact.Path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "bootstrap")); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap directory exists without an enabled service: %v", err)
 	}
 }
 
@@ -351,11 +513,1066 @@ func TestGenerateAllPreflightsSitePublicationBeforeWritingArtifacts(t *testing.T
 			t.Errorf("site publication left a partial artifact %s: %v", path, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "lab", "site-manifest.json")); err != nil {
-		t.Fatalf("failure status manifest was not retained: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "lab", "site-manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("publication failure left a site manifest: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("publication failure left a global manifest: %v", err)
 	}
 	if catalog, err := Catalog(root); err != nil || len(catalog) != 0 {
 		t.Fatalf("failed site's partial artifacts became Agent-visible: catalog=%#v err=%v", catalog, err)
+	}
+}
+
+func TestGenerateAllRemovesArtifactsForDisabledService(t *testing.T) {
+	enabled := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: true
+`)
+	disabled := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(enabled, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "keep.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("user data\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(disabled, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "bootstrap", "dhcp", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("disabled DHCP artifact remains: %v", err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range catalog {
+		if strings.HasPrefix(artifact.Path, "lab/bootstrap/") {
+			t.Errorf("disabled service remains in catalog: %q", artifact.Path)
+		}
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "user data\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllRemovesArtifactsForRemovedDevice(t *testing.T) {
+	twoDevices := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: router1
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+      - name: router2
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+`)
+	oneDevice := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: router1
+        vendor: cisco
+        family: iosxe
+        model: C8000V
+        os_version: "17.12.4"
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(twoDevices, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "native", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(unrelatedPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("keep me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(oneDevice, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "native", "device-router2.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("removed device configuration remains: %v", err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range catalog {
+		if strings.Contains(artifact.Path, "device-router2") {
+			t.Errorf("removed device artifact remains in catalog: %q", artifact.Path)
+		}
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "keep me\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllFailurePreservesPreviousGeneration(t *testing.T) {
+	valid := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	invalid := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/31
+    services:
+      dhcp: true
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(valid, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	if _, err := GenerateAll(invalid, root); err == nil {
+		t.Fatal("expected invalid second generation to fail")
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is no longer valid: %v", err)
+	}
+}
+
+func TestGenerateAllPublicationFailureRollsBackPreviousGeneration(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	for _, path := range []string{
+		"lab/inventory.json",
+		"lab/topology.json",
+		"lab/manifest.json",
+		"generation-report.json",
+		"manifest.json",
+	} {
+		t.Run(path, func(t *testing.T) {
+			root := t.TempDir()
+			if _, err := GenerateAll(previous, root); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotGenerationFiles(t, root)
+			lock, err := acquireGenerationLock(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+				beforeWrite: func(currentPath string) error {
+					if currentPath == path {
+						return os.ErrPermission
+					}
+					return nil
+				},
+			})
+			releaseErr := lock.release()
+			if generationErr == nil {
+				t.Fatal("expected injected publication failure")
+			}
+			if releaseErr != nil {
+				t.Fatalf("release generation lock: %v", releaseErr)
+			}
+			assertGenerationFilesEqual(t, root, before)
+			if _, err := Catalog(root); err != nil {
+				t.Fatalf("previous catalog is no longer valid: %v", err)
+			}
+			data, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil || len(data) == 0 {
+				t.Fatalf("previous artifact is no longer readable: size=%d err=%v", len(data), err)
+			}
+		})
+	}
+}
+
+func TestGenerateAllStagingFailurePreservesPreviousGeneration(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	oldInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeStage: func(site, phase string) error {
+			if site == "lab" && phase == "native configuration" {
+				return os.ErrPermission
+			}
+			return nil
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil {
+		t.Fatal("expected injected staging failure")
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is no longer valid: %v", err)
+	}
+	currentInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+	if err != nil || string(currentInventory) != string(oldInventory) {
+		t.Fatalf("previous artifact changed after staging failure: err=%v", err)
+	}
+}
+
+func TestGenerateAllAtomicWriteFailuresPreservePreviousGeneration(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	tests := []struct {
+		name      string
+		configure func(*publicationHooks)
+	}{
+		{
+			name: "sync",
+			configure: func(hooks *publicationHooks) {
+				hooks.beforeSync = func(path string) error {
+					if path == "lab/topology.json" {
+						return os.ErrPermission
+					}
+					return nil
+				}
+			},
+		},
+		{
+			name: "replace",
+			configure: func(hooks *publicationHooks) {
+				hooks.beforeReplace = func(path string) error {
+					if path == "lab/topology.json" {
+						return os.ErrPermission
+					}
+					return nil
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if _, err := GenerateAll(previous, root); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotGenerationFiles(t, root)
+			oldInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock, err := acquireGenerationLock(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hooks := publicationHooks{}
+			test.configure(&hooks)
+			_, generationErr := generateAllLocked(context.Background(), next, root, hooks)
+			releaseErr := lock.release()
+			if generationErr == nil {
+				t.Fatalf("expected injected %s failure", test.name)
+			}
+			if releaseErr != nil {
+				t.Fatalf("release generation lock: %v", releaseErr)
+			}
+			assertGenerationFilesEqual(t, root, before)
+			if _, err := Catalog(root); err != nil {
+				t.Fatalf("previous catalog is no longer valid: %v", err)
+			}
+			currentInventory, _, err := ReadArtifact(root, "lab/inventory.json")
+			if err != nil || string(currentInventory) != string(oldInventory) {
+				t.Fatalf("previous artifact changed after %s failure: err=%v", test.name, err)
+			}
+		})
+	}
+}
+
+func TestUnrecoverablePublicationReportsRecoveryRequired(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(root, "user-notes.txt")
+	if err := os.WriteFile(userFile, []byte("preserve\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeWrite: func(path string) error {
+			if path != "lab/topology.json" {
+				return nil
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return err
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+					backup := filepath.Join(root, entry.Name(), "lab", "inventory.json")
+					return errors.Join(os.WriteFile(backup, []byte("corrupted rollback copy"), 0o600), os.ErrPermission)
+				}
+			}
+			return errors.New("publication backup was not created")
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil || !errors.Is(generationErr, ErrRecoveryRequired) {
+		t.Fatalf("generation error = %v, want recovery-required error", generationErr)
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	if _, err := Catalog(root); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("catalog error = %v, want recovery-required error", err)
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("artifact read error = %v, want recovery-required error", err)
+	}
+	if got, err := os.ReadFile(userFile); err != nil || string(got) != "preserve\n" {
+		t.Fatalf("recovery failure changed user file: data=%q err=%v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); err != nil {
+		t.Fatalf("recovery journal was discarded: %v", err)
+	}
+}
+
+func TestGenerateAllCleansBackupWhenInitialJournalWriteFails(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generationErr := generateAllLocked(context.Background(), next, root, publicationHooks{
+		beforeJournalWrite: func(bool) error {
+			return os.ErrPermission
+		},
+	})
+	releaseErr := lock.release()
+	if generationErr == nil {
+		t.Fatal("expected initial journal write failure")
+	}
+	if releaseErr != nil {
+		t.Fatalf("release generation lock: %v", releaseErr)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".infraflow-publish-") {
+			t.Fatalf("orphaned publication backup remains: %s", entry.Name())
+		}
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous catalog is unreadable after failed journal write: %v", err)
+	}
+}
+
+func TestStaleReaderMarkerBlocksWritersUntilExplicitCleanup(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	staleMarker := filepath.Join(root, generationReadLockPrefix+"stale.lock")
+	if err := os.WriteFile(staleMarker, []byte("orphaned reader\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	if _, err := GenerateAll(infrastructure, root); err == nil {
+		t.Fatal("writer did not fail closed with a stale reader marker")
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("readers should remain available while a stale reader marker exists: %v", err)
+	}
+	if err := os.Remove(staleMarker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatalf("generation did not resume after explicit stale-marker cleanup: %v", err)
+	}
+}
+
+func TestGenerateAllRecoversInterruptedPublication(t *testing.T) {
+	previous := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	next := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(previous, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "lab", "user-notes.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("keep me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGenerationFiles(t, root)
+	lock, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var interruption any
+	func() {
+		defer func() {
+			interruption = recover()
+		}()
+		_, err := generateAllLocked(context.Background(), next, root, publicationHooks{
+			afterWrite: func(path string) {
+				if path == "lab/inventory.json" {
+					panic("simulated process interruption")
+				}
+			},
+		})
+		if err != nil {
+			t.Fatalf("publish interrupted generation: %v", err)
+		}
+	}()
+	if interruption == nil {
+		t.Fatal("expected publication interruption")
+	}
+	if err := lock.release(); err != nil {
+		t.Fatalf("release generation lock after simulated interruption: %v", err)
+	}
+	if _, err := Catalog(root); err == nil {
+		t.Fatal("catalog exposed an interrupted publication")
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		t.Fatalf("recover interrupted publication: %v", err)
+	}
+	assertGenerationFilesEqual(t, root, before)
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "keep me\n" {
+		t.Fatalf("recovery changed an unrelated file: data=%q err=%v", got, err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("previous generation is not readable after recovery: %v", err)
+	}
+}
+
+func TestGenerateAllRejectsUnsafeRecoveryJournalWithoutChangingOutput(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "user.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("preserve\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backupDirectory := ".infraflow-publish-invalid"
+	if err := os.Mkdir(filepath.Join(root, backupDirectory), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := publicationJournal{
+		SchemaVersion:   1,
+		BackupDirectory: backupDirectory,
+		Entries: []publicationJournalEntry{{
+			Path: "../user.txt", NewSHA256: protocol.SHA256([]byte("changed")),
+		}},
+	}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, generationJournalName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotRawOutputFiles(t, root)
+	if _, err := GenerateAll(infrastructure, root); err == nil {
+		t.Fatal("expected unsafe recovery metadata to be rejected")
+	}
+	if after := snapshotRawOutputFiles(t, root); !reflect.DeepEqual(before, after) {
+		t.Fatal("rejected recovery modified the existing output")
+	}
+}
+
+func TestRecoveryCleansCommittedJournalAfterBackupRemoval(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	journal := publicationJournal{
+		SchemaVersion:   1,
+		BackupDirectory: ".infraflow-publish-committed",
+		Committed:       true,
+		Entries: []publicationJournalEntry{{
+			Path: "lab/inventory.json", NewSHA256: protocol.SHA256([]byte("generated")),
+		}},
+	}
+	if err := writePublicationJournal(root, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverInterruptedPublication(root); err != nil {
+		t.Fatalf("recover committed journal after backup cleanup: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, generationJournalName)); !os.IsNotExist(err) {
+		t.Fatalf("committed journal remains after recovery: %v", err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("committed generation was not readable after journal cleanup: %v", err)
+	}
+}
+
+func TestPublicationRejectsUnsafeStalePathsAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "keep.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishSiteFiles(context.Background(), root, nil, []string{"../keep.txt"},
+		map[string]struct{}{"../keep.txt": {}}, publicationHooks{}); err == nil {
+		t.Fatal("expected traversal path to be rejected")
+	}
+	if err := os.Mkdir(filepath.Join(root, "lab"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	symlinkPath := filepath.Join(root, "lab", "managed.cfg")
+	if err := os.Symlink(outsideFile, symlinkPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := publishSiteFiles(context.Background(), root, nil, []string{"lab/managed.cfg"},
+		map[string]struct{}{"lab/managed.cfg": {}}, publicationHooks{}); err == nil {
+		t.Fatal("expected symlinked stale artifact to be rejected")
+	}
+	if err := publishSiteFiles(context.Background(), root, []publicationFile{{
+		pendingFile: pendingFile{path: "../keep.txt", data: []byte("overwritten")},
+		phase:       publicationPhaseArtifacts,
+	}}, nil, nil, publicationHooks{}); err == nil {
+		t.Fatal("expected traversal publication path to be rejected")
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := publishSiteFiles(context.Background(), root, []publicationFile{{
+		pendingFile: pendingFile{path: "linked/new.cfg", data: []byte("overwritten")},
+		phase:       publicationPhaseArtifacts,
+	}}, nil, nil, publicationHooks{}); err == nil {
+		t.Fatal("expected symlinked publication parent to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new.cfg")); !os.IsNotExist(err) {
+		t.Fatalf("symlinked publication wrote outside the output root: %v", err)
+	}
+	if got, err := os.ReadFile(outsideFile); err != nil || string(got) != "outside\n" {
+		t.Fatalf("unsafe publication changed outside file: data=%q err=%v", got, err)
+	}
+}
+
+func TestGenerateAllIsIdempotent(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: true
+    devices:
+      - name: R1
+        role: router
+        vendor: cisco
+        family: ios-xe
+        model: csr1000v
+`)
+	root := t.TempDir()
+	first, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstFiles := snapshotGenerationFiles(t, root)
+	firstCatalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondFiles := snapshotGenerationFiles(t, root)
+	secondCatalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) || !reflect.DeepEqual(firstCatalog, secondCatalog) {
+		t.Fatalf("artifact metadata changed between runs:\nfirst=%#v\nsecond=%#v", firstCatalog, secondCatalog)
+	}
+	if !reflect.DeepEqual(firstFiles, secondFiles) {
+		t.Fatal("generated file contents or manifest metadata changed between identical runs")
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("published manifests are inconsistent: %v", err)
+	}
+}
+
+func TestGenerateAllPreservesUnrelatedFiles(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(root, "user-data", "notes.txt")
+	if err := os.MkdirAll(filepath.Dir(unrelatedPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("not managed by InfraFlow\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(unrelatedPath); err != nil || string(got) != "not managed by InfraFlow\n" {
+		t.Fatalf("unrelated file was not preserved: data=%q err=%v", got, err)
+	}
+}
+
+func TestConcurrentGenerateAllCallsDoNotInterleavePublication(t *testing.T) {
+	first := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R1
+`)
+	second := parseGenerationInput(t, `sites:
+  - name: lab
+    devices:
+      - name: R2
+`)
+	root := t.TempDir()
+	start := make(chan struct{})
+	type result struct {
+		artifacts []Artifact
+		err       error
+	}
+	results := make(chan result, 2)
+	for _, infrastructure := range []domain.Infrastructure{first, second} {
+		infrastructure := infrastructure
+		go func() {
+			<-start
+			artifacts, err := GenerateAll(infrastructure, root)
+			results <- result{artifacts: artifacts, err: err}
+		}()
+	}
+	close(start)
+	succeeded := 0
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			succeeded++
+		} else if !strings.Contains(result.err.Error(), "locked") && !strings.Contains(result.err.Error(), "in use") {
+			t.Fatalf("concurrent generation failed unexpectedly: %v", result.err)
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("neither concurrent generation published successfully")
+	}
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("concurrent generation left inconsistent output: %v", err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("catalog rejected concurrent generation output: %v", err)
+	}
+}
+
+func TestCatalogAndReadArtifactUseSharedReaderLocks(t *testing.T) {
+	infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	root, readerOne, err := acquireGenerationReadLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, readerTwo, err := acquireGenerationReadLock(root)
+	if err != nil {
+		_ = readerOne.release()
+		t.Fatal(err)
+	}
+	if _, err := Generate(infrastructure, root); err == nil {
+		t.Fatal("writer started while artifact reader locks were held")
+	}
+	writers := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "GenerateAll", run: func() error { _, err := GenerateAll(infrastructure, root); return err }},
+		{name: "GenerateNative", run: func() error { _, err := GenerateNative(infrastructure, root); return err }},
+		{name: "GenerateTerraform", run: func() error { _, err := GenerateTerraform(infrastructure, root); return err }},
+		{name: "GenerateBootstrap", run: func() error { _, err := GenerateBootstrap(infrastructure, root); return err }},
+		{name: "GenerateDeclarativeConfig", run: func() error {
+			_, err := GenerateDeclarativeConfig([]byte("sites:\n  - name: lab\n"), root)
+			return err
+		}},
+	}
+	for _, writer := range writers {
+		if err := writer.run(); err == nil {
+			t.Errorf("%s started while artifact reader locks were held", writer.name)
+		}
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("concurrent Catalog reader was rejected: %v", err)
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); err != nil {
+		t.Fatalf("concurrent ReadArtifact reader was rejected: %v", err)
+	}
+	if err := readerTwo.release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := readerOne.release(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := acquireGenerationLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Catalog(root); err == nil {
+		t.Fatal("Catalog read while a writer held the output lock")
+	}
+	if _, _, err := ReadArtifact(root, "lab/inventory.json"); err == nil {
+		t.Fatal("ReadArtifact read while a writer held the output lock")
+	}
+	if err := writer.release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Catalog(root); err != nil {
+		t.Fatalf("catalog failed after the writer released its lock: %v", err)
+	}
+}
+
+func TestGenerateAllRejectsCorruptPreviousGenerationsWithoutChangingFiles(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{
+			name: "invalid root manifest JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "invalid site catalog JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "invalid site manifest JSON",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "site-manifest.json"), []byte("{"))
+			},
+		},
+		{
+			name: "cataloged artifact hash mismatch",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, filepath.Join(root, "lab", "inventory.json"), []byte("tampered"))
+			},
+		},
+		{
+			name: "traversal in prior catalog",
+			mutate: func(t *testing.T, root string) {
+				data, err := os.ReadFile(filepath.Join(root, "lab", "manifest.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var manifest Manifest
+				if err := json.Unmarshal(data, &manifest); err != nil {
+					t.Fatal(err)
+				}
+				manifest.Artifacts[0].Path = "../outside.txt"
+				updated, err := json.Marshal(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, filepath.Join(root, "lab", "manifest.json"), updated)
+			},
+		},
+		{
+			name: "symlinked prior site manifest",
+			mutate: func(t *testing.T, root string) {
+				target := filepath.Join(t.TempDir(), "manifest.json")
+				writeTestFile(t, target, []byte("{}"))
+				path := filepath.Join(root, "lab", "manifest.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+		{
+			name: "symlinked prior artifact",
+			mutate: func(t *testing.T, root string) {
+				target := filepath.Join(t.TempDir(), "artifact.json")
+				writeTestFile(t, target, []byte("outside"))
+				path := filepath.Join(root, "lab", "inventory.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+		{
+			name: "interrupted publication recovery directory",
+			mutate: func(t *testing.T, root string) {
+				recovery := filepath.Join(root, ".infraflow-publish-interrupted")
+				if err := os.Mkdir(recovery, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, filepath.Join(recovery, "recovery-data"), []byte("keep"))
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure := parseGenerationInput(t, `sites:
+  - name: lab
+`)
+			root := t.TempDir()
+			if _, err := GenerateAll(infrastructure, root); err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, filepath.Join(root, "user-data.txt"), []byte("untouched"))
+			test.mutate(t, root)
+			before := snapshotRawOutputFiles(t, root)
+			if _, err := GenerateAll(infrastructure, root); err == nil {
+				t.Fatal("corrupt previous output was accepted")
+			}
+			after := snapshotRawOutputFiles(t, root)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("rejected previous generation changed managed or user files")
+			}
+			if data, err := os.ReadFile(filepath.Join(root, "user-data.txt")); err != nil || string(data) != "untouched" {
+				t.Fatalf("unrelated user file changed: data=%q err=%v", data, err)
+			}
+		})
+	}
+}
+
+func parseGenerationInput(t *testing.T, input string) domain.Infrastructure {
+	t.Helper()
+	infrastructure, err := config.Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return infrastructure
+}
+
+func writeTestFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func snapshotRawOutputFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := make(map[string]string)
+	err := filepath.WalkDir(root, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(root, filePath)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(relative)
+		if entry.IsDir() {
+			files[name] = "directory"
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(filePath)
+			if err != nil {
+				return err
+			}
+			files[name] = "symlink:" + target
+			return nil
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		files[name] = "file:" + string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot raw output: %v", err)
+	}
+	return files
+}
+
+func snapshotGenerationFiles(t *testing.T, root string) map[string][]byte {
+	t.Helper()
+	if _, err := inspectManagedOutput(root); err != nil {
+		t.Fatalf("validate generated manifests: %v", err)
+	}
+	artifacts, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range artifacts {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatalf("read cataloged artifact %q: %v", artifact.Path, err)
+		}
+		if protocol.SHA256(data) != artifact.OutputHash {
+			t.Fatalf("catalog metadata does not match artifact %q", artifact.Path)
+		}
+	}
+	files := make(map[string][]byte)
+	err = filepath.WalkDir(root, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, filePath)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relative)] = data
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot generated files: %v", err)
+	}
+	return files
+}
+
+func assertGenerationFilesEqual(t *testing.T, root string, expected map[string][]byte) {
+	t.Helper()
+	actual := snapshotGenerationFiles(t, root)
+	if !reflect.DeepEqual(expected, actual) {
+		t.Fatal("failed generation changed the previous artifacts or manifests")
 	}
 }
 
@@ -536,38 +1753,128 @@ func TestGenerateBootstrapCreatesPoolsReservationsDNSAndPXE(t *testing.T) {
 }
 
 func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := GenerateBootstrap(infrastructure, t.TempDir()); err == nil || !strings.Contains(err.Error(), "bootstrap network") {
-		t.Fatalf("expected bootstrap network error, got %v", err)
-	}
-}
-
-func TestGenerateBootstrapDisablesServicesWithoutExplicitOptIn(t *testing.T) {
 	infrastructure, err := config.Parse([]byte(`sites:
   - name: lab
-    bootstrap:
-      network: 192.168.100.0/24
+    services:
+      dhcp: true
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	outputDirectory := t.TempDir()
-	if _, err := GenerateBootstrap(infrastructure, outputDirectory); err != nil {
-		t.Fatal(err)
+	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
+		_, err := GenerateBootstrap(infrastructure, output)
+		if err == nil || !strings.Contains(err.Error(), "bootstrap network") {
+			t.Fatalf("expected bootstrap network error, got %v", err)
+		}
+		return err
+	})
+}
+
+func TestGenerateBootstrapOmitsArtifactsWithoutExplicitOptIn(t *testing.T) {
+	tests := []struct {
+		name     string
+		services string
+	}{
+		{name: "services omitted"},
+		{name: "all services explicitly false", services: `    services:
+      dhcp: false
+      dns: false
+      tftp: false
+      pxe: false
+`},
 	}
-	data, err := os.ReadFile(filepath.Join(outputDirectory, "lab", "bootstrap", "dhcp", "config.json"))
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n" + test.services))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputDirectory := t.TempDir()
+			artifacts, err := GenerateBootstrap(infrastructure, outputDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(artifacts) != 0 {
+				t.Fatalf("expected no bootstrap artifacts without explicit opt-in, got %#v", artifacts)
+			}
+			for _, relative := range []string{"lab/bootstrap", "lab/manifest.json"} {
+				if _, err := os.Stat(filepath.Join(outputDirectory, filepath.FromSlash(relative))); !os.IsNotExist(err) {
+					t.Errorf("unexpected bootstrap output %s: %v", relative, err)
+				}
+			}
+			catalog, err := Catalog(outputDirectory)
+			if err != nil || len(catalog) != 0 {
+				t.Fatalf("disabled bootstrap services became catalog artifacts: %#v, %v", catalog, err)
+			}
+		})
 	}
-	var dhcp bootstrapDHCP
-	if err := json.Unmarshal(data, &dhcp); err != nil {
-		t.Fatal(err)
+}
+
+func TestGenerateBootstrapEmitsOnlyExplicitlyEnabledServiceArtifacts(t *testing.T) {
+	tests := []struct {
+		name          string
+		service       string
+		expectedPaths []string
+	}{
+		{name: "dhcp", service: "dhcp", expectedPaths: []string{"lab/bootstrap/dhcp/config.json"}},
+		{name: "dns", service: "dns", expectedPaths: []string{"lab/bootstrap/dns/config.json"}},
+		{name: "tftp", service: "tftp", expectedPaths: []string{"lab/bootstrap/tftp/config.json"}},
+		{name: "pxe", service: "pxe", expectedPaths: []string{
+			"lab/bootstrap/pxe/metadata.json",
+			"lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+			"lab/bootstrap/pxe/ipxe/menu.ipxe",
+		}},
+		{name: "ipxe alias", service: "ipxe", expectedPaths: []string{
+			"lab/bootstrap/pxe/metadata.json",
+			"lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+			"lab/bootstrap/pxe/ipxe/menu.ipxe",
+		}},
 	}
-	if dhcp.Enabled || dhcp.Options.BootFilename != "" || dhcp.Options.TFTPDirectory != "" {
-		t.Fatalf("DHCP/TFTP boot must remain disabled without explicit service opt-in: %#v", dhcp)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := `sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      ` + test.service + `: true
+`
+			infrastructure, err := config.Parse([]byte(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputDirectory := t.TempDir()
+			artifacts, err := GenerateBootstrap(infrastructure, outputDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotPaths := make([]string, len(artifacts))
+			for index, artifact := range artifacts {
+				gotPaths[index] = artifact.Path
+				artifactPath := filepath.Join(outputDirectory, filepath.FromSlash(artifact.Path))
+				data, err := os.ReadFile(artifactPath)
+				if err != nil {
+					t.Errorf("enabled service artifact %s was not written: %v", artifact.Path, err)
+					continue
+				}
+				if strings.HasSuffix(artifact.Path, ".json") {
+					var payload struct {
+						Enabled bool `json:"enabled"`
+					}
+					if err := json.Unmarshal(data, &payload); err != nil {
+						t.Errorf("decode enabled service artifact %s: %v", artifact.Path, err)
+					} else if !payload.Enabled {
+						t.Errorf("explicitly enabled service artifact %s reports enabled=false", artifact.Path)
+					}
+				}
+			}
+			if !reflect.DeepEqual(gotPaths, test.expectedPaths) {
+				t.Fatalf("service %s produced paths %v, want exactly %v", test.service, gotPaths, test.expectedPaths)
+			}
+			if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "manifest.json")); err != nil {
+				t.Fatalf("enabled-service bootstrap manifest missing: %v", err)
+			}
+		})
 	}
 }
 
@@ -578,6 +1885,8 @@ func TestGenerateBootstrapRejectsNetworkAndBroadcastReservations(t *testing.T) {
   - name: lab
     bootstrap:
       network: 192.168.100.0/29
+    services:
+      dhcp: true
     devices:
       - name: invalid-host
         management:
@@ -603,6 +1912,8 @@ func TestGenerateBootstrapRejectsNetworkAndBroadcastGateways(t *testing.T) {
     bootstrap:
       network: 192.168.100.0/29
       gateway: ` + address + `
+    services:
+      dhcp: true
 `))
 			if err != nil {
 				t.Fatal(err)
@@ -620,6 +1931,8 @@ func TestGenerateBootstrapRejectsDeviceAddressMatchingGateway(t *testing.T) {
     bootstrap:
       network: 192.168.100.0/24
       gateway: 192.168.100.1
+    services:
+      dhcp: true
     devices:
       - name: gateway-device
         management:

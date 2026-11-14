@@ -15,6 +15,12 @@ The current pilot emits a text-only RouterOS configuration, not a native `.rsc`/
 
 `.auto.rsc` is an upload-triggered execution path, not a harmless file extension. It must remain opt-in, use an approved transfer path, and include a plan to retrieve and inspect `.auto.log`. Do not generate reset or Netinstall commands as part of ordinary configuration generation.
 
+The current render-only template uses stable `infraflow:` comments to locate
+its own address, DHCP-client, and static-route entries and emits conditional
+`set` updates after the first `add`. This aims to avoid duplicates on repeated
+imports without deleting unowned router configuration. The script syntax and
+comment ownership behavior have not been run on CHR or physical hardware.
+
 ## Official sources
 
 - [MikroTik hEX product page and documents](https://mikrotik.com/product/RB750Gr3)

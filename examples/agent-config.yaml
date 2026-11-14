@@ -20,3 +20,6 @@ provider:
 #   tls:
 #     enabled: true
 #     ca_file: /etc/infraflow/provider-ca.pem
+#     certificate_file: /run/secrets/agent.crt
+#     key_file: /run/secrets/agent.key
+# Client certificates are optional; TLS certificate verification remains enabled.

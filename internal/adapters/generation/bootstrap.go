@@ -107,71 +107,119 @@ type bootstrapPXE struct {
 	Images        []string `json:"images"`
 }
 
-// GenerateBootstrap creates provider-side static bootstrap artifacts. It does
-// not start DHCP/DNS/TFTP/HTTP, access devices, or include credentials.
+// GenerateBootstrap creates provider-side static artifacts only for services
+// explicitly enabled by the site. It does not start services, access devices,
+// or include credentials.
 func GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
-	if problems := config.Validate(infrastructure); len(problems) > 0 {
-		return nil, problems
-	}
 	if strings.TrimSpace(outputDirectory) == "" {
 		return nil, fmt.Errorf("output directory is required")
+	}
+	files, artifacts, err := prepareBootstrapArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
+	}
+	return withOutputGenerationLock(outputDirectory, func(root string) ([]Artifact, error) {
+		if err := writeBootstrapArtifacts(root, files); err != nil {
+			return nil, err
+		}
+		return artifacts, nil
+	})
+}
+
+func generateBootstrap(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
+	files, artifacts, err := prepareBootstrapArtifacts(infrastructure)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeBootstrapArtifacts(outputDirectory, files); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func prepareBootstrapArtifacts(infrastructure domain.Infrastructure) ([]bootstrapPendingFile, []Artifact, error) {
+	if problems := config.Validate(infrastructure); len(problems) > 0 {
+		return nil, nil, problems
 	}
 
 	canonical := canonicalize(infrastructure)
 	canonicalInput, err := json.Marshal(canonical)
 	if err != nil {
-		return nil, fmt.Errorf("encode normalized input: %w", err)
+		return nil, nil, fmt.Errorf("encode normalized input: %w", err)
 	}
 	inputHash := protocol.SHA256(canonicalInput)
 	files := make([]bootstrapPendingFile, 0, len(canonical.Sites)*6)
 	artifacts := make([]Artifact, 0, len(canonical.Sites)*6)
 	for _, site := range canonical.Sites {
 		siteArtifactStart := len(artifacts)
-		dhcp, err := buildBootstrapDHCP(site)
-		if err != nil {
-			return nil, err
-		}
-		dns, err := buildBootstrapDNS(site)
-		if err != nil {
-			return nil, err
-		}
-		tftp := buildBootstrapTFTP(site)
-		pxe := buildBootstrapPXE(site)
-
-		jsonFiles := []struct {
+		type bootstrapJSONFile struct {
 			name     string
 			template string
 			value    any
 			typeName string
-		}{
-			{"dhcp/config.json", "templates/bootstrap/dhcp/config.json.tmpl", dhcp, "bootstrap_dhcp"},
-			{"dns/config.json", "templates/bootstrap/dns/config.json.tmpl", dns, "bootstrap_dns"},
-			{"tftp/config.json", "templates/bootstrap/tftp/config.json.tmpl", tftp, "bootstrap_tftp"},
-			{"pxe/metadata.json", "templates/bootstrap/pxe/metadata.json.tmpl", pxe, "bootstrap_pxe"},
+		}
+		jsonFiles := make([]bootstrapJSONFile, 0, 4)
+		if bootstrapServiceEnabled(site, "dhcp") {
+			dhcp, err := buildBootstrapDHCP(site)
+			if err != nil {
+				return nil, nil, err
+			}
+			jsonFiles = append(jsonFiles, bootstrapJSONFile{
+				name: "dhcp/config.json", template: "templates/bootstrap/dhcp/config.json.tmpl",
+				value: dhcp, typeName: "bootstrap_dhcp",
+			})
+		}
+		if bootstrapServiceEnabled(site, "dns") {
+			dns, err := buildBootstrapDNS(site)
+			if err != nil {
+				return nil, nil, err
+			}
+			jsonFiles = append(jsonFiles, bootstrapJSONFile{
+				name: "dns/config.json", template: "templates/bootstrap/dns/config.json.tmpl",
+				value: dns, typeName: "bootstrap_dns",
+			})
+		}
+		if bootstrapServiceEnabled(site, "tftp") {
+			jsonFiles = append(jsonFiles, bootstrapJSONFile{
+				name: "tftp/config.json", template: "templates/bootstrap/tftp/config.json.tmpl",
+				value: buildBootstrapTFTP(site), typeName: "bootstrap_tftp",
+			})
+		}
+		pxeEnabled := bootstrapPXEEnabled(site)
+		if pxeEnabled {
+			jsonFiles = append(jsonFiles, bootstrapJSONFile{
+				name: "pxe/metadata.json", template: "templates/bootstrap/pxe/metadata.json.tmpl",
+				value: buildBootstrapPXE(site), typeName: "bootstrap_pxe",
+			})
 		}
 		for _, item := range jsonFiles {
 			data, err := renderBootstrapJSON(item.template, item.value)
 			if err != nil {
-				return nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
+				return nil, nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
 			}
 			appendBootstrapArtifact(&files, &artifacts, site.Name, item.name, item.typeName, data, inputHash)
 		}
 
-		for _, item := range []struct {
-			name     string
-			template string
-			typeName string
-		}{
-			{"pxe/ipxe/bootstrap.ipxe", "templates/bootstrap/pxe/ipxe/bootstrap.ipxe.tmpl", "bootstrap_ipxe_script"},
-			{"pxe/ipxe/menu.ipxe", "templates/bootstrap/pxe/ipxe/menu.ipxe.tmpl", "bootstrap_ipxe_menu"},
-		} {
-			data, err := renderBootstrapTemplate(item.template, map[string]string{"SiteName": site.Name})
-			if err != nil {
-				return nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
+		if pxeEnabled {
+			for _, item := range []struct {
+				name     string
+				template string
+				typeName string
+			}{
+				{"pxe/ipxe/bootstrap.ipxe", "templates/bootstrap/pxe/ipxe/bootstrap.ipxe.tmpl", "bootstrap_ipxe_script"},
+				{"pxe/ipxe/menu.ipxe", "templates/bootstrap/pxe/ipxe/menu.ipxe.tmpl", "bootstrap_ipxe_menu"},
+			} {
+				data, err := renderBootstrapTemplate(item.template, map[string]string{"SiteName": site.Name})
+				if err != nil {
+					return nil, nil, fmt.Errorf("render %s for site %q: %w", item.name, site.Name, err)
+				}
+				appendBootstrapArtifact(&files, &artifacts, site.Name, item.name, item.typeName, data, inputHash)
 			}
-			appendBootstrapArtifact(&files, &artifacts, site.Name, item.name, item.typeName, data, inputHash)
 		}
 		siteArtifacts := append([]Artifact(nil), artifacts[siteArtifactStart:]...)
+		if len(siteArtifacts) == 0 {
+			continue
+		}
 		manifest, err := marshal(Manifest{
 			GeneratorVersion: Version,
 			TemplateVersion:  TemplateVersion,
@@ -179,7 +227,7 @@ func GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 			Artifacts:        siteArtifacts,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("render bootstrap manifest for site %q: %w", site.Name, err)
+			return nil, nil, fmt.Errorf("render bootstrap manifest for site %q: %w", site.Name, err)
 		}
 		files = append(files, bootstrapPendingFile{
 			path: filepath.ToSlash(filepath.Join(site.Name, "manifest.json")),
@@ -187,19 +235,23 @@ func GenerateBootstrap(infrastructure domain.Infrastructure, outputDirectory str
 		})
 	}
 
+	return files, artifacts, nil
+}
+
+func writeBootstrapArtifacts(outputDirectory string, files []bootstrapPendingFile) error {
 	root, err := filepath.Abs(outputDirectory)
 	if err != nil {
-		return nil, fmt.Errorf("resolve output directory: %w", err)
+		return fmt.Errorf("resolve output directory: %w", err)
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("create output directory: %w", err)
+		return fmt.Errorf("create output directory: %w", err)
 	}
 	for _, file := range files {
 		if err := safefs.AtomicWrite(root, file.path, file.data, 0o644); err != nil {
-			return nil, fmt.Errorf("write bootstrap artifact %q: %w", file.path, err)
+			return fmt.Errorf("write bootstrap artifact %q: %w", file.path, err)
 		}
 	}
-	return artifacts, nil
+	return nil
 }
 
 func appendBootstrapArtifact(files *[]bootstrapPendingFile, artifacts *[]Artifact, site, name, typeName string, data []byte, inputHash string) {

@@ -76,8 +76,9 @@ generators, artifact contracts, CLI commands, and Agent runner are removed.
 Configuration generation uses native text renderers and does not apply output
 to devices.
 
-The provider currently emits generic DHCP, DNS, TFTP, PXE, and iPXE bootstrap
-contracts, and the Agent provides explicitly started experimental DHCPv4,
+The provider emits generic DHCP, DNS, TFTP, PXE, and iPXE bootstrap
+artifacts only when the corresponding service is explicitly enabled, and the
+Agent provides explicitly started experimental DHCPv4,
 read-only TFTP, and bootstrap HTTP services. These components do not yet
 constitute vendor-specific ZTP or AutoInstall. The roadmap prioritizes
 device-specific boot protocols, provisioning file formats, trust/authenticity,
@@ -85,6 +86,17 @@ model and OS-version compatibility, isolated-lab testing, and verifiable
 completion reporting. Until those acceptance criteria are met, ZTP and
 AutoInstall capability remain unknown; generated artifacts are not proof of
 device provisioning.
+
+The native generator additionally supports a versioned, render-only MikroTik
+RouterOS `.auto.rsc` template for declared model `RB750Gr3`, OS train `7.x`,
+and template version `1`. It emits identity, represented IPv4 interface
+addressing, and represented static routes; compatibility and command syntax
+remain unverified. The Agent may stage the hash-verified artifact but does not
+upload or execute it, and InfraFlow does not retrieve or interpret `.auto.log`.
+Cisco ZTP remains blocked because the documented HTTP/TFTP examples do not
+establish a TLS-compatible model/release profile. Cisco AutoInstall and
+Fortinet ZTP remain unsupported until their exact selection inputs and
+generation contracts are evidenced.
 
 ### Observability
 

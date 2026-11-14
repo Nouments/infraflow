@@ -38,15 +38,17 @@ type agentProviderServer struct {
 	infrav1.UnimplementedAgentProviderServer
 	service          *application.Service
 	token            []byte
+	tokenExpiresAt   time.Time
 	agentCredentials map[string]AgentCredential
 	chunkSize        int
 	logger           *observability.Logger
 }
 
 type AgentCredential struct {
-	AgentID string
-	SiteID  string
-	Token   string
+	AgentID   string
+	SiteID    string
+	Token     string
+	ExpiresAt time.Time
 }
 
 type agentPrincipal struct {
@@ -56,15 +58,22 @@ type agentPrincipal struct {
 }
 
 func NewServer(service *application.Service, token string, chunkSize int, transportCredentials credentials.TransportCredentials, loggers ...*observability.Logger) (*grpc.Server, error) {
-	return NewServerWithAgentCredentials(service, token, nil, chunkSize, transportCredentials, loggers...)
+	return NewServerWithTokenExpiry(service, token, time.Time{}, nil, chunkSize, transportCredentials, loggers...)
 }
 
 func NewServerWithAgentCredentials(service *application.Service, token string, agentCredentials []AgentCredential, chunkSize int, transportCredentials credentials.TransportCredentials, loggers ...*observability.Logger) (*grpc.Server, error) {
+	return NewServerWithTokenExpiry(service, token, time.Time{}, agentCredentials, chunkSize, transportCredentials, loggers...)
+}
+
+func NewServerWithTokenExpiry(service *application.Service, token string, tokenExpiresAt time.Time, agentCredentials []AgentCredential, chunkSize int, transportCredentials credentials.TransportCredentials, loggers ...*observability.Logger) (*grpc.Server, error) {
 	if service == nil {
 		return nil, fmt.Errorf("provider application service is required")
 	}
 	if len([]byte(token)) < security.MinAgentTokenBytes {
 		return nil, fmt.Errorf("agent token must be at least %d bytes", security.MinAgentTokenBytes)
+	}
+	if !tokenExpiresAt.IsZero() && !tokenExpiresAt.After(time.Now()) {
+		return nil, fmt.Errorf("global agent token is expired")
 	}
 	if chunkSize <= 0 {
 		chunkSize = DefaultChunkSize
@@ -90,6 +99,9 @@ func NewServerWithAgentCredentials(service *application.Service, token string, a
 		}
 		if len([]byte(agentCredential.Token)) < security.MinAgentTokenBytes {
 			return nil, fmt.Errorf("agent credential for %q must be at least %d bytes", agentCredential.AgentID, security.MinAgentTokenBytes)
+		}
+		if !agentCredential.ExpiresAt.IsZero() && !agentCredential.ExpiresAt.After(time.Now()) {
+			return nil, fmt.Errorf("agent credential for %q is expired", agentCredential.AgentID)
 		}
 		if agentCredential.Token == token {
 			return nil, fmt.Errorf("agent credential for %q must differ from the global machine token", agentCredential.AgentID)
@@ -118,7 +130,7 @@ func NewServerWithAgentCredentials(service *application.Service, token string, a
 	)
 	server := grpc.NewServer(options...)
 	infrav1.RegisterAgentProviderServer(server, &agentProviderServer{
-		service: service, token: []byte(token), agentCredentials: credentialsByAgent,
+		service: service, token: []byte(token), tokenExpiresAt: tokenExpiresAt, agentCredentials: credentialsByAgent,
 		chunkSize: chunkSize, logger: logger,
 	})
 	healthServer := health.NewServer()
@@ -445,6 +457,9 @@ func (service *agentProviderServer) authorize(ctx context.Context) (agentPrincip
 		if !exists || !security.BearerTokenMatches(authorization[0], []byte(credential.Token)) {
 			return agentPrincipal{}, status.Error(codes.Unauthenticated, "invalid agent credentials")
 		}
+		if !credential.ExpiresAt.IsZero() && !time.Now().Before(credential.ExpiresAt) {
+			return agentPrincipal{}, status.Error(codes.Unauthenticated, "agent credentials have expired")
+		}
 		registeredAgent, err := service.service.Agent(credential.AgentID)
 		if err != nil || registeredAgent.SiteID != credential.SiteID {
 			return agentPrincipal{}, status.Error(codes.PermissionDenied, "agent is not registered for its authorized site")
@@ -453,6 +468,9 @@ func (service *agentProviderServer) authorize(ctx context.Context) (agentPrincip
 	}
 	if !security.BearerTokenMatches(authorization[0], service.token) {
 		return agentPrincipal{}, status.Error(codes.Unauthenticated, "invalid bearer token")
+	}
+	if !service.tokenExpiresAt.IsZero() && !time.Now().Before(service.tokenExpiresAt) {
+		return agentPrincipal{}, status.Error(codes.Unauthenticated, "bearer token has expired")
 	}
 	return agentPrincipal{}, nil
 }

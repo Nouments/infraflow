@@ -90,40 +90,52 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 
 	forti := readNativeArtifact(t, root, "lab/native/device-firewall1.cfg")
 	cisco := readNativeArtifact(t, root, "lab/native/device-edge-west-1.cfg")
-	for _, line := range []string{
-		"hostname router1",
-		"ip address 192.0.2.1 255.255.255.0",
-		"no shutdown",
-		"ip address dhcp",
-		"ip route 198.51.100.0 255.255.255.0 GigabitEthernet1 192.0.2.254 25",
-	} {
-		if !strings.Contains(cisco, line) {
-			t.Errorf("Cisco config missing %q:\n%s", line, cisco)
-		}
-	}
 	mikrotik := readNativeArtifact(t, root, "lab/native/device-router2.cfg")
-	for _, line := range []string{
-		`/system identity set name="router2"`,
-		`/ip address add address=192.0.2.2/24 interface="ether1"`,
-		`/ip route add dst-address=198.51.100.0/24 gateway="192.0.2.254" distance=3`,
-	} {
-		if !strings.Contains(mikrotik, line) {
-			t.Errorf("RouterOS config missing %q:\n%s", line, mikrotik)
-		}
+	expected := map[string]string{
+		"Cisco IOS-XE": `hostname router1
+interface GigabitEthernet1
+ ip address 192.0.2.1 255.255.255.0
+ no shutdown
+!
+interface GigabitEthernet2
+ ip address dhcp
+!
+ip route 198.51.100.0 255.255.255.0 GigabitEthernet1 192.0.2.254 25
+`,
+		"MikroTik RouterOS 7": `/system identity set name="router2"
+/ip address add address=192.0.2.2/24 interface="ether1"
+/ip route add dst-address=198.51.100.0/24 gateway="192.0.2.254" distance=3
+`,
+		"FortiOS": `config global
+    config system global
+        set hostname firewall1
+    end
+end
+config vdom
+    edit root
+        config system interface
+            edit "port1"
+                set mode static
+                set ip 192.0.2.3 255.255.255.0
+                set status down
+            next
+        end
+        config router static
+            edit 10
+                set dst 198.51.100.0 255.255.255.0
+                set gateway 192.0.2.254
+                set device "port1"
+                set distance 7
+            next
+        end
+    next
+end`,
 	}
-	for _, line := range []string{
-		"set hostname firewall1",
-		"config vdom\n    edit root",
-		`edit "port1"`,
-		"set ip 192.0.2.3 255.255.255.0",
-		"set status down",
-		"edit 10",
-		"set dst 198.51.100.0 255.255.255.0",
-		`set device "port1"`,
-		"set distance 7",
+	for vendor, got := range map[string]string{
+		"Cisco IOS-XE": cisco, "MikroTik RouterOS 7": mikrotik, "FortiOS": forti,
 	} {
-		if !strings.Contains(forti, line) {
-			t.Errorf("FortiOS config missing %q:\n%s", line, forti)
+		if got != expected[vendor] {
+			t.Errorf("%s output differs from expected: got=%q want=%q", vendor, got, expected[vendor])
 		}
 	}
 	if strings.Contains(forti, "password") || strings.Contains(mikrotik, ".auto.rsc") {
@@ -135,14 +147,67 @@ func TestGenerateNativeRendersSupportedIntent(t *testing.T) {
 	if err := json.Unmarshal([]byte(data), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Status != "rendered_unverified" || len(manifest.Warnings) == 0 || len(manifest.Devices) != 3 {
+	if manifest.Status != "rendered_unverified" || len(manifest.Warnings) == 0 || len(manifest.Devices) != 3 ||
+		manifest.ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+		manifest.ConfigSyntaxValidation.Status != configSyntaxValidationUnavailable {
 		t.Fatalf("native manifest must disclose unverified status and limits: %#v", manifest)
+	}
+	for _, device := range manifest.Devices {
+		if device.ConfigSyntaxValidation.Name != configSyntaxValidationName ||
+			device.ConfigSyntaxValidation.Status != configSyntaxValidationUnavailable ||
+			!strings.Contains(device.ConfigSyntaxValidation.Message, "No offline syntax parser is registered") {
+			t.Errorf("native report did not disclose parser availability for %s: %#v", device.Name, device.ConfigSyntaxValidation)
+		}
 	}
 	if manifest.Devices[0].Compatibility != "unknown" || manifest.Devices[0].Model != "FG-60F" || manifest.Devices[0].OSVersion != "7.4.5" {
 		t.Fatalf("native manifest must preserve target identity without claiming compatibility: %#v", manifest.Devices[0])
 	}
 	if manifest.Devices[0].Vendor != "fortinet" || manifest.Devices[0].TemplateID != "infraflow.fortinet.fortios.native" {
 		t.Fatalf("native manifest must identify the renderer provenance: %#v", manifest.Devices[0])
+	}
+}
+
+func TestFortiOSExampleMatchesExpectedConfiguration(t *testing.T) {
+	examplePath := filepath.Join("..", "..", "..", "examples", "fortios-native.yaml")
+	data, err := os.ReadFile(examplePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := config.Parse(data)
+	if err != nil {
+		t.Fatalf("parse FortiOS example: %v", err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(infrastructure, root); err != nil {
+		t.Fatalf("generate FortiOS example: %v", err)
+	}
+	got := readNativeArtifact(t, root, "fortios-lab/native/device-FG60F.cfg")
+	want := `config global
+    config system global
+        set hostname FG60F
+    end
+end
+config vdom
+    edit root
+        config system interface
+            edit "port1"
+                set mode static
+                set ip 192.0.2.1 255.255.255.0
+                set status up
+            next
+        end
+        config router static
+            edit 10
+                set dst 198.51.100.0 255.255.255.0
+                set gateway 192.0.2.254
+                set device "port1"
+                set distance 7
+            next
+        end
+    next
+end`
+	if got != want {
+		t.Fatalf("FortiOS example output differs from expected: got=%q want=%q", got, want)
 	}
 }
 
@@ -203,11 +268,15 @@ func TestGenerateNativeRejectsUnsupportedIntent(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), "not-created")
 			_, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{
 				Name: "lab", Devices: []domain.Device{test.device},
-			}}}, t.TempDir())
+			}}}, output)
 			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
 				t.Fatalf("GenerateNative error = %v, want substring %q", err, test.wantMessage)
+			}
+			if _, err := os.Lstat(output); !os.IsNotExist(err) {
+				t.Fatalf("rejected native intent left output root behind: %v", err)
 			}
 		})
 	}
@@ -464,6 +533,279 @@ func TestPilotInputPublishesNativeConfigsForEachDeclaredVendor(t *testing.T) {
 	if len(manifest.Devices) != 3 || manifest.Status != "rendered_unverified" {
 		t.Fatalf("pilot manifest does not describe the three unverified vendor renders: %#v", manifest)
 	}
+}
+
+func TestGenerateAllPublishesRouterOSAutoRSCWithProvenance(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 198.51.100.0/24
+      gateway: 198.51.100.254
+    devices:
+      - name: edge-r1
+        id: r1
+        vendor: mikrotik
+        family: routeros
+        model: RB750Gr3
+        os_version: "7.x"
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        network:
+          interfaces:
+            - name: ether1
+              role: wan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+            - name: ether2
+              role: lan
+              ipv4_mode: dhcp
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 198.51.100.254
+              interface: ether1
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	path := "lab/native/device-r1.auto.rsc"
+	contents := readNativeArtifact(t, root, path)
+	for _, expected := range []string{
+		`/system identity set name="edge-r1"`,
+		`/ip address add address=198.51.100.1/24 interface="ether1"`,
+		`/ip dhcp-client add interface="ether2" disabled=no`,
+		`/ip route add dst-address=203.0.113.0/24 gateway="198.51.100.254"`,
+		`find where comment="infraflow:r1:interface:ether1"`,
+		`/ip address set $addressEntry address=198.51.100.1/24 interface="ether1"`,
+		`/ip dhcp-client set $dhcpEntry interface="ether2" disabled=no`,
+		`find where comment="infraflow:r1:route:203.0.113.0/24"`,
+		`/ip route set $routeEntry dst-address=203.0.113.0/24 gateway="198.51.100.254" distance=1`,
+	} {
+		if !strings.Contains(contents, expected) {
+			t.Errorf("RouterOS auto-script missing %q:\n%s", expected, contents)
+		}
+	}
+	if strings.Contains(contents, "config terminal") || strings.Contains(contents, "system reset-configuration") {
+		t.Fatal("RouterOS auto-script contains another vendor's or destructive commands")
+	}
+	if strings.Count(contents, "/ip address add") != 1 || strings.Count(contents, "/ip dhcp-client add") != 1 || strings.Count(contents, "/ip route add") != 1 {
+		t.Fatal("RouterOS auto-script must contain one guarded create per requested object")
+	}
+	secondRoot := t.TempDir()
+	if _, err := GenerateAll(infrastructure, secondRoot); err != nil {
+		t.Fatal(err)
+	}
+	if second := readNativeArtifact(t, secondRoot, path); second != contents {
+		t.Fatalf("identical input produced a different RouterOS script:\n%s\n%s", contents, second)
+	}
+
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, artifact := range catalog {
+		if artifact.Path != path {
+			continue
+		}
+		found = true
+		if artifact.Type != "native_device_config" || artifact.OutputHash != protocol.SHA256([]byte(contents)) {
+			t.Fatalf("catalog metadata does not match the generated RouterOS script: %#v", artifact)
+		}
+	}
+	if !found {
+		t.Fatalf("catalog omitted generated RouterOS auto-script %q", path)
+	}
+
+	var manifest struct {
+		Devices []map[string]any `json:"devices"`
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "lab", "native", "native-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Devices) != 1 || manifest.Devices[0]["path"] != path ||
+		manifest.Devices[0]["provisioning_method"] != "auto-rsc" ||
+		manifest.Devices[0]["verification_status"] != "not_performed" ||
+		manifest.Devices[0]["template_id"] != "infraflow.mikrotik.routeros7.auto-rsc" ||
+		manifest.Devices[0]["template_version"] != "1" ||
+		manifest.Devices[0]["compatibility_status"] != "unknown" ||
+		manifest.Devices[0]["validation_status"] != "render-only" ||
+		manifest.Devices[0]["output_hash"] != protocol.SHA256([]byte(contents)) {
+		t.Fatalf("native manifest omitted RouterOS method or verification provenance: %#v", manifest.Devices)
+	}
+	inputHash, ok := manifest.Devices[0]["input_hash"].(string)
+	if !ok || !protocol.IsSHA256(inputHash) {
+		t.Fatalf("native manifest input hash is invalid: %#v", manifest.Devices[0]["input_hash"])
+	}
+	templateHash, ok := manifest.Devices[0]["template_hash"].(string)
+	if !ok || !protocol.IsSHA256(templateHash) {
+		t.Fatalf("native manifest template hash is invalid: %#v", manifest.Devices[0]["template_hash"])
+	}
+	supportedFeatures, ok := manifest.Devices[0]["supported_features"].([]any)
+	if !ok || len(supportedFeatures) == 0 {
+		t.Fatalf("native manifest supported features are missing: %#v", manifest.Devices[0]["supported_features"])
+	}
+	sourceReferences, ok := manifest.Devices[0]["source_references"].([]any)
+	if !ok || len(sourceReferences) == 0 {
+		t.Fatalf("native manifest source references are missing: %#v", manifest.Devices[0]["source_references"])
+	}
+
+	var siteManifest protocol.SiteManifest
+	siteManifestBytes, err := os.ReadFile(filepath.Join(root, "lab", "site-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(siteManifestBytes, &siteManifest); err != nil {
+		t.Fatal(err)
+	}
+	foundSiteArtifact := false
+	for _, artifact := range siteManifest.Artifacts {
+		if artifact.Path == path && (artifact.ProvisioningMethod != "auto-rsc" ||
+			artifact.VerificationStatus != "not_performed" || artifact.OutputHash != artifact.SHA256 ||
+			len(artifact.SourceReferences) == 0 || artifact.CompatibilityStatus != "unknown" ||
+			!protocol.IsSHA256(artifact.TemplateHash) || artifact.ValidationStatus != "render-only" ||
+			len(artifact.SupportedFeatures) == 0 ||
+			artifact.TemplateID != "infraflow.mikrotik.routeros7.auto-rsc" ||
+			artifact.TemplateVersion != "1" || artifact.InputHash != siteManifest.InputHash) {
+			t.Fatalf("site manifest provenance is incomplete: %#v", artifact)
+		}
+		if artifact.Path == path {
+			foundSiteArtifact = true
+		}
+	}
+	if !foundSiteArtifact {
+		t.Fatalf("site manifest omitted RouterOS auto-script %q", path)
+	}
+}
+
+func TestProvisioningGenerationExampleProducesVerifiableArtifacts(t *testing.T) {
+	input, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "provisioning-generation.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	infrastructure, err := config.Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateAll(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	for path, expected := range map[string]string{
+		"cisco-render-demo/native/device-cisco-r1.cfg":              "ip address 192.0.2.1 255.255.255.0",
+		"routeros-auto-rsc-demo/native/device-mikrotik-r1.auto.rsc": `/system identity set name="MikroTikR1"`,
+	} {
+		data, artifact, err := ReadArtifact(root, path)
+		if err != nil {
+			t.Fatalf("read generated demo artifact %q: %v", path, err)
+		}
+		if !strings.Contains(string(data), expected) || artifact.OutputHash != protocol.SHA256(data) {
+			t.Fatalf("generated demo artifact %q did not match its content/hash: %#v", path, artifact)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "routeros-auto-rsc-demo", "native", "device-mikrotik-r1.auto.log")); !os.IsNotExist(err) {
+		t.Fatalf("generation must not fabricate a RouterOS execution log: %v", err)
+	}
+}
+
+func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
+	cases := []struct {
+		name        string
+		device      domain.Device
+		wantMessage string
+	}{
+		{
+			name: "Cisco ZTP TLS evidence gap",
+			device: domain.Device{
+				Name: "router1", Vendor: "cisco", Family: "iosxe",
+				Provisioning: domain.Provisioning{Method: "cisco-ztp"},
+				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
+			},
+			wantMessage: "does not confirm the required TLS-only transport",
+		},
+		{
+			name: "Cisco AutoInstall profile gap",
+			device: domain.Device{
+				Name: "router1", Vendor: "cisco", Family: "iosxe",
+				Provisioning: domain.Provisioning{Method: "cisco-autoinstall"},
+				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
+			},
+			wantMessage: "no model/release-specific discovery and filename profile is verified",
+		},
+		{
+			name: "Fortinet ZTP inputs missing",
+			device: domain.Device{
+				Name: "firewall1", Vendor: "fortinet", Family: "fortios", Model: "FG-60F",
+				Provisioning: domain.Provisioning{Method: "fortimanager-ztp"},
+				Network:      &domain.DeviceNetwork{VDOM: "root", Interfaces: []domain.NetworkInterface{{Name: "port1", Role: "wan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
+			},
+			wantMessage: "exact model, FortiOS release, backend",
+		},
+		{
+			name:        "unknown RouterOS model",
+			device:      autoRSCDevice("CCR2004", "7.x", "1", "ether1"),
+			wantMessage: "does not support model",
+		},
+		{
+			name:        "unsupported RouterOS version",
+			device:      autoRSCDevice("RB750Gr3", "6.49.10", "1", "ether1"),
+			wantMessage: "requires an explicit RouterOS 7 version",
+		},
+		{
+			name:        "missing required template version",
+			device:      autoRSCDevice("RB750Gr3", "7.x", "", "ether1"),
+			wantMessage: "requires provisioning.template_version",
+		},
+		{
+			name:        "missing network intent",
+			device:      autoRSCDeviceWithoutNetwork(),
+			wantMessage: "requires network intent",
+		},
+		{
+			name:        "unsafe interface value",
+			device:      autoRSCDevice("RB750Gr3", "7.x", "1", `ether1"; /system reset-configuration`),
+			wantMessage: "safe device interface identifier",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			output := t.TempDir()
+			_, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{
+				Name: "lab", Devices: []domain.Device{test.device},
+			}}}, output)
+			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("GenerateNative error = %v, want substring %q", err, test.wantMessage)
+			}
+			if _, statErr := os.Stat(filepath.Join(output, "lab", "native", "native-manifest.json")); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected profile left a native manifest: %v", statErr)
+			}
+		})
+	}
+}
+
+func autoRSCDevice(model, version, templateVersion, interfaceName string) domain.Device {
+	return domain.Device{
+		Name: "edge-r1", ID: "r1", Vendor: "mikrotik", Family: "routeros",
+		Model: model, OSVersion: version,
+		Provisioning: domain.Provisioning{Method: "auto-rsc", TemplateVersion: templateVersion},
+		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+			Name: interfaceName, Role: "wan", IPv4Mode: "static", IPv4Address: "198.51.100.1/24",
+		}}},
+	}
+}
+
+func autoRSCDeviceWithoutNetwork() domain.Device {
+	device := autoRSCDevice("RB750Gr3", "7.x", "1", "ether1")
+	device.Network = nil
+	return device
 }
 
 func readNativeArtifact(t *testing.T, root, path string) string {

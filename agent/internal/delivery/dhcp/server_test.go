@@ -256,6 +256,7 @@ func TestServeRejectsInvalidRuntimeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	iface := loopbackInterfaceName(t)
 	for _, test := range []struct {
 		name      string
 		ctx       context.Context
@@ -263,11 +264,11 @@ func TestServeRejectsInvalidRuntimeBindings(t *testing.T) {
 		port      int
 		wantError string
 	}{
-		{name: "nil context", ctx: nil, iface: "lo", port: 67, wantError: "context"},
+		{name: "nil context", ctx: nil, iface: iface, port: 67, wantError: "context"},
 		{name: "missing interface", ctx: context.Background(), iface: "", port: 67, wantError: "required"},
-		{name: "invalid port", ctx: context.Background(), iface: "lo", port: 0, wantError: "required"},
+		{name: "invalid port", ctx: context.Background(), iface: iface, port: 0, wantError: "required"},
 		{name: "unknown interface", ctx: context.Background(), iface: "infraflow-missing0", port: 67, wantError: "find DHCP interface"},
-		{name: "listen address absent", ctx: context.Background(), iface: "lo", port: 67, wantError: "not assigned"},
+		{name: "listen address absent", ctx: context.Background(), iface: iface, port: 67, wantError: "not assigned"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := server.Serve(test.ctx, test.iface, test.port)
@@ -276,6 +277,28 @@ func TestServeRejectsInvalidRuntimeBindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loopbackInterfaceName(t *testing.T) string {
+	t.Helper()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && ip.IsLoopback() {
+				return iface.Name
+			}
+		}
+	}
+	t.Skip("no IPv4 loopback interface is available")
+	return ""
 }
 
 func TestHandleReleaseDeclineAndExpiredLease(t *testing.T) {

@@ -35,7 +35,7 @@ func Build(infrastructure domain.Infrastructure) domain.Plan {
 			if device.Network == nil || len(device.Network.Interfaces) == 0 {
 				continue
 			}
-			method := strings.TrimSpace(device.Provisioning.Method)
+			method := strings.TrimSpace(string(device.Provisioning.Method))
 			if method == "" {
 				if profile, ok := domain.VendorProfileFor(device); ok {
 					method = profile.DefaultMethod

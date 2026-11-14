@@ -1,4 +1,252 @@
-# InfraFlow — Bloc 1 Audit
+# InfraFlow — Mission 85+ engineering follow-up
+
+## Current status — 2026-11-14
+
+- Repository: `Nouments/infraflow`; branch `develop`; starting HEAD and
+  `origin/develop`: `bbffd4153857547204a457fa0da2c5f46e542d06`
+  (`stabilization6`). The starting worktree was clean. Current changes are
+  local and uncommitted; no commit or push was made.
+- Latest checked-in revision CI:
+  [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
+  passed on that exact SHA. Linux passed full and race tests, vet, command
+  builds, formatting, and diff checks. Windows passed full tests, vet, command
+  builds, formatting, and diff checks; Windows CI does not run race tests.
+  Windows logs showed an unsupported `update-environment` action input; the
+  local workflow removes it, but that change is not CI-verified.
+
+### Local implementation status
+
+- **M1 publication journal/recovery — IMPLEMENTED_NOT_INTEGRATION_TESTED.**
+  Full-generation publication now writes a bounded strict journal and verified
+  rollback copies before touching published paths. It invalidates old
+  manifests, publishes artifacts/reports/manifests in phases, marks commit only
+  after the final manifest, and restores or cleans up on recovery. `Catalog`
+  and `ReadArtifact` fail closed while recovery state exists. This local code
+  has focused simulated-interruption and publication-phase regression tests;
+  final-revision CI has not run.
+- A stale `.infraflow-generation.lock` is not automatically removed. An
+  operator must first confirm that no generator is active, then remove only
+  that lock file so the next generation can recover. Invalid/missing journals
+  and unsafe or hash-mismatched recovery data fail closed. File contents are
+  synced before atomic rename; parent-directory durability and power-loss
+  recovery are not guaranteed across supported filesystems.
+- A crashed reader may leave `.infraflow-generation-reader-*.lock`; writers
+  fail closed while any marker remains. After stopping all InfraFlow processes
+  that can access the root and confirming no reader is active, remove only
+  those exact marker files. Do not remove a reader marker while a reader may
+  still be active. A regression test covers fail-closed behavior and resumption
+  after explicit cleanup. An initial journal-write failure now cleans up its
+  unused backup; a regression test checks that the prior catalog remains
+  readable.
+- **Presentation demo — IMPLEMENTED_NOT_EXECUTED.** A fresh-temp Bash launcher,
+  separate Python verifier, and Linux CI job were added. They use existing CLI
+  commands and check manifests/reports, site scope, sizes, hashes, bootstrap
+  opt-in, vendor-rendered text, and unsupported OSPF. The demo and new CI job
+  have not run on this worktree.
+- A test-only timeout was raised from 1 to 10 seconds for the 1 MiB pipe
+  output-limit case; five isolated repetitions passed. Production timeout
+  behavior and the assertion are unchanged.
+
+### Validation evidence
+
+- `go test -count=1 ./internal/adapters/generation ./pkg/protocol ./provider/internal/adapters/filesystem ./agent/internal/delivery/artifacts` — PASS in one run before the final review fixes. A later generation run exposed a test snapshot setup issue, which was corrected; the final targeted rerun was blocked by Windows Application Control on `generation.test.exe`. Protocol, filesystem, and Agent-artifact packages passed in the preceding invocation.
+- `go test -count=5 -run '^TestSSHSessionOutputLimitFailsAndCloses$' ./provider/internal/adapters/executors` — PASS after the test-only timeout adjustment.
+- `go test -count=1 ./...` — FAIL on the final worktree. Windows Application Control blocked `toolrunner.test.exe`, `generation.test.exe`, `executors.test.exe`, `filesystem.test.exe`, `httpapi.test.exe`, and `web.test.exe`. `CGO_ENABLED=0` caused SQLite-dependent failures and prevented the Provider subprocess from starting. The SSH output-limit package passed in this run after its test-only timeout was raised; an earlier run timed out at the old one-second limit. No full-suite pass is claimed.
+- `go test -race -count=1 ./internal/adapters/generation ./pkg/protocol` — NOT RUN; Go returned `-race requires cgo` (`CGO_ENABLED=0`).
+- `go vet ./...` and `go build ./provider/cmd ./agent/cmd` — PASS on the final local Go changes.
+- `gofmt -l` on modified Go files, `git diff --check`, and Bash `-n` for the demo launcher — PASS. Python syntax and actual demo execution were NOT RUN locally; no usable Python runtime was found.
+
+### Remaining critical limits
+
+- Journal recovery handles process interruption when the filesystem retains
+  required directory entries; no cross-platform filesystem-wide atomic swap
+  or power-loss durability is claimed.
+- Standalone and declarative generators do not use the full-generation
+  transaction/catalog lifecycle. Artifact snapshots can retain up to 32 MiB
+  per open with no global concurrent-reader memory cap. Path checks are not
+  race-proof against hostile local filesystem mutation.
+- Native Cisco `.cfg`, MikroTik `.auto.rsc`, and FortiOS `.cfg` remain
+  render-only; no vendor hardware or syntax validation was performed. No
+  end-to-end ZTP/AutoInstall device flow was demonstrated.
+
+Current local changes are not CI-validated and are not release-ready.
+Historical records below are retained for context and do not supersede this
+status.
+
+## Historical presentation readiness follow-up — stabilization5 (superseded)
+
+- Fetched `origin`; `develop` and `origin/develop` both point to
+  `093ed33944fc3f35ac477079cd6b0cc63f575f01` (`stabilization5`). The worktree
+  was clean before this follow-up. No newer remote commit was found.
+- Latest CI,
+  [run 43632705446](https://github.com/Nouments/infraflow/actions/runs/43632705446),
+  passed on this exact commit: Linux full tests, race tests, vet, builds,
+  gofmt, and diff check; Windows full tests, vet, builds, gofmt, and diff
+  check. Windows CI does not run race tests.
+- This follow-up found and fixed an additional Windows race: full-generation
+  inspection could `Lstat` a reader lock marker after a reader had removed it.
+  Inspection now skips reserved lock names, as catalog enumeration already
+  did. The existing concurrent-read/generate regression passed 10 runs after
+  the fix. This local change is uncommitted and is not included in CI run
+  43632705446.
+- Local focused config/generation/protocol/filesystem tests passed after the
+  fix. `go vet ./...` and `go build ./provider/cmd ./agent/cmd` passed.
+  The local full suite failed because `CGO_ENABLED=0` prevents SQLite-backed
+  tests and the temporary Provider process from starting; a pre-fix concurrent
+  reader-lock race was also reproduced and corrected. The race suite cannot
+  run locally without CGO. A targeted CLI test binary and `go run` were blocked
+  by Windows Application Control. The PowerShell demo script itself could not
+  be loaded under the active execution policy; neither policy was changed.
+- Known limits remain: interrupted publication has no automatic recovery;
+  standalone and declarative generators use separate publication contracts;
+  filesystem checks do not defend against a hostile actor changing paths
+  concurrently; artifact read snapshots can retain up to 32 MiB per open with
+  no global read-concurrency cap. No device or hardware validation occurred.
+- No commit or push was made. The final worktree is uncommitted; CI for this
+  local lock-race fix remains unavailable without pushing.
+
+## Historical Phase 0 baseline (superseded)
+
+- Inspected branch `develop`, HEAD
+  `9f60e0e51104e59875a5156bc13c9ac31c388baf` (`stabilization3`); the worktree
+  was clean before this audit's documentation and workflow edits.
+- The [architecture snapshot](docs/architecture/CURRENT_ARCHITECTURE.md),
+  [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md),
+  [agent-capabilities audit](docs/architecture/AGENT_CAPABILITIES_AUDIT.md),
+  and [implementation roadmap](docs/architecture/IMPLEMENTATION_ROADMAP.md)
+  distinguish observed behavior from documentation intent and proposed work.
+- Actual GitHub Actions
+  [run 43622305020](https://github.com/Nouments/infraflow/actions/runs/43622305020)
+  on this HEAD passed all Linux steps (full tests, race tests, vet, build,
+  format, and diff checks). Windows failed before checkout because the workflow
+  ran `git config core.autocrlf false` outside a repository. That step has been
+  removed; `.gitattributes` already specifies LF for Go sources. The workflow
+  correction is not CI-verified until a subsequent run.
+- Local environment: `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`. Focused generation, safe-filesystem, and
+  protocol tests passed. `go test -count=1 ./...` failed because Windows
+  Application Control blocked multiple test binaries and SQLite tests require
+  CGO. No Windows pass is claimed.
+- Confirmed generation risks: interrupted publication is rejected but not
+  automatically recovered; Provider `ArtifactRepository.Open` can race
+  between cataloging and opening; standalone generators do not share the
+  full-generation rollback/catalog lifecycle; declarative output is outside
+  the shared protocol catalog contract; filesystem checks are susceptible to
+  check-then-use races against a concurrent local actor.
+- Product boundary: the Agent validates/stages and reports artifacts; normal
+  processing does not apply device configurations. The Provider has typed
+  `artifact.verify` and Cisco IOS SSH executors, not a generic shell executor.
+  The repository contains no integrated coding-agent runtime or OS sandbox.
+- No commit, push, device contact, or hardware/lab validation was performed.
+  Native outputs remain generated text; Cisco `.cfg` is not ZTP, MikroTik
+  `.auto.rsc` is unproven on CHR/hardware, and FortiOS `.cfg` is render-only.
+
+> Earlier sections below are historical and must not override this baseline.
+
+## Historical: post-review locking and CI follow-up — 2026-11-14
+
+- Branch `develop`; inspected HEAD: `980f0524810fe32fe94d72365259a95fa40ccddd`.
+  The worktree was clean at inspection. Current changes are uncommitted; no
+  files were staged, committed, or pushed.
+- All exported artifact writers (`Generate`, `GenerateNative`,
+  `GenerateTerraform`, `GenerateBootstrap`, `GenerateDeclarativeConfig`, and
+  `GenerateAllContext`) now acquire an exclusive root lock. `GenerateAllContext`
+  uses private unlocked renderers for its isolated staging directories to
+  avoid recursive locking. `Catalog` and `ReadArtifact` hold shared reader
+  markers through validation and reading; writers fail closed while readers
+  are active. External filesystem actors that ignore InfraFlow locks are not
+  coordinated.
+- Corrupt-prior-generation tests cover malformed root/site metadata, catalog
+  hash mismatch, traversal, symlinked manifests/artifacts, and interrupted
+  publication recovery data. Rejected generations are compared against a
+  pre-call filesystem snapshot. Existing transactional publication remains
+  rollback-capable, not a filesystem-wide atomic swap.
+- CI log review: [run 43619538843](https://github.com/Nouments/infraflow/actions/runs/43619538843)
+  tested the inspected HEAD and failed in both jobs. Linux failed only because
+  the multisite test expected DHCP output although every fixture site opts out.
+  Windows exposed an owner assertion, a missing `.exe` on the integration
+  binary, shell-script fake commands, Terraform fixture lookup, hard-coded
+  `lo`, POSIX permission assumptions, a Windows path assertion, and the
+  unsupported checkout `autocrlf` input. The workflow stops after failed
+  `go test`, so later CI steps were skipped. Local fixes preserve service
+  opt-in and Unix security assertions.
+- Windows local checks: the generation, filesystem, CLI, DHCP, TFTP, TUI, and
+  provider-config packages passed in targeted runs. The toolrunner package
+  passed once with the controlled helper; later local invocations were
+  interrupted by Windows Application Control or timed out while starting
+  helper processes. `go test -count=1 ./...` failed because Application
+  Control blocked test executables and SQLite's CGO-disabled stub failed.
+  `go test -count=1 ./agent/internal/application` failed because local
+  `CGO_ENABLED=0` prevents SQLite from running. `go vet ./...`,
+  `go build ./provider/cmd ./agent/cmd`, modified-Go-file formatting, and
+  `git diff --check` passed.
+- Environment: Windows/amd64, `CGO_ENABLED=0`, `GOOS=windows`,
+  `GOARCH=amd64`, `CC=gcc`; no `gcc` executable was available. No CI run has
+  validated these uncommitted fixes. Do not treat the base-commit CI run as
+  evidence of this patch.
+- Not release-ready pending passing Linux and Windows CI on the modified
+  revision. No device or lab validation was performed.
+
+## Current stabilization status — 2026-11-12
+
+- Branch: `develop`. Inspected starting HEAD: `986d2a7b15fe9aee46f4579688b694862dd64485`.
+  The fixes and documentation updates described here are uncommitted; no files
+  were staged, committed, or pushed.
+- `go run ./provider/cmd validate`, `plan`, and `generate-all` were run on
+  `examples/provisioning-generation.yaml`, `examples/infra.yaml`, and
+  `examples/multisite-preparation.yaml`, each into a fresh output directory.
+  All three inputs validated and generated successfully.
+- Output totals: provisioning demo **30 files**, two sites and 13 catalog
+  artifacts per site; `infra.yaml` **19 files**, one site and 16 catalog
+  artifacts, including five explicitly enabled DHCP/TFTP/PXE outputs; multisite
+  **50 files**, four sites and 11 catalog artifacts per site. Root/site
+  manifests and reports parsed as JSON. Artifact catalogs matched the files on
+  disk; sizes and SHA-256 matched; no unexpected site artifacts were found.
+  Cisco `.cfg` and MikroTik `.auto.rsc` were present in the provisioning demo.
+  Bootstrap outputs were absent when services were not enabled.
+- RouterOS artifact SHA-256:
+  `237b12b4ea2724d36763d9f29a8d200c37b20a685ea76e68e1158b1a58a984fc`.
+  Unsupported OSPF exited nonzero and left no output directory. Generated
+  configurations were not delivered to or applied to devices.
+- Multisite generation produced four independent site directories/manifests
+  with distinct site paths. Existing tests cover mixed-site failure and
+  site-scoped, hash-checked Agent transfer, but those test cases did not
+  complete successfully in this Windows run; do not treat them as new runtime
+  evidence.
+- Local test/build baseline:
+  `go test -count=1 ./internal/adapters/config ./internal/adapters/generation ./pkg/protocol`
+  failed overall: config passed, but Application Control blocked the
+  generation/protocol test executables. `go test -count=1 ./provider/internal/...`,
+  `go test -count=1 ./agent/internal/...`, and `go test -count=1 ./...` failed
+  with Application Control, CGO-disabled SQLite, and Windows integration
+  limitations. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, and
+  `git diff --check` passed. Direct local `gofmt -l` listed all files because
+  the Windows working tree uses CRLF while Git stores them as LF; a check of
+  LF-normalized temporary copies passed. No mass line-ending rewrite was made.
+- Environment: Go `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; no `gcc` executable was found.
+  The successful build therefore does not prove SQLite runtime operation.
+- GitHub Actions run [43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432)
+  on this starting HEAD failed on Linux because the SQLite driver was not
+  registered and on Windows because `go` was not on the MSYS2 shell's `PATH`.
+  The working tree restores the SQLite import and changes Windows CI steps to
+  PowerShell with LF checkout for the format check, but no CI run exists for
+  these uncommitted fixes.
+- `scripts/demo-provisioning.ps1` passed a PowerShell syntax parse. Invoking
+  the script was blocked by the machine's execution policy; it was not changed
+  or bypassed. The documented CLI steps and output checks were run directly.
+- **Readiness evidence score: 7/10**: demo generation and integrity 3/3;
+  unsupported-intent and multisite evidence 1/2; build/static checks 2/2;
+  full tests and current-HEAD CI 0/2; docs/demo procedure 1/1. This is not a
+  release-readiness score. **Release readiness: NOT READY** until the focused
+  and full tests plus Linux CI pass on the modified revision.
+- Capability limits remain: Cisco `.cfg` is generated text, not Cisco ZTP;
+  MikroTik `.auto.rsc` is rendered but not proven on CHR or hardware; FortiOS
+  `.conf` is render-only. No vendor is hardware-validated. Generation,
+  delivery, execution, and verification are separate stages.
+
+> The 2026-11-11 status below and older audit entries are historical; this
+> block supersedes their test, build, and CLI-run claims.
 
 > **Historique — état antérieur au 2026-10-29.** Les sections ci-dessous
 > décrivent un audit réalisé avant la décision d’exclure Ansible. Depuis cette

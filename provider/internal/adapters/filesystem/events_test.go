@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +39,11 @@ func TestEventStoreAppendsIdempotentlyAndReloadsHashChain(t *testing.T) {
 		t.Fatalf("reloaded chain is invalid: %#v", events)
 	}
 	info, err := os.Stat(filepath.Join(root, ".events.jsonl"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("event store should be private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("event store permissions are %04o, want 0600", info.Mode().Perm())
 	}
 }
 

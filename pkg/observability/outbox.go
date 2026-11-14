@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 )
 
@@ -163,13 +164,16 @@ func (outbox *Outbox) persist() error {
 	if err := os.Rename(temporary, outbox.path); err != nil {
 		return fmt.Errorf("publish event outbox: %w", err)
 	}
-	directory, err := os.Open(filepath.Dir(outbox.path))
-	if err != nil {
-		return fmt.Errorf("open outbox directory: %w", err)
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync outbox directory: %w", err)
+	// Windows does not support syncing directory handles through os.File.Sync.
+	if runtime.GOOS != "windows" {
+		directory, err := os.Open(filepath.Dir(outbox.path))
+		if err != nil {
+			return fmt.Errorf("open outbox directory: %w", err)
+		}
+		defer directory.Close()
+		if err := directory.Sync(); err != nil {
+			return fmt.Errorf("sync outbox directory: %w", err)
+		}
 	}
 	return nil
 }

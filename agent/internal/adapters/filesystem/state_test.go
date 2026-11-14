@@ -46,9 +46,9 @@ func TestStateStoreSavesArtifactsAndPrivateReport(t *testing.T) {
 	if err := json.Unmarshal(data, &saved); err != nil || saved.ReportID != report.ReportID {
 		t.Fatalf("state report not persisted: %#v, %v", saved, err)
 	}
-	info, err := os.Stat(filepath.Join(root, ".infraflow-agent-state.json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("state file should be private, got %v, %v", info, err)
+	statePath := filepath.Join(root, ".infraflow-agent-state.json")
+	if err := verifyPrivateReport(statePath); err != nil {
+		t.Fatalf("state file should be private: %v", err)
 	}
 }
 

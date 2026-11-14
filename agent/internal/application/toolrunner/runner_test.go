@@ -8,22 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"infraflow/agent/internal/testutil"
 	coreconfig "infraflow/internal/adapters/config"
 	coregeneration "infraflow/internal/adapters/generation"
 )
 
 func TestRunCommandCapturesStdoutAndStderrSeparately(t *testing.T) {
 	directory := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"echo 'hello stdout'\n" +
-		"echo 'token=secret-value' >&2\n" +
-		"echo 'verbose stderr' >&2\n" +
-		"exit 3\n"
-	filename := filepath.Join(directory, "capture.sh")
-	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	result, err := runCommandDetailed(t.Context(), time.Second, directory, nil, filename)
+	filename := installCommandHelper(t, directory, "capture")
+	result, err := runCommandDetailed(t.Context(), 10*time.Second, directory, nil, filename)
 	if err == nil || !strings.Contains(err.Error(), "exit code 3") {
 		t.Fatalf("expected a non-zero exit code, got result=%#v err=%v", result, err)
 	}
@@ -44,17 +37,10 @@ func TestRunCommandCapturesStdoutAndStderrSeparately(t *testing.T) {
 func TestRunCommandStreamsRedactedOutputBeforeExitAndKeepsFinalLine(t *testing.T) {
 	directory := t.TempDir()
 	release := filepath.Join(directory, "release")
-	filename := filepath.Join(directory, "stream.sh")
-	script := "#!/bin/sh\n" +
-		"printf 'token=secret-value\\n'\n" +
-		"while [ ! -f '" + release + "' ]; do :; done\n" +
-		"printf 'last line without newline'\n"
-	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	filename := installCommandHelper(t, directory, "stream")
 	var received []ProcessOutput
 	started := false
-	result, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+	result, err := runCommandDetailedWithOutput(t.Context(), 10*time.Second, directory, nil, func(output ProcessOutput) {
 		if output.Started {
 			started = true
 			return
@@ -91,11 +77,8 @@ func TestRunCommandStreamsRedactedOutputBeforeExitAndKeepsFinalLine(t *testing.T
 
 func TestRunCommandReportsTruncationAndStartupFailure(t *testing.T) {
 	directory := t.TempDir()
-	filename := filepath.Join(directory, "large.sh")
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\ndd if=/dev/zero bs=70000 count=1 2>/dev/null | tr '\\000' x\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	result, err := runCommandDetailed(t.Context(), time.Second, directory, nil, filename)
+	filename := installCommandHelper(t, directory, "large")
+	result, err := runCommandDetailed(t.Context(), 10*time.Second, directory, nil, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +87,7 @@ func TestRunCommandReportsTruncationAndStartupFailure(t *testing.T) {
 	}
 
 	started := false
-	missing, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+	missing, err := runCommandDetailedWithOutput(t.Context(), 10*time.Second, directory, nil, func(output ProcessOutput) {
 		started = started || output.Started
 	}, filepath.Join(directory, "missing"))
 	if err == nil || missing.Status != "failed" || started {
@@ -114,15 +97,8 @@ func TestRunCommandReportsTruncationAndStartupFailure(t *testing.T) {
 
 func TestRunCommandDrainsLargeStdoutAndStderrConcurrently(t *testing.T) {
 	directory := t.TempDir()
-	filename := filepath.Join(directory, "large-streams.sh")
-	script := "#!/bin/sh\n" +
-		"head -c 131072 /dev/zero | tr '\\000' o &\n" +
-		"head -c 131072 /dev/zero | tr '\\000' e >&2 &\n" +
-		"wait\n"
-	if err := os.WriteFile(filename, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	result, err := runCommandDetailed(t.Context(), 3*time.Second, directory, nil, filename)
+	filename := installCommandHelper(t, directory, "large-streams")
+	result, err := runCommandDetailed(t.Context(), 10*time.Second, directory, nil, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +109,9 @@ func TestRunCommandDrainsLargeStdoutAndStderrConcurrently(t *testing.T) {
 
 func TestRunCommandMarksLongStreamLineAsTruncated(t *testing.T) {
 	directory := t.TempDir()
-	filename := filepath.Join(directory, "long-line.sh")
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\nhead -c 12000 /dev/zero | tr '\\000' x\nprintf '\\n'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	filename := installCommandHelper(t, directory, "long-line")
 	var streamed ProcessOutput
-	result, err := runCommandDetailedWithOutput(t.Context(), time.Second, directory, nil, func(output ProcessOutput) {
+	result, err := runCommandDetailedWithOutput(t.Context(), 10*time.Second, directory, nil, func(output ProcessOutput) {
 		if !output.Started {
 			streamed = output
 		}
@@ -153,13 +126,10 @@ func TestRunCommandMarksLongStreamLineAsTruncated(t *testing.T) {
 
 func TestRunCommandHonorsCancellation(t *testing.T) {
 	directory := t.TempDir()
-	filename := filepath.Join(directory, "wait.sh")
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\nwhile :; do :; done\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	filename := installCommandHelper(t, directory, "wait")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	result, err := runCommandDetailed(ctx, time.Second, directory, nil, filename)
+	result, err := runCommandDetailed(ctx, 10*time.Second, directory, nil, filename)
 	if err == nil || result.Status != "timeout" {
 		t.Fatalf("cancelled command was not marked interrupted: result=%#v err=%v", result, err)
 	}
@@ -167,13 +137,10 @@ func TestRunCommandHonorsCancellation(t *testing.T) {
 
 func TestRunCommandStopsAfterRunningContextIsCancelled(t *testing.T) {
 	directory := t.TempDir()
-	filename := filepath.Join(directory, "cancel-after-start.sh")
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\nprintf 'started\\n'\nwhile :; do :; done\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	filename := installCommandHelper(t, directory, "wait-after-start")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	result, err := runCommandDetailedWithOutput(ctx, time.Second, directory, nil, func(output ProcessOutput) {
+	result, err := runCommandDetailedWithOutput(ctx, 10*time.Second, directory, nil, func(output ProcessOutput) {
 		if strings.Contains(output.Text, "started") {
 			cancel()
 		}
@@ -198,9 +165,9 @@ func TestRunTerraformInitializesAndValidatesOnly(t *testing.T) {
 	} {
 		writeArtifact(t, stateDirectory, "lab/terraform/"+filename, data)
 	}
-	installFakeTool(t, "terraform", "printf '%s\\n' \"$*\"\n")
+	installFakeTool(t, "terraform")
 
-	result, err := RunTerraform(t.Context(), stateDirectory, "lab", time.Second)
+	result, err := RunTerraform(t.Context(), stateDirectory, "lab", 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +191,7 @@ func TestRunTerraformRejectsProvisioningBlocksBeforeRunningTool(t *testing.T) {
 	} {
 		writeArtifact(t, stateDirectory, "lab/terraform/"+filename, data)
 	}
-	if _, err := RunTerraform(t.Context(), stateDirectory, "lab", time.Second); err == nil || !strings.Contains(err.Error(), "could provision") {
+	if _, err := RunTerraform(t.Context(), stateDirectory, "lab", 10*time.Second); err == nil || !strings.Contains(err.Error(), "could provision") {
 		t.Fatalf("Terraform provisioning block was not rejected: %v", err)
 	}
 }
@@ -258,8 +225,8 @@ func TestToolRunnerAcceptsProviderGeneratedTerraformWithFakeBinary(t *testing.T)
 		}
 		writeArtifact(t, stateDirectory, artifact, string(data))
 	}
-	installFakeTool(t, "terraform", "printf '%s\\n' \"$*\"\n")
-	terraformResult, err := RunTerraform(t.Context(), stateDirectory, "lab", time.Second)
+	installFakeTool(t, "terraform")
+	terraformResult, err := RunTerraform(t.Context(), stateDirectory, "lab", 10*time.Second)
 	if err != nil || len(terraformResult.Steps) != 2 || !strings.Contains(terraformResult.Output, "validate") {
 		t.Fatalf("generated Terraform artifacts failed fake init/validate: %#v, %v", terraformResult, err)
 	}
@@ -276,12 +243,20 @@ func writeArtifact(t *testing.T, root, name, contents string) {
 	}
 }
 
-func installFakeTool(t *testing.T, name, script string) {
+func installFakeTool(t *testing.T, name string) {
 	t.Helper()
 	directory := t.TempDir()
-	filename := filepath.Join(directory, name)
-	if err := os.WriteFile(filename, []byte("#!/bin/sh\n"+script), 0o700); err != nil {
+	if _, err := testutil.BuildFakeCommand(directory, name); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func installCommandHelper(t *testing.T, directory, name string) string {
+	t.Helper()
+	path, err := testutil.BuildFakeCommand(directory, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

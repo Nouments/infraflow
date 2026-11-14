@@ -1,0 +1,5 @@
+/system identity set name="{{.Name}}"
+{{range .Interfaces}}{{if eq .IPv4Mode "static"}}/ip address add address={{.IPv4Address}} interface="{{.Name}}"
+{{else if eq .IPv4Mode "dhcp"}}/ip dhcp-client add interface="{{.Name}}" disabled=no
+{{end}}{{end}}{{range .Routes}}/ip route add dst-address={{.Destination}} gateway="{{.Gateway}}"{{if .Distance}} distance={{.Distance}}{{end}}
+{{end}}

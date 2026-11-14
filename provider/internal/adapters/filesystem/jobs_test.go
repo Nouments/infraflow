@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -40,8 +41,11 @@ func TestJobStorePersistsListsAndUpdatesJobs(t *testing.T) {
 		t.Fatalf("unexpected stored jobs: %#v, %v", jobs, err)
 	}
 	info, err := os.Stat(filepath.Join(root, ".jobs", job.ID+".json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("job file should be private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("job file permissions are %04o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -134,8 +138,11 @@ func TestExecutionStorePersistsLifecycleAndIdempotency(t *testing.T) {
 		t.Fatalf("idempotency key did not survive restart: %#v created=%v err=%v", replayed, replayCreated, replayErr)
 	}
 	info, err := os.Stat(filepath.Join(root, ".executions", execution.ID+".json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("execution persistence must be private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("execution permissions are %04o, want 0600", info.Mode().Perm())
 	}
 }
 

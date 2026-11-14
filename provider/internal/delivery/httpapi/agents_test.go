@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"infraflow/internal/infrastructure/security"
 	"infraflow/provider/internal/adapters/filesystem"
@@ -60,6 +61,30 @@ func TestAgentAPIRegistersAndUpdatesHeartbeats(t *testing.T) {
 	response = agentRequest(t, handler, http.MethodGet, "/api/v1/events?limit=0", "", token)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid event limit returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAgentTokenExpiryAppliesToHTTPRegistration(t *testing.T) {
+	root := t.TempDir()
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAgentsEvents(nil, nil, nil, nil, agents, nil, application.Dependencies{})
+	token := strings.Repeat("e", security.MinAgentTokenBytes)
+	handler, err := NewHandlerWithTokenExpiry(service, token, time.Now().Add(200*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(250 * time.Millisecond)
+	response := agentRequest(t, handler, http.MethodPost, "/api/v1/agents/register",
+		`{"agent_id":"agent-01","site_id":"site-01"}`, token)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expired Agent token returned %d, want %d: %s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+
+	if _, err := NewHandlerWithTokenExpiry(service, token, time.Now().Add(-time.Second)); err == nil {
+		t.Fatal("already-expired Agent token was accepted during handler initialization")
 	}
 }
 

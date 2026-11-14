@@ -11,7 +11,7 @@ provider/  user-facing validation, planning, generation, and authenticated gRPC 
 agent/     independent gRPC client that downloads streams, processes supported artifacts, and reports state
 ```
 
-The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. A generic scheduler core now validates dependency graphs and provides bounded execution primitives, but provider-specific provisioning remains unsupported until it has verified references, an isolated adapter, fixtures or a lab, automated tests, and observable results.
+The provider owns the desired infrastructure input and generated files. The agent receives only files published in the provider's hash-verified manifest. A generic scheduler core validates dependency graphs and provides bounded execution primitives. Only explicitly registered task types are executable; vendor-specific ZTP/AutoInstall and unverified device workflows remain unsupported until their evidence requirements are met.
 
 ## Requirements
 
@@ -30,7 +30,100 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the supported artifact catalog (inventory, topology, Terraform data, native device configuration, and bootstrap DHCP/DNS/TFTP/PXE/iPXE data) with one combined manifest; it does not contact infrastructure or apply a plan.
+### Current repository and CI baseline
+
+The current review baseline is `develop` at
+`bbffd4153857547204a457fa0da2c5f46e542d06` (`stabilization6`), matching
+`origin/develop`; the worktree was clean before this local follow-up. GitHub
+Actions [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
+passed on that exact commit: Linux full and race tests, vet, builds, formatting,
+and diff checks; Windows full tests, vet, builds, formatting, and diff checks.
+Windows CI does not run race tests.
+
+The current uncommitted follow-up adds journal-based recovery for interrupted
+`generate-all` publication, a fresh-output presentation demo and verifier, and
+a test-only timeout adjustment for a Windows pipe-throughput test. Focused
+generation/protocol/filesystem/Agent-artifact tests passed before the final
+review fixes; `go vet` and command builds passed on the final Go changes. The
+corrected focused generation test and final full suite were blocked by Windows
+Application Control, and the full suite also encountered `CGO_ENABLED=0`
+SQLite limitations. The final full run passed the SSH output-limit package
+after a test-only timeout increase; an earlier run timed out at the old test
+limit. Race testing is unavailable with `CGO_ENABLED=0`. The follow-up has not
+been covered by CI, and the demo has not been executed locally. See the
+[completion report](docs/COMPLETION_AND_TEST_REPORT.md)
+and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md) for
+commands, observed results, recovery limits, and remaining risks.
+
+### Historical stabilization evidence (2026-11-12)
+
+The local stabilization run started on `develop` at
+`986d2a7b15fe9aee46f4579688b694862dd64485`; its fixes are uncommitted. The
+three generation fixtures listed below validated and generated successfully
+into fresh temporary directories. Manifests/reports parsed as JSON and artifact
+paths, sizes, and SHA-256 values matched. Detailed counts and exact results are
+in the [completion and test report](docs/COMPLETION_AND_TEST_REPORT.md).
+
+This is not a green test baseline: focused/provider/agent/full `go test` runs
+did not complete cleanly on this Windows machine (`CGO_ENABLED=0`, Application
+Control restrictions, and other Windows integration limitations). `go vet`,
+the Provider/Agent build, and `git diff --check` passed. The local `gofmt -l`
+check listed all files because the Windows working tree uses CRLF while Git
+stores Go sources with LF; the LF-normalized temporary-copy check passed, and
+the Windows CI checkout now disables CRLF conversion. The latest available CI
+run on the inspected HEAD failed on Linux (SQLite driver not registered) and
+Windows (`go` missing from the MSYS2 shell); local uncommitted fixes are
+awaiting CI verification. Release readiness therefore remains **not ready**.
+
+`validate` is read-only. `plan` only describes deterministic work.
+`generate-all` creates and publishes the supported artifact catalog
+(inventory, topology, Terraform data, native device configuration, and
+bootstrap DHCP/DNS/TFTP/PXE/iPXE data for explicitly enabled services) with
+one combined manifest; it does not contact infrastructure or apply a plan.
+Bootstrap service artifacts are omitted unless the corresponding service is
+explicitly enabled.
+
+`generate-device-config` parses, resolves templates, and renders before
+acquiring the output-root lock; generic standalone generators validate before
+creating the root. Those rejected requests leave a previously absent `-out`
+path absent and do not change a pre-existing directory. `generate-all`
+intentionally may publish a `partial_failure` report when an individual site
+fails. Existing output directories are never recursively deleted.
+
+Full-generation publication uses a bounded journal and verified rollback
+copies. If a reader process is interrupted, its
+`.infraflow-generation-reader-*.lock` marker may remain and writers fail
+closed. Only after stopping all InfraFlow processes that may read the output
+root and confirming no reader is active, an operator may remove those exact
+reader marker files. Do not remove active reader markers. A stale
+`.infraflow-generation.lock` similarly requires confirming no writer is active
+before removing only that lock file; the next generation then attempts journal
+recovery. If rollback cannot be verified, generation and artifact reads expose
+`ErrRecoveryRequired` and retain the journal/backup data instead of presenting
+a partial catalog as valid. This rollback mechanism is not a filesystem-wide
+atomic swap, and parent-directory durability is not guaranteed across
+filesystems.
+
+Run the scripted presentation demo from a Linux shell or Git Bash at the
+repository root:
+
+```sh
+bash scripts/presentation-demo-launch.sh
+python3 scripts/presentation-demo-verify.py <fresh-root-printed-by-launcher>
+```
+
+The launcher uses a fresh temporary root and existing Provider CLI commands to
+validate, plan, and generate the Cisco/MikroTik, opt-in bootstrap, and
+bootstrap-disabled multisite fixtures. It rejects unsupported OSPF and checks
+that no output was published. The separate verifier checks generated JSON,
+site isolation, manifests/reports, on-disk files, sizes, and SHA-256 values,
+then displays the native Cisco `.cfg` and RouterOS `.auto.rsc`. Expected
+completion ends with `PASS: demo verification complete; artifacts were not
+applied or device-verified.` This follow-up demo and its new CI job have not
+yet been executed on the local diff; no successful run is claimed. On Windows,
+the existing `scripts/demo-provisioning.ps1` remains available, subject to the
+machine's PowerShell execution policy. The completion report records the
+observed local environment limitations.
 
 The YAML parser accepts either `site` or `sites`, based on which top-level key
 is present, and rejects documents containing both. Network validation rejects
@@ -87,12 +180,58 @@ provided), so adding another device does not renumber existing artifacts. The
 native manifest records model and software-version metadata when supplied but
 marks compatibility `unknown`; family-level rendering is not a supported
 model/version matrix or evidence of syntax validation. Unsupported intent is
-rejected rather than silently omitted. These outputs do not implement ZTP or
-AutoInstall and are never applied automatically.
+rejected rather than silently omitted. Generated files are never applied
+automatically.
+The Cisco `.cfg` is generated text, not Cisco ZTP. The MikroTik `.auto.rsc`
+is rendered but has not been proven on CHR or hardware. The current FortiOS
+native renderer writes `.cfg` text and is render-only. No vendor is
+hardware-validated, and generation is not delivery, execution, or verification.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
-and physical-device validation as `not_performed`. No IOS parser or device
+and physical-device validation as `not_performed`. A separate
+`config_syntax_validation` status is `not_available`: no offline vendor syntax
+parser is registered for Cisco IOS-XE, RouterOS 7, or FortiOS. Exact-output
+tests verify the renderer's output, not vendor syntax acceptance.
+`examples/fortios-native.yaml` is a render-only FortiOS example. No device
 connection is used by this demo.
+
+### RouterOS `.auto.rsc` render-only demo
+
+`examples/provisioning-generation.yaml` exercises the existing Cisco native
+`.cfg` renderer and the versioned RouterOS `auto-rsc` template through the
+same `generate-all` pipeline. The RouterOS profile is limited to declared
+model `RB750Gr3`, OS train `7.x`, and template version `1`; exact RouterOS
+build and device compatibility remain `unknown`. It renders identity, IPv4
+static/DHCP interfaces, and static routes only when those fields are present.
+VLAN, interface admin-state, administration-service settings, upload, RouterOS
+execution, and `.auto.log` retrieval are not implemented. Cisco ZTP remains
+blocked because the repository evidence does not establish a model/release
+profile compatible with the project's TLS-only requirement. Cisco AutoInstall
+and Fortinet ZTP profiles are also unsupported.
+
+Run the demo in PowerShell from a fresh temporary directory:
+
+```powershell
+go run ./provider/cmd validate -f examples/provisioning-generation.yaml
+$demo = Join-Path $env:TEMP ("infraflow-provisioning-" + [guid]::NewGuid())
+go run ./provider/cmd generate-all -f examples/provisioning-generation.yaml -out $demo
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/native/device-mikrotik-r1.auto.rsc")
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/native/native-manifest.json")
+Get-Content (Join-Path $demo "routeros-auto-rsc-demo/site-manifest.json")
+Get-FileHash (Join-Path $demo "routeros-auto-rsc-demo/native/device-mikrotik-r1.auto.rsc") -Algorithm SHA256
+Get-Content (Join-Path $demo "generation-report.json")
+```
+
+The generated `.auto.rsc` is an inert catalog artifact until an operator
+separately chooses an upload path. It uses stable `infraflow:` comments and
+RouterOS `find`/conditional `set` commands for its own address, DHCP-client,
+and route entries, avoiding unconditional duplicate `add` operations on
+repeat import. This is template-level repeat-safety, not CHR validation; do
+not treat it as proven until the exact RouterOS build has been tested. Its
+hashes establish file integrity only, not device acceptance or execution.
+Because upload automatically executes `.auto.rsc`, only upload it through an
+authorized isolated lab workflow. After upload, retrieve and inspect the
+corresponding `.auto.log` separately. See the [RouterOS CHR runbook](docs/lab/routeros-chr.md).
 
 The deterministic score is: exact manufacturer/model 30 points; OS family
 20 points plus 5 only for an explicitly supported OS version; requested
@@ -140,9 +279,10 @@ scenario for Cisco IOS-XE, MikroTik RouterOS, and FortiOS family labels across
 four sites. It declares RouterOS `7.x` as scenario metadata but does not claim
 that a particular device was observed running that version. It omits exact
 device models and interfaces. Its shared `192.0.2.0/24` bootstrap range is
-TEST-NET documentation space; bootstrap service artifacts are generated with
-their services disabled. Vendor labels and OS metadata are not evidence that
-the devices or generated vendor-specific configuration are compatible.
+TEST-NET documentation space; bootstrap artifacts are omitted because no
+bootstrap service is explicitly enabled. Vendor labels and OS metadata are
+not evidence that the devices or generated vendor-specific configuration are
+compatible.
 
 `generate-all` runs independent site generation in parallel, capped at four
 workers. Each site is generated and hash-checked in a private staging
@@ -181,8 +321,9 @@ go test -count=1 ./agent/internal/application \
 
 The test builds and launches the real Provider and Agent executables, starts
 four Agents with distinct site-scoped gRPC tokens, and checks the downloaded
-file hashes, per-site state directories, disabled DHCP artifacts, and the four
-reports persisted by the Provider. It also checks that the unsupported OSPF
+file hashes, per-site state directories, absence of disabled bootstrap
+artifacts, and the four reports persisted by the Provider. It also checks that
+the unsupported OSPF
 example is rejected without publishing a config or generation report. All
 runtime state and generated files live under Go's temporary test directory.
 `TestRunSitesInParallelStartsIndependentWorkersConcurrently` verifies that the
@@ -201,6 +342,14 @@ When site manifests are published, Provider startup verifies that every
 published site has exactly one configured Agent credential and rejects
 credentials for sites absent from the published catalog.
 The shared-token legacy gRPC mode remains limited to a single-site catalog.
+Each scoped Agent credential requires a future `expires_at` timestamp and is
+checked on every gRPC request. A remote single-site deployment, or a remote
+HTTP registration listener using the legacy global token, must set
+`token_expires_at`; the global token is checked on both HTTP and gRPC requests.
+Rotation and revocation are
+configuration-driven: update the secret environment value or remove the
+scoped credential, then restart the Provider; the old token is no longer
+accepted by the restarted service. The Provider does not hot-reload tokens.
 
 For example, the Provider's site credentials and one Agent's token references
 have this shape (all referenced environment values must be secret and at least
@@ -210,10 +359,16 @@ machine token):
 ```yaml
 # Provider configuration
 token_env: INFRAFLOW_AGENT_TOKEN
+token_expires_at: "2099-12-31T23:59:59Z" # replace with the approved rotation deadline
+tls:
+  certificate_file: /run/secrets/provider.crt
+  key_file: /run/secrets/provider.key
+  client_ca_file: /run/secrets/agent-ca.crt
 agent_credentials:
   - agent_id: agent-site-a
     site_id: site-a
     token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
+    expires_at: "2099-12-31T23:59:59Z" # replace with the approved rotation deadline
 ```
 
 ```yaml
@@ -229,7 +384,18 @@ provider:
   artifact_token_env: INFRAFLOW_SITE_A_GRPC_TOKEN
   tls:
     enabled: true
+    ca_file: /etc/infraflow/provider-ca.pem
+    certificate_file: /run/secrets/agent.crt
+    key_file: /run/secrets/agent.key
 ```
+
+For optional gRPC mutual TLS, configure `tls.client_ca_file` on the Provider
+with a CA that issues Agent client certificates, and configure the matching
+Agent `certificate_file` and `key_file`. The Agent always verifies the
+Provider certificate using the configured CA file or the operating system
+trust store; there is no verification-disable option. Mutual TLS applies to
+the Agent gRPC channel. The separate HTTP registration/API listener continues
+to use server-authenticated TLS and its existing bearer/session authentication.
 
 This scenario proves local generation, authenticated transfer, hash checks,
 and report acceptance only. Agent status `completed` means supported artifact
@@ -354,6 +520,14 @@ ARCHITECTURE.md      Service boundaries and safety rules
 ```
 
 ## Development
+
+The Linux CI workflow runs `govulncheck` in source mode, which fails when it
+finds a reachable vulnerability. It also enforces package coverage floors of
+90% for `agent/internal/adapters/processor` and 65% for
+`agent/internal/delivery/cli`; the current measured results are 93.2% and
+66.9%, respectively. `BenchmarkGenerateAll` measures repeated generation, and
+`BenchmarkArtifactRepositoryOpen` measures verified artifact reads. Benchmarks
+are available via `go test -run=^$ -bench 'BenchmarkGenerateAll|BenchmarkArtifactRepositoryOpen' -benchmem ./internal/adapters/generation ./provider/internal/adapters/filesystem`.
 
 ```sh
 make fmt
