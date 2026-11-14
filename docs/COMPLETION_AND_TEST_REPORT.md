@@ -1,6 +1,112 @@
 # Completion and test campaign report
 
-## Generation sprint update — 2026-11-11
+## Current stabilization run — 2026-11-12
+
+**Branch:** `develop`
+**Inspected starting HEAD:** `986d2a7b15fe9aee46f4579688b694862dd64485`
+**Repository state:** local modifications only; nothing staged or committed; no push.
+
+### Reproducible generation evidence
+
+The existing Provider CLI was run against `examples/provisioning-generation.yaml`,
+`examples/infra.yaml`, and `examples/multisite-preparation.yaml`, each targeting
+a fresh temporary output root. `validate` and `generate-all` succeeded for all
+three; `plan` also succeeded for the provisioning demo. The saved output root
+was `C:\Users\ADMIN\AppData\Local\Temp\infraflow-p0-final-3cb3832103824260b708a861ec645434`.
+
+| Input | Output | Site results |
+|---|---:|---|
+| `examples/provisioning-generation.yaml` | 30 files | 2 sites, 13 catalog artifacts per site; Cisco `.cfg` and MikroTik `.auto.rsc`; no bootstrap |
+| `examples/infra.yaml` | 19 files | 1 site, 16 catalog artifacts; five explicitly enabled DHCP/TFTP/PXE artifacts, no DNS output |
+| `examples/multisite-preparation.yaml` | 50 files | 4 sites, 11 catalog artifacts per site; no bootstrap |
+
+Root/site manifests and reports parsed as JSON. Cataloged artifact paths were
+present on disk; sizes and SHA-256 values matched; no unexpected site files
+were present. The MikroTik `.auto.rsc` was 725 bytes with SHA-256
+`237b12b4ea2724d36763d9f29a8d200c37b20a685ea76e68e1158b1a58a984fc`.
+Unsupported OSPF intent exited nonzero and created no output directory.
+Generated configurations were not delivered to or applied to equipment.
+
+### Confirmed defects corrected
+
+- Bootstrap generation emitted generic DHCP/TFTP/PXE output when a service was
+  absent or false. It now emits each service's artifacts only when explicitly
+  enabled; PXE also honors the existing `ipxe: true` alias. Regression cases
+  cover omitted, false, and enabled services.
+- The SQLite driver blank import had been removed, so SQLite users/sessions
+  failed with `unknown driver "sqlite3"` in Linux CI. Driver registration is
+  restored; this correction still needs a post-change CGO-enabled CI run.
+- Directory-handle `Sync` fails on this Windows environment. Outbox persistence
+  still syncs file contents; directory syncing remains on Unix and is skipped
+  on Windows.
+- POSIX mode-bit tests are now conditional on non-Windows. Unix `0600`/`0700`
+  checks remain strict; the Agent's Windows ACL assertion is retained.
+- Windows CI steps now use PowerShell after the inspected run showed
+  `go: command not found` in the MSYS2 shell. The Windows checkout also
+  disables CRLF conversion so the Go format check sees LF source like Linux.
+
+The four-site output provides direct evidence of independent successful site
+directories and manifests. Existing tests
+`TestGenerateAllKeepsSuccessfulSitesWhenAnotherSiteFails` and
+`TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts` cover partial-failure
+isolation and scoped/hash-checked transfer, respectively, but neither completed
+as an executed test in this Windows run. Thus those behaviors are test-covered,
+not newly verified by this run.
+
+### Local test, build, and CI results
+
+| Command/check | Result |
+|---|---|
+| `go test -count=1 ./internal/adapters/config ./internal/adapters/generation ./pkg/protocol` | FAIL overall: config passed; Application Control blocked the generation and protocol test executables. |
+| `go test -count=1 ./provider/internal/...` | FAIL: Application Control blocked test executables; SQLite tests could not use the CGO-disabled SQLite runtime. |
+| `go test -count=1 ./agent/internal/...` | FAIL: Application Control, Windows integration limitations, unavailable Terraform, and the multisite test could not find its temporary Provider executable. |
+| `go test -count=1 ./...` | FAIL for the above local environment/runtime limitations. |
+| `go vet ./...` | PASS. |
+| `go build ./provider/cmd ./agent/cmd` | PASS with `CGO_ENABLED=0`; this does not prove SQLite runtime operation. |
+| Repository-wide `gofmt` check | Direct local `gofmt -l` listed all files because the Windows working tree uses CRLF while Git blobs use LF; running `gofmt -l` on LF-normalized temporary copies passed. No bulk rewrite was made; Windows CI now disables CRLF conversion. |
+| `git diff --check` | PASS. |
+| `go test -race ./...` | Not run successfully; local environment has `CGO_ENABLED=0` and no C compiler. |
+
+Environment: `go1.27.3 windows/amd64`, `CGO_ENABLED=0`, `GOOS=windows`,
+`GOARCH=amd64`, `CC=gcc`; no `gcc` executable was found. The PowerShell demo
+script passed syntax parsing, but direct script execution was denied by the
+machine's execution policy. The policy was not changed or bypassed; equivalent
+CLI generation and output checks were executed directly.
+
+GitHub Actions run
+[43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432)
+on the inspected starting HEAD failed on Linux because the SQLite driver was
+not registered and on Windows because `go` was unavailable in the MSYS2 shell.
+This working tree restores the SQLite driver import and runs Windows steps in
+PowerShell. No CI run is available for these uncommitted changes.
+
+### Security and artifact boundaries
+
+The reviewed tests cover path traversal, symlink rejection, atomic writes,
+hash mismatch rejection, site-scoped authorization, secret redaction, and
+partial publication. Relevant examples include
+`TestAtomicWriteRejectsTraversal`,
+`TestCatalogRejectsSymlinkedArtifactAndManifest`,
+`TestRunnerReportsHashFailureWithoutProcessing`,
+`TestGRPCScopesAgentCatalogAndDownloadsToAuthorizedSite`, and
+`TestLoggerWritesStructuredJSONLAndRedactsSecrets`. Because the suite did not
+run cleanly here, this is a code/test-coverage inventory, not a claim that the
+full security suite passed in this run.
+
+### Readiness decision
+
+**Evidence score: 7/10** — demo generation and integrity 3/3; unsupported-intent
+and multisite evidence 1/2; build/static checks 2/2; full test suite and CI on
+the modified revision 0/2; documentation/demo procedure 1/1. This is not a
+production-readiness score. **Release readiness: NOT READY** until focused
+tests, the full suite, and Linux CI pass on the modified revision.
+
+Cisco `.cfg` is generated text, not Cisco ZTP. MikroTik `.auto.rsc` is rendered
+but not proven on CHR or hardware. FortiOS `.conf` is render-only. No vendor is
+hardware-validated. Generation, delivery, execution, and verification are
+separate; no device was contacted, and no lab evidence is available.
+
+## Historical generation sprint update — 2026-11-11 (superseded)
 
 The native generation pipeline now has an embedded RouterOS `.auto.rsc`
 template and metadata profile for declared model `RB750Gr3`, OS train `7.x`,

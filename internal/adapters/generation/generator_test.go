@@ -239,7 +239,7 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != len(artifacts) || len(catalog) != 17 {
+	if len(catalog) != len(artifacts) || len(catalog) != 16 {
 		t.Fatalf("combined manifest published %d of %d generated artifacts", len(catalog), len(artifacts))
 	}
 	for _, path := range []string{
@@ -290,6 +290,37 @@ func TestGenerateAllPublishesCompleteCatalogForAgent(t *testing.T) {
 		if !seenTypes[artifactType] {
 			t.Errorf("combined manifest omitted %s", artifactType)
 		}
+	}
+}
+
+func TestGenerateAllOmitsBootstrapArtifactsWithoutExplicitOptIn(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    bootstrap:
+      network: 192.0.2.0/24
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	generated, err := GenerateAll(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Catalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(generated) != len(catalog) {
+		t.Fatalf("catalog contains %d artifacts; GenerateAll returned %d", len(catalog), len(generated))
+	}
+	for _, artifact := range catalog {
+		if strings.HasPrefix(artifact.Path, "lab/bootstrap/") {
+			t.Errorf("bootstrap artifact %q was emitted without an enabled service", artifact.Path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "lab", "bootstrap")); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap directory exists without an enabled service: %v", err)
 	}
 }
 
@@ -561,7 +592,11 @@ func TestGenerateBootstrapCreatesPoolsReservationsDNSAndPXE(t *testing.T) {
 }
 
 func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
-	infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n"))
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: lab
+    services:
+      dhcp: true
+`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,29 +605,111 @@ func TestGenerateBootstrapRequiresIPv4Network(t *testing.T) {
 	}
 }
 
-func TestGenerateBootstrapDisablesServicesWithoutExplicitOptIn(t *testing.T) {
-	infrastructure, err := config.Parse([]byte(`sites:
+func TestGenerateBootstrapOmitsArtifactsWithoutExplicitOptIn(t *testing.T) {
+	tests := []struct {
+		name     string
+		services string
+	}{
+		{name: "services omitted"},
+		{name: "all services explicitly false", services: `    services:
+      dhcp: false
+      dns: false
+      tftp: false
+      pxe: false
+`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			infrastructure, err := config.Parse([]byte("sites:\n  - name: lab\n" + test.services))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputDirectory := t.TempDir()
+			artifacts, err := GenerateBootstrap(infrastructure, outputDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(artifacts) != 0 {
+				t.Fatalf("expected no bootstrap artifacts without explicit opt-in, got %#v", artifacts)
+			}
+			for _, relative := range []string{"lab/bootstrap", "lab/manifest.json"} {
+				if _, err := os.Stat(filepath.Join(outputDirectory, filepath.FromSlash(relative))); !os.IsNotExist(err) {
+					t.Errorf("unexpected bootstrap output %s: %v", relative, err)
+				}
+			}
+			catalog, err := Catalog(outputDirectory)
+			if err != nil || len(catalog) != 0 {
+				t.Fatalf("disabled bootstrap services became catalog artifacts: %#v, %v", catalog, err)
+			}
+		})
+	}
+}
+
+func TestGenerateBootstrapEmitsOnlyExplicitlyEnabledServiceArtifacts(t *testing.T) {
+	tests := []struct {
+		name          string
+		service       string
+		expectedPaths []string
+	}{
+		{name: "dhcp", service: "dhcp", expectedPaths: []string{"lab/bootstrap/dhcp/config.json"}},
+		{name: "dns", service: "dns", expectedPaths: []string{"lab/bootstrap/dns/config.json"}},
+		{name: "tftp", service: "tftp", expectedPaths: []string{"lab/bootstrap/tftp/config.json"}},
+		{name: "pxe", service: "pxe", expectedPaths: []string{
+			"lab/bootstrap/pxe/metadata.json",
+			"lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+			"lab/bootstrap/pxe/ipxe/menu.ipxe",
+		}},
+		{name: "ipxe alias", service: "ipxe", expectedPaths: []string{
+			"lab/bootstrap/pxe/metadata.json",
+			"lab/bootstrap/pxe/ipxe/bootstrap.ipxe",
+			"lab/bootstrap/pxe/ipxe/menu.ipxe",
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := `sites:
   - name: lab
     bootstrap:
-      network: 192.168.100.0/24
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	outputDirectory := t.TempDir()
-	if _, err := GenerateBootstrap(infrastructure, outputDirectory); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(outputDirectory, "lab", "bootstrap", "dhcp", "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var dhcp bootstrapDHCP
-	if err := json.Unmarshal(data, &dhcp); err != nil {
-		t.Fatal(err)
-	}
-	if dhcp.Enabled || dhcp.Options.BootFilename != "" || dhcp.Options.TFTPDirectory != "" {
-		t.Fatalf("DHCP/TFTP boot must remain disabled without explicit service opt-in: %#v", dhcp)
+      network: 192.0.2.0/24
+    services:
+      ` + test.service + `: true
+`
+			infrastructure, err := config.Parse([]byte(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputDirectory := t.TempDir()
+			artifacts, err := GenerateBootstrap(infrastructure, outputDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotPaths := make([]string, len(artifacts))
+			for index, artifact := range artifacts {
+				gotPaths[index] = artifact.Path
+				artifactPath := filepath.Join(outputDirectory, filepath.FromSlash(artifact.Path))
+				data, err := os.ReadFile(artifactPath)
+				if err != nil {
+					t.Errorf("enabled service artifact %s was not written: %v", artifact.Path, err)
+					continue
+				}
+				if strings.HasSuffix(artifact.Path, ".json") {
+					var payload struct {
+						Enabled bool `json:"enabled"`
+					}
+					if err := json.Unmarshal(data, &payload); err != nil {
+						t.Errorf("decode enabled service artifact %s: %v", artifact.Path, err)
+					} else if !payload.Enabled {
+						t.Errorf("explicitly enabled service artifact %s reports enabled=false", artifact.Path)
+					}
+				}
+			}
+			if !reflect.DeepEqual(gotPaths, test.expectedPaths) {
+				t.Fatalf("service %s produced paths %v, want exactly %v", test.service, gotPaths, test.expectedPaths)
+			}
+			if _, err := os.Stat(filepath.Join(outputDirectory, "lab", "manifest.json")); err != nil {
+				t.Fatalf("enabled-service bootstrap manifest missing: %v", err)
+			}
+		})
 	}
 }
 
@@ -603,6 +720,8 @@ func TestGenerateBootstrapRejectsNetworkAndBroadcastReservations(t *testing.T) {
   - name: lab
     bootstrap:
       network: 192.168.100.0/29
+    services:
+      dhcp: true
     devices:
       - name: invalid-host
         management:
@@ -628,6 +747,8 @@ func TestGenerateBootstrapRejectsNetworkAndBroadcastGateways(t *testing.T) {
     bootstrap:
       network: 192.168.100.0/29
       gateway: ` + address + `
+    services:
+      dhcp: true
 `))
 			if err != nil {
 				t.Fatal(err)
@@ -645,6 +766,8 @@ func TestGenerateBootstrapRejectsDeviceAddressMatchingGateway(t *testing.T) {
     bootstrap:
       network: 192.168.100.0/24
       gateway: 192.168.100.1
+    services:
+      dhcp: true
     devices:
       - name: gateway-device
         management:

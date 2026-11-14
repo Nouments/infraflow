@@ -76,8 +76,9 @@ generators, artifact contracts, CLI commands, and Agent runner are removed.
 Configuration generation uses native text renderers and does not apply output
 to devices.
 
-The provider currently emits generic DHCP, DNS, TFTP, PXE, and iPXE bootstrap
-contracts, and the Agent provides explicitly started experimental DHCPv4,
+The provider emits generic DHCP, DNS, TFTP, PXE, and iPXE bootstrap
+artifacts only when the corresponding service is explicitly enabled, and the
+Agent provides explicitly started experimental DHCPv4,
 read-only TFTP, and bootstrap HTTP services. These components do not yet
 constitute vendor-specific ZTP or AutoInstall. The roadmap prioritizes
 device-specific boot protocols, provisioning file formats, trust/authenticity,

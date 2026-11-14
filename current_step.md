@@ -1,5 +1,65 @@
 # InfraFlow — Cycle d’amélioration de génération déclarative
 
+## État de stabilisation — 2026-11-12
+
+- Branche `develop`; HEAD inspecté au départ :
+  `986d2a7b15fe9aee46f4579688b694862dd64485`. Les corrections sont locales et
+  non commitées; aucun fichier n’a été staged, aucun push effectué.
+- Les commandes Provider `validate`, `plan` et `generate-all` ont été lancées
+  pour `examples/provisioning-generation.yaml`, `examples/infra.yaml` et
+  `examples/multisite-preparation.yaml`, dans des sorties temporaires neuves.
+  Les trois validations et générations ont réussi.
+- Résultats : démo de provisioning, **30 fichiers**, 2 sites et 13 artefacts
+  catalogués par site; `infra.yaml`, **19 fichiers**, 1 site et 16 artefacts
+  (dont 5 artefacts DHCP/TFTP/PXE pour les services explicitement activés);
+  multisite, **50 fichiers**, 4 sites et 11 artefacts par site. Les manifestes
+  et rapports racine/site sont du JSON valide. Fichiers catalogués, tailles et
+  SHA-256 concordent; aucun fichier site non catalogué détecté. Cisco `.cfg`
+  et MikroTik `.auto.rsc` présents; pas de bootstrap sans service activé.
+- SHA-256 de l’artefact `.auto.rsc` :
+  `237b12b4ea2724d36763d9f29a8d200c37b20a685ea76e68e1158b1a58a984fc`.
+  L’intention OSPF non supportée échoue avec code non nul et ne crée aucun
+  répertoire de sortie. Aucun équipement n’a été contacté.
+- Les tests existants couvrent les échecs partiels multisite et le transfert
+  Agent limité au site avec vérification de hash, mais ils n’ont pas abouti
+  comme preuves exécutées dans cette session Windows.
+- Tests : `go test -count=1 ./internal/adapters/config ./internal/adapters/generation ./pkg/protocol`
+  échoue globalement : config passe, Application Control bloque les exécutables
+  de tests génération/protocole. `go test -count=1 ./provider/internal/...`,
+  `go test -count=1 ./agent/internal/...` et `go test -count=1 ./...` échouent
+  avec blocage Application Control, SQLite sans CGO et limites d’intégration
+  Windows. `go vet ./...`, `go build ./provider/cmd ./agent/cmd` et
+  `git diff --check` réussissent. `gofmt -l` direct liste tous les fichiers car
+  le checkout Windows utilise CRLF et les blobs Git LF; le contrôle sur copies
+  temporaires normalisées en LF réussit. Aucun changement massif de fins de
+  ligne n’a été effectué.
+- Environnement : Go `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; aucun exécutable `gcc` disponible.
+  Le build réussi ne prouve donc pas le fonctionnement runtime de SQLite.
+- Le run GitHub Actions [43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432)
+  sur le HEAD inspecté a échoué sous Linux (driver SQLite non enregistré) et
+  Windows (`go` absent du `PATH` dans le shell MSYS2). Les corrections locales
+  restaurent l’import SQLite, passent les étapes Windows à PowerShell et
+  désactivent la conversion CRLF du checkout Windows; aucun run CI ne valide
+  ces changements non commités.
+- `scripts/demo-provisioning.ps1` passe l’analyse syntaxique PowerShell; son
+  lancement a été bloqué par la stratégie d’exécution locale, qui n’a pas été
+  changée ni contournée. Les commandes CLI et vérifications ont été exécutées
+  séparément.
+- **Score de preuve de disponibilité : 7/10** : génération/intégrité 3/3;
+  intention non supportée et multisite 1/2; build/contrôles statiques 2/2;
+  tests complets et CI sur la révision modifiée 0/2; procédure/docs 1/1.
+  Ce n’est pas un score de préparation à la mise en production.
+  **Pas prêt pour release** tant que les tests ciblés/complets et la CI Linux
+  ne réussissent pas sur la révision modifiée.
+- Cisco `.cfg` = texte rendu, pas Cisco ZTP; MikroTik `.auto.rsc` = rendu non
+  prouvé sur CHR ou matériel; FortiOS `.conf` = rendu uniquement. Aucun vendor
+  n’est validé matériellement. Génération, livraison, exécution et vérification
+  restent des étapes distinctes.
+
+> Les relevés du 2026-11-11 et plus anciens ci-dessous sont historiques; ce
+> relevé remplace leurs affirmations de tests, build et exécution CLI.
+
 ## Mise à jour de génération — 2026-11-11
 
 - Branche `develop`; HEAD de départ `7d03baf681325b2a97c75de02ce51c9084839375`.

@@ -19,6 +19,8 @@ const inputYAML = `sites:
   - name: lab
     bootstrap:
       network: 192.168.100.0/24
+    services:
+      dhcp: true
     devices:
       - name: R1
         vendor: cisco
@@ -133,8 +135,8 @@ func TestGenerateAllPublishesCompleteAgentCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 17 {
-		t.Fatalf("expected 17 complete artifacts in agent catalog, got %d", len(catalog))
+	if len(catalog) != 16 {
+		t.Fatalf("expected 16 complete artifacts in agent catalog, got %d", len(catalog))
 	}
 	if strings.Contains(stdout.String(), "ansible") || !strings.Contains(stdout.String(), "generated and published lab/terraform/main.tf") {
 		t.Fatalf("generate-all did not report tool artifacts as published: %s", stdout.String())

@@ -1,13 +1,65 @@
 # Vendor provisioning audit
 
-**Audit date:** 2026-10-30  
+**Audit date:** 2026-10-30; stabilization evidence updated 2026-11-12
 **Scope:** repository state on `develop`, official-source review, and the
 requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 **Evidence rule:** generated text and mock tests are not proof of device
 compatibility. No capability below is marked `IMPLEMENTED` or `LAB-VERIFIED`
 unless an actual implementation and matching evidence exist.
 
-## Implementation update — 2026-11-11
+## Current stabilization evidence — 2026-11-12
+
+Inspected branch `develop` at starting HEAD
+`986d2a7b15fe9aee46f4579688b694862dd64485`; the current fixes remain
+uncommitted. The Provider CLI validated and generated all three existing
+fixtures into fresh temporary output roots:
+
+| Fixture | Output evidence |
+|---|---|
+| `examples/provisioning-generation.yaml` | 30 files; 2 site manifests; 13 catalog artifacts per site; Cisco `.cfg` and MikroTik `.auto.rsc`; no bootstrap artifacts |
+| `examples/infra.yaml` | 19 files; 1 site manifest; 16 catalog artifacts, including five explicitly enabled DHCP/TFTP/PXE artifacts |
+| `examples/multisite-preparation.yaml` | 50 files; 4 independent site manifests; 11 catalog artifacts per site |
+
+JSON manifests/reports parsed successfully; catalog paths, disk files, byte
+sizes, and SHA-256 values matched. Unsupported OSPF intent failed without
+publishing an output directory. These were generation/integrity checks only;
+they did not exercise device delivery, execution, or verification.
+
+The local Go test runs did not pass as a complete baseline. The focused
+config/generation/protocol command had config passing while Application
+Control blocked generation/protocol test executables. Provider, Agent, and
+full-suite commands were blocked by Application Control and Windows/CGO
+integration constraints. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`,
+and `git diff --check` passed. Direct local `gofmt -l` listed all files because
+the Windows working tree uses CRLF while Git blobs use LF; the check on
+LF-normalized temporary copies passed. The Windows CI checkout now disables
+CRLF conversion; this has not yet run in CI. The environment was
+`go1.27.3 windows/amd64`,
+`CGO_ENABLED=0`, with no C compiler available; the build is not evidence that
+SQLite works at runtime.
+
+The latest available GitHub Actions run on the inspected HEAD,
+[43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432),
+failed: Linux reported an unregistered SQLite driver; Windows reported `go:
+command not found` in its MSYS2 shell. The uncommitted changes restore SQLite
+driver registration, use PowerShell for Windows CI commands, and disable
+Windows checkout CRLF conversion for formatting, but have no post-change CI
+result. Multisite success output is verified; existing tests
+for mixed-site failure and authorized/hash-checked Agent transfer did not
+complete in the local run.
+
+Current security test coverage includes traversal and symlink rejection,
+atomic publication, artifact hash rejection, secret redaction, and site-scoped
+authorization. Those tests are not claimed as passed in this run because the
+full test suite remains blocked.
+
+**Current readiness: NOT READY for release** until the focused/full Go tests
+and Linux CI pass on the modified revision. No device/lab evidence is
+available. Cisco `.cfg` is generated text, not Cisco ZTP; MikroTik `.auto.rsc`
+is rendered but not proven on CHR or hardware; FortiOS `.conf` is render-only.
+No vendor should be described as hardware-validated.
+
+## Historical implementation update — 2026-11-11
 
 The Provider now renders a versioned RouterOS `.auto.rsc` template through
 `generate-all` for declared model `RB750Gr3`, OS train `7.x`, and template

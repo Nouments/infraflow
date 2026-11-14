@@ -30,7 +30,43 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-`validate` is read-only. `plan` only describes deterministic work. `generate-all` creates and publishes the supported artifact catalog (inventory, topology, Terraform data, native device configuration, and bootstrap DHCP/DNS/TFTP/PXE/iPXE data) with one combined manifest; it does not contact infrastructure or apply a plan.
+### Current stabilization evidence (2026-11-12)
+
+The local stabilization run started on `develop` at
+`986d2a7b15fe9aee46f4579688b694862dd64485`; its fixes are uncommitted. The
+three generation fixtures listed below validated and generated successfully
+into fresh temporary directories. Manifests/reports parsed as JSON and artifact
+paths, sizes, and SHA-256 values matched. Detailed counts and exact results are
+in the [completion and test report](docs/COMPLETION_AND_TEST_REPORT.md).
+
+This is not a green test baseline: focused/provider/agent/full `go test` runs
+did not complete cleanly on this Windows machine (`CGO_ENABLED=0`, Application
+Control restrictions, and other Windows integration limitations). `go vet`,
+the Provider/Agent build, and `git diff --check` passed. The local `gofmt -l`
+check listed all files because the Windows working tree uses CRLF while Git
+stores Go sources with LF; the LF-normalized temporary-copy check passed, and
+the Windows CI checkout now disables CRLF conversion. The latest available CI
+run on the inspected HEAD failed on Linux (SQLite driver not registered) and
+Windows (`go` missing from the MSYS2 shell); local uncommitted fixes are
+awaiting CI verification. Release readiness therefore remains **not ready**.
+
+`validate` is read-only. `plan` only describes deterministic work.
+`generate-all` creates and publishes the supported artifact catalog
+(inventory, topology, Terraform data, native device configuration, and
+bootstrap DHCP/DNS/TFTP/PXE/iPXE data for explicitly enabled services) with
+one combined manifest; it does not contact infrastructure or apply a plan.
+Bootstrap service artifacts are omitted unless the corresponding service is
+explicitly enabled.
+
+Run the end-to-end PowerShell demonstration from the repository root with
+`.\scripts\demo-provisioning.ps1`. It validates and plans the provisioning
+fixture, generates into a fresh temporary directory, verifies manifests,
+artifact sizes and SHA-256 values, displays the Cisco `.cfg` and MikroTik
+`.auto.rsc`, and confirms unsupported OSPF intent is rejected without output.
+The output remains under the printed `%TEMP%` path for inspection. On the
+stabilization machine, invoking the script was blocked by the local PowerShell
+execution policy; it was not changed or bypassed. The CLI commands and output
+checks were run separately. Follow local policy when running the script.
 
 The YAML parser accepts either `site` or `sites`, based on which top-level key
 is present, and rejects documents containing both. Network validation rejects
@@ -89,6 +125,10 @@ marks compatibility `unknown`; family-level rendering is not a supported
 model/version matrix or evidence of syntax validation. Unsupported intent is
 rejected rather than silently omitted. Generated files are never applied
 automatically.
+The Cisco `.cfg` is generated text, not Cisco ZTP. The MikroTik `.auto.rsc`
+is rendered but has not been proven on CHR or hardware. FortiOS `.conf` output
+is render-only. No vendor is hardware-validated, and generation is not delivery,
+execution, or verification.
 The report labels document validation as `passed`, declaration-to-template
 compatibility as render-only, command syntax validation as `not_performed`,
 and physical-device validation as `not_performed`. No IOS parser or device
@@ -178,9 +218,10 @@ scenario for Cisco IOS-XE, MikroTik RouterOS, and FortiOS family labels across
 four sites. It declares RouterOS `7.x` as scenario metadata but does not claim
 that a particular device was observed running that version. It omits exact
 device models and interfaces. Its shared `192.0.2.0/24` bootstrap range is
-TEST-NET documentation space; bootstrap service artifacts are generated with
-their services disabled. Vendor labels and OS metadata are not evidence that
-the devices or generated vendor-specific configuration are compatible.
+TEST-NET documentation space; bootstrap artifacts are omitted because no
+bootstrap service is explicitly enabled. Vendor labels and OS metadata are
+not evidence that the devices or generated vendor-specific configuration are
+compatible.
 
 `generate-all` runs independent site generation in parallel, capped at four
 workers. Each site is generated and hash-checked in a private staging
@@ -219,8 +260,9 @@ go test -count=1 ./agent/internal/application \
 
 The test builds and launches the real Provider and Agent executables, starts
 four Agents with distinct site-scoped gRPC tokens, and checks the downloaded
-file hashes, per-site state directories, disabled DHCP artifacts, and the four
-reports persisted by the Provider. It also checks that the unsupported OSPF
+file hashes, per-site state directories, absence of disabled bootstrap
+artifacts, and the four reports persisted by the Provider. It also checks that
+the unsupported OSPF
 example is rejected without publishing a config or generation report. All
 runtime state and generated files live under Go's temporary test directory.
 `TestRunSitesInParallelStartsIndependentWorkersConcurrently` verifies that the

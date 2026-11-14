@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3"
+
 	"infraflow/provider/internal/domain"
 	"infraflow/provider/internal/ports"
 )

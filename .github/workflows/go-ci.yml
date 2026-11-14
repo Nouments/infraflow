@@ -34,6 +34,8 @@ jobs:
       CC: gcc
     steps:
       - uses: actions/checkout@v4
+        with:
+          autocrlf: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -44,12 +46,19 @@ jobs:
           update-environment: true
           install: mingw-w64-ucrt-x86_64-gcc
       - run: go test -count=1 ./...
-        shell: msys2 {0}
+        shell: pwsh
       - run: go vet ./...
-        shell: msys2 {0}
+        shell: pwsh
       - run: go build ./provider/cmd ./agent/cmd
-        shell: msys2 {0}
-      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
-        shell: msys2 {0}
+        shell: pwsh
+      - run: |
+          $goFiles = git ls-files '*.go'
+          $unformatted = gofmt -l $goFiles
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($unformatted) {
+            Write-Error "gofmt required for: $($unformatted -join ', ')"
+            exit 1
+          }
+        shell: pwsh
       - run: git diff --check
-        shell: msys2 {0}
+        shell: pwsh

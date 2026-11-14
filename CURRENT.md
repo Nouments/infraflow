@@ -1,33 +1,65 @@
 # InfraFlow — Bloc 1 Audit
 
-## Current generation status — 2026-11-11
+## Current stabilization status — 2026-11-12
 
-- Branch: `develop`; starting HEAD: `7d03baf681325b2a97c75de02ce51c9084839375`.
-- Added a versioned, render-only RouterOS `.auto.rsc` template for declared
-	`RB750Gr3`, RouterOS `7.x`, template version `1`, integrated through
-	`GenerateNative` / `GenerateAll` and the existing hash-verified artifact
-	protocol. Compatibility and syntax remain unverified; no upload, execution,
-	or `.auto.log` verification occurs.
-- Cisco ZTP is blocked by the repository's TLS-only requirement and missing
-	model/release evidence; Cisco AutoInstall and Fortinet ZTP profiles remain
-	unsupported. The demo's Cisco file is a render-only `.cfg`, not ZTP.
-- `go test -count=1 ./internal/adapters/generation ./pkg/protocol`: PASS,
-	including actual demo YAML parsing, `GenerateAll`, catalog reads, and SHA-256
-	checks for the Cisco `.cfg` and RouterOS `.auto.rsc` outputs.
-- `go test ./...`: FAIL. The Windows Agent private-file mode assertion fails;
-	Application Control blocks two Agent test binaries; the multisite test cannot
-	build Provider because `CGO_ENABLED=0` removes the current SQLite driver's
-	cgo symbols. `go test -race ./...` cannot run without CGO.
-- `go vet ./...` and `go build ./provider/cmd ./agent/cmd` are blocked by those
-	missing SQLite symbols. GNU `make` is unavailable; `gofmt -l` on all touched
-	Go files is clean. The Provider CLI demo could not run, so no persistent
-	generated output directory was created.
-- Sprint progress score: **4.8/10**, weighted across shared generation/manifest
-	integration (20%, 8/10), RouterOS `.auto.rsc` slice (30%, 8/10), Cisco ZTP
-	(20%, 0/10), Cisco AutoInstall (10%, 0/10), Fortinet ZTP handling (10%,
-	2/10), and evidence/demo/docs (10%, 6/10). This is sprint completion, not
-	overall InfraFlow maturity.
-- No device was contacted; no commit or push was made.
+- Branch: `develop`. Inspected starting HEAD: `986d2a7b15fe9aee46f4579688b694862dd64485`.
+  The fixes and documentation updates described here are uncommitted; no files
+  were staged, committed, or pushed.
+- `go run ./provider/cmd validate`, `plan`, and `generate-all` were run on
+  `examples/provisioning-generation.yaml`, `examples/infra.yaml`, and
+  `examples/multisite-preparation.yaml`, each into a fresh output directory.
+  All three inputs validated and generated successfully.
+- Output totals: provisioning demo **30 files**, two sites and 13 catalog
+  artifacts per site; `infra.yaml` **19 files**, one site and 16 catalog
+  artifacts, including five explicitly enabled DHCP/TFTP/PXE outputs; multisite
+  **50 files**, four sites and 11 catalog artifacts per site. Root/site
+  manifests and reports parsed as JSON. Artifact catalogs matched the files on
+  disk; sizes and SHA-256 matched; no unexpected site artifacts were found.
+  Cisco `.cfg` and MikroTik `.auto.rsc` were present in the provisioning demo.
+  Bootstrap outputs were absent when services were not enabled.
+- RouterOS artifact SHA-256:
+  `237b12b4ea2724d36763d9f29a8d200c37b20a685ea76e68e1158b1a58a984fc`.
+  Unsupported OSPF exited nonzero and left no output directory. Generated
+  configurations were not delivered to or applied to devices.
+- Multisite generation produced four independent site directories/manifests
+  with distinct site paths. Existing tests cover mixed-site failure and
+  site-scoped, hash-checked Agent transfer, but those test cases did not
+  complete successfully in this Windows run; do not treat them as new runtime
+  evidence.
+- Local test/build baseline:
+  `go test -count=1 ./internal/adapters/config ./internal/adapters/generation ./pkg/protocol`
+  failed overall: config passed, but Application Control blocked the
+  generation/protocol test executables. `go test -count=1 ./provider/internal/...`,
+  `go test -count=1 ./agent/internal/...`, and `go test -count=1 ./...` failed
+  with Application Control, CGO-disabled SQLite, and Windows integration
+  limitations. `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, and
+  `git diff --check` passed. Direct local `gofmt -l` listed all files because
+  the Windows working tree uses CRLF while Git stores them as LF; a check of
+  LF-normalized temporary copies passed. No mass line-ending rewrite was made.
+- Environment: Go `go1.27.3 windows/amd64`, `CGO_ENABLED=0`,
+  `GOOS=windows`, `GOARCH=amd64`, `CC=gcc`; no `gcc` executable was found.
+  The successful build therefore does not prove SQLite runtime operation.
+- GitHub Actions run [43145691432](https://github.com/Nouments/infraflow/actions/runs/43145691432)
+  on this starting HEAD failed on Linux because the SQLite driver was not
+  registered and on Windows because `go` was not on the MSYS2 shell's `PATH`.
+  The working tree restores the SQLite import and changes Windows CI steps to
+  PowerShell with LF checkout for the format check, but no CI run exists for
+  these uncommitted fixes.
+- `scripts/demo-provisioning.ps1` passed a PowerShell syntax parse. Invoking
+  the script was blocked by the machine's execution policy; it was not changed
+  or bypassed. The documented CLI steps and output checks were run directly.
+- **Readiness evidence score: 7/10**: demo generation and integrity 3/3;
+  unsupported-intent and multisite evidence 1/2; build/static checks 2/2;
+  full tests and current-HEAD CI 0/2; docs/demo procedure 1/1. This is not a
+  release-readiness score. **Release readiness: NOT READY** until the focused
+  and full tests plus Linux CI pass on the modified revision.
+- Capability limits remain: Cisco `.cfg` is generated text, not Cisco ZTP;
+  MikroTik `.auto.rsc` is rendered but not proven on CHR or hardware; FortiOS
+  `.conf` is render-only. No vendor is hardware-validated. Generation,
+  delivery, execution, and verification are separate stages.
+
+> The 2026-11-11 status below and older audit entries are historical; this
+> block supersedes their test, build, and CLI-run claims.
 
 > **Historique — état antérieur au 2026-10-29.** Les sections ci-dessous
 > décrivent un audit réalisé avant la décision d’exclure Ansible. Depuis cette

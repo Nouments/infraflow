@@ -3,6 +3,7 @@ package observability
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -54,8 +55,11 @@ func TestStorePersistsDeduplicatesAndFiltersEvents(t *testing.T) {
 		t.Fatalf("persisted event missing after reload: %#v, %v", page, err)
 	}
 	info, err := os.Stat(filepath.Join(directory, "central-events.jsonl"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("central logs are not private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("central log permissions are %04o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -113,8 +117,11 @@ func TestOutboxSurvivesOfflineRestartUntilCentralAcknowledgement(t *testing.T) {
 		t.Fatalf("acknowledged event was not removed or remaining event was lost: %#v, %v", pending, err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
 		t.Fatalf("outbox file is not private: %v, %v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("outbox permissions are %04o, want 0600", info.Mode().Perm())
 	}
 }
 
