@@ -17,7 +17,7 @@ func (handler *Handler) ingestAgentLogs(writer http.ResponseWriter, request *htt
 	if err := decodeRequest(writer, request, &input); err != nil {
 		return
 	}
-	result, err := handler.service.IngestAgentLogs(input.AgentID, input.Events)
+	result, err := handler.service.IngestAgentLogsContext(request.Context(), input.AgentID, input.Events)
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
@@ -40,6 +40,13 @@ func (handler *Handler) listTechnicalLogs(writer http.ResponseWriter, request *h
 }
 
 func (handler *Handler) streamTechnicalLogs(writer http.ResponseWriter, request *http.Request) {
+	select {
+	case handler.streamSlots <- struct{}{}:
+		defer func() { <-handler.streamSlots }()
+	default:
+		writeError(writer, http.StatusServiceUnavailable, "log stream capacity is full")
+		return
+	}
 	query, err := parseLogQuery(request)
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())

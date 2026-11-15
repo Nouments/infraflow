@@ -24,8 +24,25 @@ func WithCorrelationID(ctx context.Context, value string) context.Context {
 }
 
 func CorrelationID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	value, _ := ctx.Value(correlationContextKey{}).(string)
 	return value
+}
+
+func ValidCorrelationID(value string) bool {
+	if len(value) < 1 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '-' || character == '_' || character == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 const (
@@ -70,6 +87,7 @@ type Config struct {
 	Format     string
 	MaxBytes   int64
 	MaxFiles   int
+	MaxAge     time.Duration
 	HostID     string
 	Hostname   string
 	Console    bool
@@ -143,11 +161,19 @@ func New(config Config) (*Logger, error) {
 	if err := os.Chmod(config.Directory, 0o700); err != nil {
 		return nil, fmt.Errorf("secure log directory: %w", err)
 	}
-	file, err := newRotatingFile(filepath.Join(config.Directory, config.FileName), config.MaxBytes, config.MaxFiles)
+	if config.MaxAge < 0 {
+		return nil, fmt.Errorf("log retention age must not be negative")
+	}
+	file, err := newRotatingFile(filepath.Join(config.Directory, config.FileName), config.MaxBytes, config.MaxFiles, config.MaxAge)
 	if err != nil {
 		return nil, err
 	}
-	return &Logger{config: config, file: file, level: level}, nil
+	logger := &Logger{config: config, file: file, level: level}
+	if _, err := logger.Purge(time.Now()); err != nil {
+		_ = logger.Close()
+		return nil, fmt.Errorf("purge expired rotated logs: %w", err)
+	}
+	return logger, nil
 }
 
 func (logger *Logger) Directory() string { return logger.config.Directory }
@@ -282,6 +308,15 @@ func (logger *Logger) Close() error {
 	return logger.file.Close()
 }
 
+func (logger *Logger) Purge(now time.Time) (int, error) {
+	if logger == nil {
+		return 0, fmt.Errorf("logger is not configured")
+	}
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	return logger.file.PurgeExpired(now)
+}
+
 func Redact(value string) string {
 	return secretPattern.ReplaceAllString(value, "[REDACTED]")
 }
@@ -295,6 +330,9 @@ func NormalizeEvent(event Event) (Event, error) {
 	}
 	if _, err := parseLevel(event.Level); err != nil {
 		return Event{}, err
+	}
+	if event.CorrelationID != "" && !ValidCorrelationID(event.CorrelationID) {
+		return Event{}, fmt.Errorf("log correlation id is invalid")
 	}
 	if strings.TrimSpace(event.Event) == "" || strings.TrimSpace(event.Service) == "" || strings.TrimSpace(event.Message) == "" || strings.TrimSpace(event.Source) == "" {
 		return Event{}, fmt.Errorf("log event, service, message, and source are required")
@@ -355,11 +393,12 @@ type rotatingFile struct {
 	path     string
 	maxBytes int64
 	maxFiles int
+	maxAge   time.Duration
 	file     *os.File
 	size     int64
 }
 
-func newRotatingFile(path string, maxBytes int64, maxFiles int) (*rotatingFile, error) {
+func newRotatingFile(path string, maxBytes int64, maxFiles int, maxAge time.Duration) (*rotatingFile, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
@@ -373,7 +412,7 @@ func newRotatingFile(path string, maxBytes int64, maxFiles int) (*rotatingFile, 
 		_ = file.Close()
 		return nil, fmt.Errorf("stat log file: %w", err)
 	}
-	return &rotatingFile{path: path, maxBytes: maxBytes, maxFiles: maxFiles, file: file, size: info.Size()}, nil
+	return &rotatingFile{path: path, maxBytes: maxBytes, maxFiles: maxFiles, maxAge: maxAge, file: file, size: info.Size()}, nil
 }
 
 func (file *rotatingFile) WriteLine(line []byte) error {
@@ -461,6 +500,36 @@ func (file *rotatingFile) ReadAll() ([]Event, error) {
 		}
 	}
 	return events, nil
+}
+
+func (file *rotatingFile) PurgeExpired(now time.Time) (int, error) {
+	if file.maxAge <= 0 {
+		return 0, nil
+	}
+	file.mu.Lock()
+	defer file.mu.Unlock()
+	cutoff := now.Add(-file.maxAge)
+	removed := 0
+	for index := 1; index <= file.maxFiles; index++ {
+		path := fmt.Sprintf("%s.%d", file.path, index)
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return removed, fmt.Errorf("inspect rotated log file: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return removed, fmt.Errorf("rotated log file must be regular")
+		}
+		if info.ModTime().Before(cutoff) {
+			if err := os.Remove(path); err != nil {
+				return removed, fmt.Errorf("remove expired rotated log file: %w", err)
+			}
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 func (file *rotatingFile) Close() error {

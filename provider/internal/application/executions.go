@@ -122,9 +122,13 @@ func (service *ExecutionService) Submit(ctx context.Context, actorID, idempotenc
 	keyHash := protocol.SHA256([]byte(actorID + "\x00" + idempotencyKey))
 	execution := domain.Execution{
 		ID: id, IdempotencyKeyHash: keyHash, RequestHash: requestHash, ActorID: actorID,
-		Status: domain.ExecutionQueued, Tasks: tasks, CreatedAt: now, UpdatedAt: now, Revision: 1,
+		CorrelationID: observability.CorrelationID(ctx),
+		Status:        domain.ExecutionQueued, Tasks: tasks, CreatedAt: now, UpdatedAt: now, Revision: 1,
 	}
-	queuedEvent := domain.ExecutionEvent{ActorID: actorID, Action: "execution.queued", Status: domain.ExecutionQueued, Timestamp: now}
+	queuedEvent := domain.ExecutionEvent{
+		ActorID: actorID, Action: "execution.queued", Status: domain.ExecutionQueued,
+		Timestamp: now, CorrelationID: execution.CorrelationID,
+	}
 	execution.Events = []domain.ExecutionEvent{queuedEvent}
 	created, isNew, err := service.repository.Create(execution)
 	if err != nil {
@@ -199,6 +203,22 @@ func (service *ExecutionService) List(statusFilter, taskType string, limit, offs
 		items = []domain.Execution{}
 	}
 	return ExecutionPage{Items: items, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+func (service *ExecutionService) StatusCounts() (map[string]int, error) {
+	executions, err := service.repository.List()
+	if err != nil {
+		return nil, fmt.Errorf("list executions for metrics: %w", err)
+	}
+	counts := map[string]int{
+		string(domain.ExecutionQueued): 0, string(domain.ExecutionRunning): 0,
+		string(domain.ExecutionSucceeded): 0, string(domain.ExecutionFailed): 0,
+		string(domain.ExecutionCancelled): 0, string(domain.ExecutionTimedOut): 0,
+	}
+	for _, execution := range executions {
+		counts[string(execution.Status)]++
+	}
+	return counts, nil
 }
 
 func (service *ExecutionService) Cancel(id, actorID string) (domain.Execution, error) {
@@ -677,7 +697,8 @@ func (service *ExecutionService) change(id, actorID, action, taskID string, task
 	}
 	event := domain.ExecutionEvent{
 		ActorID: actorID, Action: action, TaskID: taskID, Status: execution.Status,
-		TaskStatus: taskStatus, Timestamp: timestamp, Error: safeExecutionError(eventErr),
+		TaskStatus: taskStatus, Timestamp: timestamp, CorrelationID: execution.CorrelationID,
+		Error: safeExecutionError(eventErr),
 	}
 	execution.Events = append(execution.Events, event)
 	updated, err := service.repository.Update(execution)
@@ -698,13 +719,14 @@ func (service *ExecutionService) writeAudit(executionID string, event domain.Exe
 	payload, err := json.Marshal(map[string]any{
 		"actor_id": event.ActorID, "execution_id": executionID, "task_id": event.TaskID,
 		"action": event.Action, "status": event.Status, "task_status": event.TaskStatus,
-		"error": event.Error,
+		"correlation_id": event.CorrelationID, "error": event.Error,
 	})
 	if err != nil {
 		return err
 	}
 	_, _, err = service.events.Append(domain.Event{
-		EventID: eventID, Timestamp: event.Timestamp, Type: event.Action, Payload: payload,
+		EventID: eventID, Timestamp: event.Timestamp, Type: event.Action,
+		CorrelationID: event.CorrelationID, Payload: payload,
 	})
 	return err
 }

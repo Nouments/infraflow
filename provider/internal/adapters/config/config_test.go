@@ -13,8 +13,17 @@ artifact_directory: ./provider-data
 token_env: INFRAFLOW_AGENT_TOKEN
 `)
 	config, err := Load(loopback)
-	if err != nil || config.ChunkSize != defaultChunk || config.DatabasePath == "" || config.AdminUsername != "admin" || config.AdminCredentialFile == "" || config.AdminCredentialScript == "" || config.SessionTTLMinutes != 480 {
+	if err != nil || config.ChunkSize != defaultChunk || config.DatabasePath == "" || config.AdminUsername != "admin" || config.AdminCredentialFile == "" || config.AdminCredentialScript == "" || config.SessionTTLMinutes != 480 || config.Logging.RetentionDays != 30 {
 		t.Fatalf("unexpected local config: %#v, %v", config, err)
+	}
+	retention := writeProviderConfig(t, `listen_address: localhost:8443
+artifact_directory: ./provider-data
+token_env: INFRAFLOW_AGENT_TOKEN
+logging:
+  retention_days: 14
+`)
+	if config, err := Load(retention); err != nil || config.Logging.RetentionDays != 14 {
+		t.Fatalf("configured log retention was not loaded: %#v, %v", config.Logging, err)
 	}
 	remote := writeProviderConfig(t, `listen_address: 0.0.0.0:8443
 artifact_directory: /var/lib/infraflow/artifacts

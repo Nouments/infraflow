@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -307,6 +309,205 @@ func TestTechnicalLogStreamProducesSSEFramesAndStopsOnContextCancel(t *testing.T
 	}
 }
 
+func TestMetricsCorrelationAndAuditAreAdminOnlyAndRedacted(t *testing.T) {
+	root := t.TempDir()
+	logStore, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := filesystem.NewAgentStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := filesystem.NewEventStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewServiceWithJobsAgentsEvents(
+		filesystem.NewArtifactRepository(root), nil, generation.Generator{}, nil, agents, events,
+		application.Dependencies{
+			Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{},
+			ArtifactDirectory: root, Logs: logStore,
+		},
+	)
+	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-metrics", SiteID: "site-metrics"}); err != nil {
+		t.Fatal(err)
+	}
+	agentToken := strings.Repeat("m", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+	providerHandler := handler.(*Handler)
+	loggerConfig, err := observability.DefaultConfig("provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loggerConfig.Directory = t.TempDir()
+	logger, err := observability.New(loggerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	providerHandler.SetLogger(logger)
+
+	input := `sites:
+  - name: lab
+    devices:
+      - name: R1
+        vendor: cisco
+        family: iosxe
+        network:
+          interfaces:
+            - name: Gi1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 192.0.2.1/24
+`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/plan/generate", strings.NewReader(`{"input":`+strconv.Quote(input)+`}`))
+	request.Header.Set("Authorization", "Bearer "+userToken)
+	request.Header.Set("X-Correlation-ID", "corr-generation-001")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("X-Correlation-ID") != "corr-generation-001" {
+		t.Fatalf("generation or correlation response failed: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	audits := service.Events()
+	if len(audits) != 2 || audits[1].Type != "plan.generation.result" || audits[1].CorrelationID != "corr-generation-001" {
+		t.Fatalf("generation audit did not retain its request correlation id: %#v", audits)
+	}
+
+	failed := authRequest(t, handler, http.MethodPost, "/api/v1/plan/generate", `{"input":"invalid: ["}`, userToken)
+	if failed.Code != http.StatusBadRequest {
+		t.Fatalf("invalid generation returned %d: %s", failed.Code, failed.Body.String())
+	}
+	metrics := authRequest(t, handler, http.MethodGet, "/metrics", "", userToken)
+	for _, expected := range []string{
+		`infraflow_generation_duration_seconds_count 2`,
+		`infraflow_generation_errors_total 1`,
+		`infraflow_agents_synchronized 1`,
+	} {
+		if metrics.Code != http.StatusOK || !strings.Contains(metrics.Body.String(), expected) {
+			t.Errorf("metrics response missing %q: status=%d body=%s", expected, metrics.Code, metrics.Body.String())
+		}
+	}
+	if strings.Contains(metrics.Body.String(), agentToken) || strings.Contains(metrics.Body.String(), userToken) {
+		t.Fatalf("metrics response leaked a bearer token: %s", metrics.Body.String())
+	}
+	if denied := authRequest(t, handler, http.MethodGet, "/metrics", "", agentToken); denied.Code != http.StatusForbidden {
+		t.Fatalf("agent token accessed metrics: %d %s", denied.Code, denied.Body.String())
+	}
+
+	logged, err := logger.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCorrelation := false
+	for _, event := range logged {
+		if event.CorrelationID == "corr-generation-001" {
+			foundCorrelation = true
+		}
+	}
+	if !foundCorrelation {
+		t.Fatalf("request logs did not retain the correlation id: %#v", logged)
+	}
+	encodedLogs, err := json.Marshal(logged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encodedLogs), userToken) || strings.Contains(string(encodedLogs), agentToken) {
+		t.Fatal("request logs exposed an Authorization bearer token")
+	}
+}
+
+func TestTechnicalLogStreamsBoundSlowClientsAndReleaseCapacityOnDisconnect(t *testing.T) {
+	root := t.TempDir()
+	logs, err := observability.NewStore(root, observability.DefaultCentralLogLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := logs.Append([]observability.Event{{
+		ID: "slow-stream-event", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Level: "INFO", Event: "stream.test", Message: "bounded event",
+		Service: "agent", Source: "test",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	service := application.NewService(nil, nil, nil, application.Dependencies{Logs: logs})
+	agentToken := strings.Repeat("b", security.MinAgentTokenBytes)
+	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
+	providerHandler := handler.(*Handler)
+	release := make(chan struct{})
+	started := make(chan struct{}, maxConcurrentLogStreams)
+	var wait sync.WaitGroup
+	cancels := make([]context.CancelFunc, 0, maxConcurrentLogStreams)
+	for index := 0; index < maxConcurrentLogStreams; index++ {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream", nil)
+		request.Header.Set("Authorization", "Bearer "+userToken)
+		ctx, cancel := context.WithCancel(request.Context())
+		request = request.WithContext(ctx)
+		cancels = append(cancels, cancel)
+		wait.Add(1)
+		go func(request *http.Request) {
+			defer wait.Done()
+			handler.ServeHTTP(&slowResponseWriter{release: release, started: started}, request)
+		}(request)
+	}
+	deadline := time.After(10 * time.Second)
+	for index := 0; index < maxConcurrentLogStreams; index++ {
+		select {
+		case <-started:
+		case <-deadline:
+			close(release)
+			for _, cancel := range cancels {
+				cancel()
+			}
+			wait.Wait()
+			t.Fatalf("only %d slow streams reached their first write", index)
+		}
+	}
+
+	overflow := httptest.NewRequest(http.MethodGet, "/api/v1/logs/stream", nil)
+	overflow.Header.Set("Authorization", "Bearer "+userToken)
+	overflowResponse := httptest.NewRecorder()
+	handler.ServeHTTP(overflowResponse, overflow)
+	if overflowResponse.Code != http.StatusServiceUnavailable {
+		t.Fatalf("stream capacity overflow returned %d: %s", overflowResponse.Code, overflowResponse.Body.String())
+	}
+	if len(providerHandler.streamSlots) != maxConcurrentLogStreams {
+		t.Fatalf("slow stream count is not bounded: %d", len(providerHandler.streamSlots))
+	}
+	for _, cancel := range cancels {
+		cancel()
+	}
+	close(release)
+	wait.Wait()
+	if got := len(providerHandler.streamSlots); got != 0 {
+		t.Fatalf("disconnected streams leaked capacity: %d slots remain", got)
+	}
+}
+
+type slowResponseWriter struct {
+	header  http.Header
+	release <-chan struct{}
+	started chan<- struct{}
+	once    sync.Once
+}
+
+func (writer *slowResponseWriter) Header() http.Header {
+	if writer.header == nil {
+		writer.header = make(http.Header)
+	}
+	return writer.header
+}
+
+func (*slowResponseWriter) WriteHeader(int) {}
+
+func (writer *slowResponseWriter) Write(data []byte) (int, error) {
+	writer.once.Do(func() { writer.started <- struct{}{} })
+	<-writer.release
+	return len(data), nil
+}
+
+func (*slowResponseWriter) Flush() {}
+
 func TestTechnicalLogAPIReportsUnavailableStoreRatherThanEmptyResult(t *testing.T) {
 	root := t.TempDir()
 	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, nil, application.Dependencies{})
@@ -489,6 +690,10 @@ func TestExecutionAPIRequiresAdminAndExposesLifecycle(t *testing.T) {
 	completed, err := executionService.Wait(t.Context(), submitted.ID)
 	if err != nil || completed.Status != domain.ExecutionSucceeded || len(completed.Tasks[0].Attempts) != 1 {
 		t.Fatalf("execution did not complete: %#v, %v", completed, err)
+	}
+	metrics := authRequest(t, handler, http.MethodGet, "/metrics", "", adminToken)
+	if metrics.Code != http.StatusOK || !strings.Contains(metrics.Body.String(), `infraflow_executions{status="succeeded"} 1`) {
+		t.Fatalf("metrics omitted the persisted execution status: %d %s", metrics.Code, metrics.Body.String())
 	}
 
 	replay := httptest.NewRequest(http.MethodPost, "/api/v1/executions", strings.NewReader(body))

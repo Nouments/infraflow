@@ -50,11 +50,12 @@ type AgentCredential struct {
 }
 
 type LoggingConfig struct {
-	Directory string `yaml:"directory,omitempty"`
-	Level     string `yaml:"level,omitempty"`
-	Format    string `yaml:"format,omitempty"`
-	MaxBytes  int64  `yaml:"max_bytes,omitempty"`
-	MaxFiles  int    `yaml:"max_files,omitempty"`
+	Directory     string `yaml:"directory,omitempty"`
+	Level         string `yaml:"level,omitempty"`
+	Format        string `yaml:"format,omitempty"`
+	MaxBytes      int64  `yaml:"max_bytes,omitempty"`
+	MaxFiles      int    `yaml:"max_files,omitempty"`
+	RetentionDays int    `yaml:"retention_days,omitempty"`
 }
 
 type TLSConfig struct {
@@ -127,6 +128,9 @@ func Load(path string) (Config, error) {
 	}
 	if config.Logging.MaxFiles == 0 {
 		config.Logging.MaxFiles = defaults.MaxFiles
+	}
+	if config.Logging.RetentionDays == 0 {
+		config.Logging.RetentionDays = 30
 	}
 	if err := config.Validate(); err != nil {
 		return Config{}, err
@@ -254,6 +258,9 @@ func (config Config) Validate() error {
 	}
 	if config.ChunkSize < 1 || config.ChunkSize > maxChunk {
 		return fmt.Errorf("chunk_size must be between 1 and %d bytes", maxChunk)
+	}
+	if config.Logging.RetentionDays < 1 || config.Logging.RetentionDays > 3650 {
+		return fmt.Errorf("logging.retention_days must be between 1 and 3650")
 	}
 	return nil
 }

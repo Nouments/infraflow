@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,10 @@ type nativeManifestVersion struct {
 // PlanAndGenerate links a validated plan to native configuration artifacts.
 // It records render-only evidence; it never runs a device command.
 func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, error) {
+	return service.PlanAndGenerateContext(context.Background(), input)
+}
+
+func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte) (PlanGenerationResult, error) {
 	infrastructure, err := service.Validate(input)
 	if err != nil {
 		return PlanGenerationResult{}, err
@@ -125,14 +130,14 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 	}
 	if supportedCount == 0 {
 		result.GenerationStatus = "UNSUPPORTED"
-		return service.recordPlanGeneration(result)
+		return service.recordPlanGeneration(ctx, result)
 	}
 	generator, ok := service.generator.(ports.NativeArtifactGenerator)
 	if !ok {
-		return service.markGenerationUnavailable(result, "native configuration generator is not configured")
+		return service.markGenerationUnavailable(ctx, result, "native configuration generator is not configured")
 	}
 	if strings.TrimSpace(service.artifactDirectory) == "" {
-		return service.markGenerationUnavailable(result, "artifact directory is not configured")
+		return service.markGenerationUnavailable(ctx, result, "artifact directory is not configured")
 	}
 	artifacts, err := generator.GenerateNative(filtered, service.artifactDirectory)
 	if err != nil {
@@ -145,7 +150,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			}
 		}
 		result.GenerationStatus = "FAILED"
-		result, auditErr := service.recordPlanGeneration(result)
+		result, auditErr := service.recordPlanGeneration(ctx, result)
 		return result, errors.Join(fmt.Errorf("generate planned native configurations: %w", err), auditErr)
 	}
 
@@ -157,14 +162,14 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 		site, _, _ := strings.Cut(artifact.Path, "/")
 		data, err := readGeneratedArtifact(service.artifactDirectory, artifact)
 		if err != nil {
-			return service.failPlanGeneration(result, err)
+			return service.failPlanGeneration(ctx, result, err)
 		}
 		var manifest nativeManifestVersion
 		if err := json.Unmarshal(data, &manifest); err != nil {
-			return service.failPlanGeneration(result, fmt.Errorf("decode generated native manifest %q: %w", artifact.Path, err))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("decode generated native manifest %q: %w", artifact.Path, err))
 		}
 		if strings.TrimSpace(manifest.TemplateVersion) == "" || manifest.Status != "rendered_unverified" || !protocol.IsSHA256(manifest.InputHash) || manifest.InputHash != artifact.InputHash {
-			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest %q has invalid provenance", artifact.Path))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("generated native manifest %q has invalid provenance", artifact.Path))
 		}
 		manifests[site] = manifest
 	}
@@ -175,7 +180,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			continue
 		}
 		if _, err := readGeneratedArtifact(service.artifactDirectory, artifact); err != nil {
-			return service.failPlanGeneration(result, err)
+			return service.failPlanGeneration(ctx, result, err)
 		}
 		site, _, _ := strings.Cut(artifact.Path, "/")
 		artifactsBySite[site] = append(artifactsBySite[site], artifact)
@@ -188,7 +193,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 		}
 		manifest, exists := manifests[task.Site]
 		if !exists {
-			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest does not match task %q", task.TaskID))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("generated native manifest does not match task %q", task.TaskID))
 		}
 		version := manifest.TemplateVersion
 		devicePath := ""
@@ -199,11 +204,11 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			}
 		}
 		if devicePath == "" {
-			return service.failPlanGeneration(result, fmt.Errorf("generated native manifest does not include device %q", task.Device))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("generated native manifest does not include device %q", task.Device))
 		}
 		for _, artifact := range artifactsBySite[task.Site] {
 			if artifact.InputHash != manifest.InputHash {
-				return service.failPlanGeneration(result, fmt.Errorf("generated artifact %q has a mismatched input hash", artifact.Path))
+				return service.failPlanGeneration(ctx, result, fmt.Errorf("generated artifact %q has a mismatched input hash", artifact.Path))
 			}
 			if artifact.Path != devicePath {
 				continue
@@ -218,7 +223,7 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 			result.Plan.Tasks[index].Artifacts = append(result.Plan.Tasks[index].Artifacts, artifact.Path)
 		}
 		if len(task.Artifacts) == 0 || version == "" {
-			return service.failPlanGeneration(result, fmt.Errorf("generator returned no traceable native configuration for task %q", task.TaskID))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("generator returned no traceable native configuration for task %q", task.TaskID))
 		}
 		task.Status = "GENERATED"
 		result.Plan.Tasks[index].Status = "GENERATED"
@@ -237,13 +242,13 @@ func (service *Service) PlanAndGenerate(input []byte) (PlanGenerationResult, err
 	}
 	if allGenerated {
 		if err := result.Plan.Lifecycle.Transition(domain.StateGenerated); err != nil {
-			return service.failPlanGeneration(result, fmt.Errorf("record generated plan lifecycle: %w", err))
+			return service.failPlanGeneration(ctx, result, fmt.Errorf("record generated plan lifecycle: %w", err))
 		}
 	}
-	return service.recordPlanGeneration(result)
+	return service.recordPlanGeneration(ctx, result)
 }
 
-func (service *Service) failPlanGeneration(result PlanGenerationResult, cause error) (PlanGenerationResult, error) {
+func (service *Service) failPlanGeneration(ctx context.Context, result PlanGenerationResult, cause error) (PlanGenerationResult, error) {
 	result.GenerationStatus = "FAILED"
 	for index := range result.Tasks {
 		if result.Tasks[index].Status == "PLANNED" {
@@ -253,11 +258,11 @@ func (service *Service) failPlanGeneration(result PlanGenerationResult, cause er
 			result.Plan.Tasks[index].Reason = result.Tasks[index].Reason
 		}
 	}
-	result, auditErr := service.recordPlanGeneration(result)
+	result, auditErr := service.recordPlanGeneration(ctx, result)
 	return result, errors.Join(cause, auditErr)
 }
 
-func (service *Service) markGenerationUnavailable(result PlanGenerationResult, reason string) (PlanGenerationResult, error) {
+func (service *Service) markGenerationUnavailable(ctx context.Context, result PlanGenerationResult, reason string) (PlanGenerationResult, error) {
 	for index := range result.Tasks {
 		if result.Tasks[index].Status != "PLANNED" {
 			continue
@@ -268,7 +273,7 @@ func (service *Service) markGenerationUnavailable(result PlanGenerationResult, r
 		result.Plan.Tasks[index].Reason = reason
 	}
 	result.GenerationStatus = "UNAVAILABLE"
-	result, auditErr := service.recordPlanGeneration(result)
+	result, auditErr := service.recordPlanGeneration(ctx, result)
 	return result, errors.Join(fmt.Errorf("%s", reason), auditErr)
 }
 
@@ -336,11 +341,11 @@ func generatedArtifactFormat(path string) string {
 	}
 }
 
-func (service *Service) recordPlanGeneration(result PlanGenerationResult) (PlanGenerationResult, error) {
+func (service *Service) recordPlanGeneration(ctx context.Context, result PlanGenerationResult) (PlanGenerationResult, error) {
 	if service.events == nil {
 		return result, nil
 	}
-	if err := service.recordEvent("plan.generation.result", "", "", "", map[string]any{
+	if err := service.recordEvent(ctx, "plan.generation.result", "", "", "", map[string]any{
 		"plan_id": result.Plan.ID, "generation_status": result.GenerationStatus,
 		"execution_status": result.ExecutionStatus, "verification_status": result.VerificationStatus,
 		"tasks": result.Tasks,

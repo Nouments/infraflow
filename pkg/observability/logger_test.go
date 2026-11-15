@@ -119,6 +119,28 @@ func TestLoggerRotatesWithinConfiguredRetention(t *testing.T) {
 	}
 }
 
+func TestLoggerPurgesRotatedFilesOlderThanConfiguredRetention(t *testing.T) {
+	directory := t.TempDir()
+	expired := filepath.Join(directory, "events.jsonl.1")
+	if err := os.WriteFile(expired, []byte("expired\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(expired, old, old); err != nil {
+		t.Fatal(err)
+	}
+	config := testConfig(directory)
+	config.MaxAge = 24 * time.Hour
+	logger, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+	if _, err := os.Stat(expired); !os.IsNotExist(err) {
+		t.Fatalf("expired rotated log remained after initialization: %v", err)
+	}
+}
+
 func TestLoggerReportsPersistenceFailures(t *testing.T) {
 	root := t.TempDir()
 	fileAsDirectory := filepath.Join(root, "not-a-directory")

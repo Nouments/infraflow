@@ -21,6 +21,7 @@ import (
 )
 
 const maxRequestBytes = 2 << 20
+const maxConcurrentLogStreams = 64
 
 type Handler struct {
 	service             *application.Service
@@ -29,6 +30,8 @@ type Handler struct {
 	agentTokenExpiresAt time.Time
 	authenticator       *application.Authenticator
 	logger              *observability.Logger
+	metrics             *observability.Metrics
+	streamSlots         chan struct{}
 }
 
 type responseStatusWriter struct {
@@ -144,6 +147,7 @@ func NewHandlerWithTokenExpiry(service *application.Service, token string, token
 	return &Handler{
 		service: service, agentToken: []byte(token),
 		agentTokenExpiresAt: tokenExpiresAt, authenticator: authenticator,
+		metrics: observability.NewMetrics(), streamSlots: make(chan struct{}, maxConcurrentLogStreams),
 	}, nil
 }
 
@@ -155,15 +159,29 @@ func (handler *Handler) SetExecutionService(executions *application.ExecutionSer
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	started := time.Now()
+	correlationID := request.Header.Get("X-Correlation-ID")
+	if !observability.ValidCorrelationID(correlationID) {
+		var err error
+		correlationID, err = observability.NewEventID()
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "request correlation could not be initialized")
+			return
+		}
+	}
+	writer.Header().Set("X-Correlation-ID", correlationID)
+	request = request.WithContext(observability.WithCorrelationID(request.Context(), correlationID))
 	statusWriter := &responseStatusWriter{ResponseWriter: writer}
 	writer = statusWriter
 	defer func() {
-		if handler.logger == nil {
-			return
-		}
 		status := statusWriter.status
 		if status == 0 {
 			status = http.StatusOK
+		}
+		if request.URL.Path == "/api/v1/plan/generate" {
+			handler.metrics.ObserveGeneration(time.Since(started).Seconds(), status >= http.StatusBadRequest)
+		}
+		if handler.logger == nil {
+			return
 		}
 		level := "INFO"
 		if status >= 500 {
@@ -176,10 +194,15 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			Level: level, Event: "provider.http.request", Message: "HTTP request completed",
 			Service: "provider", Source: "httpapi", Operation: request.Method,
 			Status: strconv.Itoa(status), DurationMS: &duration, Line: request.URL.Path,
+			CorrelationID: correlationID,
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "infraflow-provider: persist HTTP log event: %v\n", err)
 		}
 	}()
+	if request.URL.Path == "/metrics" {
+		handler.serveMetrics(writer, request)
+		return
+	}
 	if request.URL.Path == "/api/v1/auth/login" {
 		if request.Method != http.MethodPost {
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
@@ -389,10 +412,52 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if len(parts) == 2 && request.Method == http.MethodPost && (parts[1] == "cancel" || parts[1] == "retry") {
-		handler.changeJob(writer, parts[0], parts[1])
+		handler.changeJob(writer, request, parts[0], parts[1])
 		return
 	}
 	writeError(writer, http.StatusNotFound, "route not found")
+}
+
+func (handler *Handler) serveMetrics(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	identity, authenticated := handler.authenticate(request)
+	if !authenticated {
+		writeError(writer, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if identity.agent || identity.user.Role != userdomain.UserRoleAdmin {
+		writeError(writer, http.StatusForbidden, "administrator role required")
+		return
+	}
+	agents, err := handler.service.Agents()
+	if err != nil {
+		writeError(writer, http.StatusServiceUnavailable, "agent synchronization state is unavailable")
+		return
+	}
+	synchronized := 0
+	for _, agent := range agents {
+		if agent.Status == domain.AgentStatusOnline {
+			synchronized++
+		}
+	}
+	executionCounts := map[string]int{
+		string(domain.ExecutionQueued): 0, string(domain.ExecutionRunning): 0,
+		string(domain.ExecutionSucceeded): 0, string(domain.ExecutionFailed): 0,
+		string(domain.ExecutionCancelled): 0, string(domain.ExecutionTimedOut): 0,
+	}
+	if handler.executions != nil {
+		executionCounts, err = handler.executions.StatusCounts()
+		if err != nil {
+			writeError(writer, http.StatusServiceUnavailable, "execution state is unavailable")
+			return
+		}
+	}
+	writer.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(writer, handler.metrics.Prometheus(executionCounts, synchronized))
 }
 
 func (handler *Handler) authenticate(request *http.Request) (principal, bool) {
@@ -585,7 +650,7 @@ func (handler *Handler) registerAgent(writer http.ResponseWriter, request *http.
 	if err := decodeRequest(writer, request, &input); err != nil {
 		return
 	}
-	agent, err := handler.service.RegisterAgent(application.AgentRegistration{
+	agent, err := handler.service.RegisterAgentContext(request.Context(), application.AgentRegistration{
 		ID: input.AgentID, SiteID: input.SiteID, Version: input.Version, Capabilities: input.Capabilities,
 	})
 	if err != nil {
@@ -609,7 +674,7 @@ func (handler *Handler) heartbeatAgent(writer http.ResponseWriter, request *http
 	if err := decodeRequest(writer, request, &input); err != nil {
 		return
 	}
-	agent, err := handler.service.HeartbeatAgent(id, application.AgentHeartbeat{
+	agent, err := handler.service.HeartbeatAgentContext(request.Context(), id, application.AgentHeartbeat{
 		SiteID: input.SiteID, Version: input.Version, Capabilities: input.Capabilities, QueueDepth: input.QueueDepth,
 	})
 	if err != nil {
@@ -661,7 +726,7 @@ func (handler *Handler) createJob(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusBadRequest, "request body must contain one JSON object")
 		return
 	}
-	job, err := handler.service.CreateJob([]byte(input.Input))
+	job, err := handler.service.CreateJobContext(request.Context(), []byte(input.Input))
 	if err != nil {
 		if errors.Is(err, application.ErrInvalidJobInput) {
 			writeError(writer, http.StatusBadRequest, err.Error())
@@ -709,7 +774,7 @@ func (handler *Handler) generatePlan(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "request body must contain one JSON object")
 		return
 	}
-	result, err := handler.service.PlanAndGenerate([]byte(input.Input))
+	result, err := handler.service.PlanAndGenerateContext(request.Context(), []byte(input.Input))
 	if err != nil {
 		if result.Plan.ID == "" {
 			writeError(writer, http.StatusBadRequest, err.Error())
@@ -730,15 +795,15 @@ func (handler *Handler) getJob(writer http.ResponseWriter, id string) {
 	writeJSON(writer, http.StatusOK, job)
 }
 
-func (handler *Handler) changeJob(writer http.ResponseWriter, id, action string) {
+func (handler *Handler) changeJob(writer http.ResponseWriter, request *http.Request, id, action string) {
 	var (
 		job domain.Job
 		err error
 	)
 	if action == "cancel" {
-		job, err = handler.service.CancelJob(id)
+		job, err = handler.service.CancelJobContext(request.Context(), id)
 	} else {
-		job, err = handler.service.RetryJob(id)
+		job, err = handler.service.RetryJobContext(request.Context(), id)
 	}
 	if err != nil {
 		handler.writeServiceError(writer, err)

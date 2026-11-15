@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"infraflow/internal/infrastructure/safefs"
 )
 
 const (
@@ -51,17 +53,25 @@ type AppendResult struct {
 }
 
 type Store struct {
-	mu       sync.RWMutex
-	path     string
-	maxBytes int64
-	fileSize int64
-	events   []Event
-	byID     map[string]Event
+	mu        sync.RWMutex
+	path      string
+	maxBytes  int64
+	fileSize  int64
+	retention time.Duration
+	events    []Event
+	byID      map[string]Event
 }
 
 func NewStore(directory string, maxBytes int64) (*Store, error) {
+	return NewStoreWithRetention(directory, maxBytes, 0)
+}
+
+func NewStoreWithRetention(directory string, maxBytes int64, retention time.Duration) (*Store, error) {
 	if strings.TrimSpace(directory) == "" {
 		return nil, fmt.Errorf("central log directory is required")
+	}
+	if retention < 0 {
+		return nil, fmt.Errorf("central log retention must not be negative")
 	}
 	if maxBytes <= 0 {
 		maxBytes = DefaultCentralLogLimit
@@ -73,7 +83,7 @@ func NewStore(directory string, maxBytes int64) (*Store, error) {
 		return nil, fmt.Errorf("secure central log directory: %w", err)
 	}
 	path := filepath.Join(directory, "central-events.jsonl")
-	store := &Store{path: path, maxBytes: maxBytes, byID: make(map[string]Event)}
+	store := &Store{path: path, maxBytes: maxBytes, retention: retention, byID: make(map[string]Event)}
 	fileInfo, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return store, nil
@@ -110,7 +120,15 @@ func NewStore(directory string, maxBytes int64) (*Store, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read central log store: %w", err)
 	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close central log store after reading: %w", err)
+	}
 	store.fileSize = fileInfo.Size()
+	if retention > 0 {
+		if _, err := store.Purge(time.Now()); err != nil {
+			return nil, fmt.Errorf("purge expired central logs: %w", err)
+		}
+	}
 	return store, nil
 }
 
@@ -120,6 +138,11 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if store.retention > 0 {
+		if _, err := store.purgeLocked(time.Now()); err != nil {
+			return AppendResult{}, fmt.Errorf("purge expired central logs: %w", err)
+		}
+	}
 	result := AppendResult{}
 	for _, input := range events {
 		event, err := NormalizeEvent(input)
@@ -171,6 +194,58 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 		result.Accepted++
 	}
 	return result, nil
+}
+
+func (store *Store) Purge(now time.Time) (int, error) {
+	if store == nil {
+		return 0, fmt.Errorf("central log store is not configured")
+	}
+	if store.retention <= 0 {
+		return 0, nil
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.purgeLocked(now)
+}
+
+func (store *Store) purgeLocked(now time.Time) (int, error) {
+	cutoff := now.Add(-store.retention)
+	retained := make([]Event, 0, len(store.events))
+	for _, event := range store.events {
+		timestamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
+		if err != nil {
+			return 0, fmt.Errorf("parse stored log timestamp: %w", err)
+		}
+		if !timestamp.Before(cutoff) {
+			retained = append(retained, event)
+		}
+	}
+	removed := len(store.events) - len(retained)
+	if removed == 0 {
+		return 0, nil
+	}
+	var data strings.Builder
+	for _, event := range retained {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return 0, fmt.Errorf("encode retained log event: %w", err)
+		}
+		data.Write(encoded)
+		data.WriteByte('\n')
+	}
+	if int64(data.Len()) > store.maxBytes {
+		return 0, fmt.Errorf("retained log data exceeds %d-byte limit", store.maxBytes)
+	}
+	if err := safefs.AtomicWrite(filepath.Dir(store.path), filepath.Base(store.path), []byte(data.String()), 0o600); err != nil {
+		return 0, fmt.Errorf("publish retained central logs: %w", err)
+	}
+	store.events = retained
+	store.byID = make(map[string]Event, len(retained))
+	for _, event := range retained {
+		store.byID[event.ID] = event
+	}
+	store.fileSize = int64(data.Len())
+	return removed, nil
 }
 
 func (store *Store) List(query Query) (Page, error) {

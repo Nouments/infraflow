@@ -16,6 +16,7 @@ import (
 	"infraflow/internal/domain"
 	"infraflow/internal/infrastructure/safefs"
 	"infraflow/internal/ports"
+	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
 )
 
@@ -212,6 +213,9 @@ func validateExecution(execution domain.Execution) error {
 	if !protocol.ValidSiteName(execution.ActorID) || len(execution.ActorID) > 128 {
 		return fmt.Errorf("invalid execution actor")
 	}
+	if execution.CorrelationID != "" && !observability.ValidCorrelationID(execution.CorrelationID) {
+		return fmt.Errorf("invalid execution correlation id")
+	}
 	if execution.Revision == 0 || execution.CreatedAt.IsZero() || execution.UpdatedAt.Before(execution.CreatedAt) || execution.UpdatedAt.IsZero() {
 		return fmt.Errorf("invalid execution revision or timestamps")
 	}
@@ -266,6 +270,9 @@ func validateExecution(execution domain.Execution) error {
 		if !protocol.ValidSiteName(event.ActorID) || !protocol.ValidSiteName(event.Action) || len(event.ActorID) > 128 || len(event.Action) > 128 || !validExecutionStatus(event.Status) || event.Timestamp.IsZero() || len(event.Error) > 1024 {
 			return fmt.Errorf("invalid execution audit event")
 		}
+		if event.CorrelationID != "" && !observability.ValidCorrelationID(event.CorrelationID) {
+			return fmt.Errorf("invalid execution audit correlation id")
+		}
 		if event.TaskID != "" && !protocol.ValidSiteName(event.TaskID) || event.TaskStatus != "" && !validTaskStatus(event.TaskStatus) {
 			return fmt.Errorf("invalid execution audit task")
 		}
@@ -304,7 +311,7 @@ func isTerminalTask(status domain.ExecutionTaskStatus) bool {
 }
 
 func sameExecutionRequest(previous, current domain.Execution) bool {
-	if previous.ID != current.ID || previous.IdempotencyKeyHash != current.IdempotencyKeyHash || previous.RequestHash != current.RequestHash || previous.ActorID != current.ActorID || !previous.CreatedAt.Equal(current.CreatedAt) || len(previous.Tasks) != len(current.Tasks) {
+	if previous.ID != current.ID || previous.IdempotencyKeyHash != current.IdempotencyKeyHash || previous.RequestHash != current.RequestHash || previous.ActorID != current.ActorID || previous.CorrelationID != current.CorrelationID || !previous.CreatedAt.Equal(current.CreatedAt) || len(previous.Tasks) != len(current.Tasks) {
 		return false
 	}
 	for index := range previous.Tasks {

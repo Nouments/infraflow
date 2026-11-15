@@ -348,6 +348,7 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		Service: "provider", Directory: settings.Logging.Directory,
 		Level: settings.Logging.Level, Format: settings.Logging.Format,
 		MaxBytes: settings.Logging.MaxBytes, MaxFiles: settings.Logging.MaxFiles,
+		MaxAge:  time.Duration(settings.Logging.RetentionDays) * 24 * time.Hour,
 		Console: true,
 	})
 	if err != nil {
@@ -448,11 +449,17 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "infraflow-provider: stop executions: %v\n", err)
 		}
 	}()
-	logStore, err := observability.NewStore(settings.Logging.Directory, observability.DefaultCentralLogLimit)
+	logStore, err := observability.NewStoreWithRetention(
+		settings.Logging.Directory, observability.DefaultCentralLogLimit,
+		time.Duration(settings.Logging.RetentionDays)*24*time.Hour,
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
 		return 2
 	}
+	retentionContext, stopRetention := context.WithCancel(context.Background())
+	defer stopRetention()
+	go purgeExpiredLogs(retentionContext, logStore, logger, stderr)
 	if err := emit("provider.repositories.ready", "provider repositories initialized", "initialization", "COMPLETED", nil); err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: log repository initialization: %v\n", err)
 		return 2
@@ -600,6 +607,51 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 	}
 	_ = emit("provider.stopped", "provider stopped", "shutdown", "STOPPED", nil)
 	return 0
+}
+
+func purgeExpiredLogs(ctx context.Context, store *observability.Store, logger *observability.Logger, stderr io.Writer) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := store.Purge(time.Now())
+			if err != nil {
+				logErr := logger.Emit(ctx, observability.Event{
+					Level: "ERROR", Event: "provider.logs.purge.failed",
+					Message:   "expired technical logs could not be purged",
+					Operation: "log_retention", Status: "FAILED", Error: err.Error(),
+				})
+				if logErr != nil {
+					fmt.Fprintf(stderr, "infraflow-provider: purge expired technical logs: %v (log failure: %v)\n", err, logErr)
+				}
+				continue
+			}
+			rotatedRemoved, err := logger.Purge(time.Now())
+			if err != nil {
+				logErr := logger.Emit(ctx, observability.Event{
+					Level: "ERROR", Event: "provider.logs.rotation_purge.failed",
+					Message:   "expired rotated log files could not be purged",
+					Operation: "log_retention", Status: "FAILED", Error: err.Error(),
+				})
+				if logErr != nil {
+					fmt.Fprintf(stderr, "infraflow-provider: purge expired rotated logs: %v (log failure: %v)\n", err, logErr)
+				}
+				continue
+			}
+			if removed > 0 || rotatedRemoved > 0 {
+				if err := logger.Emit(ctx, observability.Event{
+					Level: "INFO", Event: "provider.logs.purge.completed",
+					Message:   "expired technical logs purged",
+					Operation: "log_retention", Status: "COMPLETED",
+				}); err != nil {
+					fmt.Fprintf(stderr, "infraflow-provider: log technical log purge: %v\n", err)
+				}
+			}
+		}
+	}
 }
 
 func grpcTransportCredentials(settings config.TLSConfig) (credentials.TransportCredentials, error) {

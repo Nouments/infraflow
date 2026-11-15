@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -113,6 +114,10 @@ func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports 
 }
 
 func (service *Service) IngestAgentLogs(agentID string, input []observability.Event) (observability.AppendResult, error) {
+	return service.IngestAgentLogsContext(context.Background(), agentID, input)
+}
+
+func (service *Service) IngestAgentLogsContext(ctx context.Context, agentID string, input []observability.Event) (observability.AppendResult, error) {
 	if service.logs == nil {
 		return observability.AppendResult{}, fmt.Errorf("technical log repository is not configured")
 	}
@@ -133,6 +138,9 @@ func (service *Service) IngestAgentLogs(agentID string, input []observability.Ev
 		}
 		event.AgentID = agent.ID
 		event.SiteID = agent.SiteID
+		if event.CorrelationID == "" {
+			event.CorrelationID = observability.CorrelationID(ctx)
+		}
 		normalized, err := observability.NormalizeEvent(event)
 		if err != nil {
 			return observability.AppendResult{}, err
@@ -360,6 +368,10 @@ func (service *Service) GenerateDeclarativeConfig(input []byte, outputDirectory 
 }
 
 func (service *Service) CreateJob(input []byte) (domain.Job, error) {
+	return service.CreateJobContext(context.Background(), input)
+}
+
+func (service *Service) CreateJobContext(ctx context.Context, input []byte) (domain.Job, error) {
 	if service.jobs == nil {
 		return domain.Job{}, fmt.Errorf("job repository is not configured")
 	}
@@ -387,7 +399,7 @@ func (service *Service) CreateJob(input []byte) (domain.Job, error) {
 	if err := service.jobs.Create(job); err != nil {
 		return domain.Job{}, fmt.Errorf("persist job: %w", err)
 	}
-	if err := service.recordEvent("job.created", "", "", job.ID, map[string]any{"input_hash": job.InputHash, "status": job.Status}); err != nil {
+	if err := service.recordEvent(ctx, "job.created", "", "", job.ID, map[string]any{"input_hash": job.InputHash, "status": job.Status}); err != nil {
 		return domain.Job{}, fmt.Errorf("record job event: %w", err)
 	}
 	return job, nil
@@ -415,6 +427,10 @@ func (service *Service) Job(id string) (domain.Job, error) {
 }
 
 func (service *Service) CancelJob(id string) (domain.Job, error) {
+	return service.CancelJobContext(context.Background(), id)
+}
+
+func (service *Service) CancelJobContext(ctx context.Context, id string) (domain.Job, error) {
 	job, err := service.Job(id)
 	if err != nil {
 		return domain.Job{}, err
@@ -430,13 +446,17 @@ func (service *Service) CancelJob(id string) (domain.Job, error) {
 	if err := service.jobs.Update(job); err != nil {
 		return domain.Job{}, fmt.Errorf("update job: %w", err)
 	}
-	if err := service.recordEvent("job.cancelled", "", "", job.ID, map[string]any{"status": job.Status}); err != nil {
+	if err := service.recordEvent(ctx, "job.cancelled", "", "", job.ID, map[string]any{"status": job.Status}); err != nil {
 		return domain.Job{}, fmt.Errorf("record job event: %w", err)
 	}
 	return job, nil
 }
 
 func (service *Service) RetryJob(id string) (domain.Job, error) {
+	return service.RetryJobContext(context.Background(), id)
+}
+
+func (service *Service) RetryJobContext(ctx context.Context, id string) (domain.Job, error) {
 	job, err := service.Job(id)
 	if err != nil {
 		return domain.Job{}, err
@@ -452,7 +472,7 @@ func (service *Service) RetryJob(id string) (domain.Job, error) {
 	if err := service.jobs.Update(job); err != nil {
 		return domain.Job{}, fmt.Errorf("update job: %w", err)
 	}
-	if err := service.recordEvent("job.retried", "", "", job.ID, map[string]any{"status": job.Status}); err != nil {
+	if err := service.recordEvent(ctx, "job.retried", "", "", job.ID, map[string]any{"status": job.Status}); err != nil {
 		return domain.Job{}, fmt.Errorf("record job event: %w", err)
 	}
 	return job, nil
@@ -498,7 +518,7 @@ func (service *Service) SubmitReport(report protocol.AgentReport) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	if err := service.recordEvent("agent.report.received", "", report.AgentID, "", map[string]any{"report_id": report.ReportID, "duplicate": !added}); err != nil {
+	if err := service.recordEvent(context.Background(), "agent.report.received", "", report.AgentID, "", map[string]any{"report_id": report.ReportID, "duplicate": !added}); err != nil {
 		return false, fmt.Errorf("record report event: %w", err)
 	}
 	return added, nil
@@ -509,6 +529,10 @@ func (service *Service) Reports() []protocol.AgentReport {
 }
 
 func (service *Service) RegisterAgent(input AgentRegistration) (domain.Agent, error) {
+	return service.RegisterAgentContext(context.Background(), input)
+}
+
+func (service *Service) RegisterAgentContext(ctx context.Context, input AgentRegistration) (domain.Agent, error) {
 	if service.agents == nil {
 		return domain.Agent{}, fmt.Errorf("agent repository is not configured")
 	}
@@ -530,7 +554,7 @@ func (service *Service) RegisterAgent(input AgentRegistration) (domain.Agent, er
 		if err := service.agents.Update(agent); err != nil {
 			return domain.Agent{}, fmt.Errorf("update agent: %w", err)
 		}
-		if err := service.recordEvent("agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
+		if err := service.recordEvent(ctx, "agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
 			return domain.Agent{}, fmt.Errorf("record agent event: %w", err)
 		}
 		return agent, nil
@@ -555,7 +579,7 @@ func (service *Service) RegisterAgent(input AgentRegistration) (domain.Agent, er
 			return domain.Agent{}, fmt.Errorf("update concurrently registered agent: %w", err)
 		}
 	}
-	if err := service.recordEvent("agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
+	if err := service.recordEvent(ctx, "agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
 		return domain.Agent{}, fmt.Errorf("record agent event: %w", err)
 	}
 	return agent, nil
@@ -583,6 +607,10 @@ func (service *Service) Agent(id string) (domain.Agent, error) {
 }
 
 func (service *Service) HeartbeatAgent(id string, input AgentHeartbeat) (domain.Agent, error) {
+	return service.HeartbeatAgentContext(context.Background(), id, input)
+}
+
+func (service *Service) HeartbeatAgentContext(ctx context.Context, id string, input AgentHeartbeat) (domain.Agent, error) {
 	agent, err := service.Agent(id)
 	if err != nil {
 		return domain.Agent{}, err
@@ -602,7 +630,7 @@ func (service *Service) HeartbeatAgent(id string, input AgentHeartbeat) (domain.
 	if err := service.agents.Update(agent); err != nil {
 		return domain.Agent{}, fmt.Errorf("update agent heartbeat: %w", err)
 	}
-	if err := service.recordEvent("agent.heartbeat", agent.SiteID, agent.ID, "", map[string]any{"queue_depth": agent.QueueDepth, "version": agent.Version}); err != nil {
+	if err := service.recordEvent(ctx, "agent.heartbeat", agent.SiteID, agent.ID, "", map[string]any{"queue_depth": agent.QueueDepth, "version": agent.Version}); err != nil {
 		return domain.Agent{}, fmt.Errorf("record heartbeat event: %w", err)
 	}
 	return agent, nil
@@ -615,7 +643,7 @@ func (service *Service) Events() []domain.Event {
 	return service.events.List()
 }
 
-func (service *Service) recordEvent(eventType, siteID, agentID, jobID string, payload any) error {
+func (service *Service) recordEvent(ctx context.Context, eventType, siteID, agentID, jobID string, payload any) error {
 	if service.events == nil {
 		return nil
 	}
@@ -629,7 +657,8 @@ func (service *Service) recordEvent(eventType, siteID, agentID, jobID string, pa
 	}
 	_, _, err = service.events.Append(domain.Event{
 		EventID: eventID, SiteID: siteID, AgentID: agentID, JobID: jobID,
-		Timestamp: time.Now().UTC(), Type: eventType, Payload: data,
+		CorrelationID: observability.CorrelationID(ctx),
+		Timestamp:     time.Now().UTC(), Type: eventType, Payload: data,
 	})
 	return err
 }

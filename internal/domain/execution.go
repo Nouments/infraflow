@@ -34,6 +34,7 @@ type Execution struct {
 	IdempotencyKeyHash string           `json:"idempotency_key_hash"`
 	RequestHash        string           `json:"request_hash"`
 	ActorID            string           `json:"actor_id"`
+	CorrelationID      string           `json:"correlation_id,omitempty"`
 	Status             ExecutionStatus  `json:"status"`
 	Tasks              []ExecutionTask  `json:"tasks"`
 	CreatedAt          time.Time        `json:"created_at"`
@@ -78,13 +79,14 @@ type ExecutionAttempt struct {
 }
 
 type ExecutionEvent struct {
-	ActorID    string              `json:"actor_id"`
-	Action     string              `json:"action"`
-	TaskID     string              `json:"task_id,omitempty"`
-	Status     ExecutionStatus     `json:"status"`
-	TaskStatus ExecutionTaskStatus `json:"task_status,omitempty"`
-	Timestamp  time.Time           `json:"timestamp"`
-	Error      string              `json:"error,omitempty"`
+	ActorID       string              `json:"actor_id"`
+	Action        string              `json:"action"`
+	TaskID        string              `json:"task_id,omitempty"`
+	Status        ExecutionStatus     `json:"status"`
+	TaskStatus    ExecutionTaskStatus `json:"task_status,omitempty"`
+	Timestamp     time.Time           `json:"timestamp"`
+	CorrelationID string              `json:"correlation_id,omitempty"`
+	Error         string              `json:"error,omitempty"`
 }
 
 func CanTransitionExecution(from, to ExecutionStatus) bool {

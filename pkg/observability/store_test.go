@@ -80,6 +80,36 @@ func TestStoreReportsStorageLimitAndInvalidEvents(t *testing.T) {
 	}
 }
 
+func TestStoreRetentionPurgesExpiredEventsAndPersistsTheBoundedSet(t *testing.T) {
+	directory := t.TempDir()
+	retention := 24 * time.Hour
+	store, err := NewStoreWithRetention(directory, DefaultCentralLogLimit, retention)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := storeEvent("old-event", "INFO", "agent-1", "run-1", "expired")
+	old.Timestamp = time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339Nano)
+	current := storeEvent("current-event", "INFO", "agent-1", "run-1", "retained")
+	if _, err := store.Append([]Event{old, current}); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := store.Purge(time.Now())
+	if err != nil || removed != 1 {
+		t.Fatalf("purge removed %d events, %v; want one expired event", removed, err)
+	}
+	if _, err := store.List(Query{After: old.ID, Limit: 10}); err != ErrCursorExpired {
+		t.Fatalf("expired cursor returned %v, want ErrCursorExpired", err)
+	}
+	reloaded, err := NewStoreWithRetention(directory, DefaultCentralLogLimit, retention)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := reloaded.List(Query{Limit: 10})
+	if err != nil || len(page.Events) != 1 || page.Events[0].ID != current.ID {
+		t.Fatalf("purged store did not persist only retained events: %#v, %v", page, err)
+	}
+}
+
 func TestOutboxSurvivesOfflineRestartUntilCentralAcknowledgement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent", "pending.json")
 	outbox, err := NewOutbox(path, DefaultOutboxLimit)
