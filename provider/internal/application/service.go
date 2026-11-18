@@ -20,6 +20,7 @@ import (
 )
 
 var ErrInvalidAgentReport = errors.New("invalid agent report")
+var ErrAgentRepositoryNotConfigured = errors.New("agent repository is not configured")
 var ErrInvalidJobInput = errors.New("invalid job input")
 var ErrInvalidAgent = errors.New("invalid agent")
 var ErrAgentNotFound = errors.New("agent not found")
@@ -587,7 +588,7 @@ func (service *Service) RegisterAgentContext(ctx context.Context, input AgentReg
 
 func (service *Service) Agents() ([]domain.Agent, error) {
 	if service.agents == nil {
-		return nil, fmt.Errorf("agent repository is not configured")
+		return nil, ErrAgentRepositoryNotConfigured
 	}
 	return service.agents.List()
 }

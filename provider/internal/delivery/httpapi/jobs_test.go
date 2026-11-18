@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -25,6 +26,48 @@ import (
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 )
+
+type failingAgentRepository struct{}
+
+func (failingAgentRepository) Register(domain.Agent) (bool, error) {
+	return false, errors.New("agent store unavailable")
+}
+func (failingAgentRepository) Get(string) (domain.Agent, error) {
+	return domain.Agent{}, errors.New("agent store unavailable")
+}
+func (failingAgentRepository) List() ([]domain.Agent, error) {
+	return nil, errors.New("agent store unavailable")
+}
+func (failingAgentRepository) Update(domain.Agent) error {
+	return errors.New("agent store unavailable")
+}
+
+func TestMetricsWithoutAgentRepository(t *testing.T) {
+	root := t.TempDir()
+	service := application.NewServiceWithJobs(nil, nil, nil, nil, application.Dependencies{})
+	agentToken := strings.Repeat("n", security.MinAgentTokenBytes)
+	handler, adminToken := newUserSessionHandler(t, root, agentToken, service)
+
+	response := authRequest(t, handler, http.MethodGet, "/metrics", "", adminToken)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unconfigured agent repository returned %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "infraflow_agents_synchronized 0") {
+		t.Fatalf("metrics omitted zero synchronized-agent state: %s", response.Body.String())
+	}
+}
+
+func TestMetricsDistinguishesAgentRepositoryFailure(t *testing.T) {
+	root := t.TempDir()
+	service := application.NewServiceWithJobsAndAgents(nil, nil, nil, nil, failingAgentRepository{}, application.Dependencies{})
+	agentToken := strings.Repeat("m", security.MinAgentTokenBytes)
+	handler, adminToken := newUserSessionHandler(t, root, agentToken, service)
+
+	response := authRequest(t, handler, http.MethodGet, "/metrics", "", adminToken)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("configured agent repository failure returned %d: %s", response.Code, response.Body.String())
+	}
+}
 
 func TestJobAPIManagesAuthenticatedPlanningJobs(t *testing.T) {
 	root := t.TempDir()

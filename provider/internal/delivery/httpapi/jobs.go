@@ -433,14 +433,17 @@ func (handler *Handler) serveMetrics(writer http.ResponseWriter, request *http.R
 		return
 	}
 	agents, err := handler.service.Agents()
-	if err != nil {
-		writeError(writer, http.StatusServiceUnavailable, "agent synchronization state is unavailable")
-		return
-	}
 	synchronized := 0
-	for _, agent := range agents {
-		if agent.Status == domain.AgentStatusOnline {
-			synchronized++
+	if err != nil {
+		if !errors.Is(err, application.ErrAgentRepositoryNotConfigured) {
+			writeError(writer, http.StatusServiceUnavailable, "agent synchronization state is unavailable")
+			return
+		}
+	} else {
+		for _, agent := range agents {
+			if agent.Status == domain.AgentStatusOnline {
+				synchronized++
+			}
 		}
 	}
 	executionCounts := map[string]int{
