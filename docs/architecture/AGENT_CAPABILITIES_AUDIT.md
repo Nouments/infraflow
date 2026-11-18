@@ -2,16 +2,18 @@
 
 ## Current status — 2026-11-18
 
-The repository baseline for this review is `develop` at
-`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`; the Agent implementation was not
-changed in this follow-up. The full and race Go suites passed, as did the real
-Provider–Agent multisite loopback integration test. No GitHub Actions run
-covers the local revision. Baseline Actions
+The current local revision is based on `develop` at
+`9707df0f009662c2dbd39d63fc138389bb884675`. This pass fixed the Agent's stored
+artifact allowlist for verified `native_device_config` and `native_manifest`
+files and added regression tests. The full and race Go suites passed, as did a
+real Provider–Agent appliance synchronization run in local GNS3. No GitHub
+Actions run covers the local revision. Baseline Actions
 [run 44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
 passed the Windows suite and the separate demo/integration job; Linux stopped
-at `govulncheck` before tests. No device or lab was contacted. The detailed
-capability findings below remain applicable; baseline CI evidence is not
-presented as CI evidence for this revision.
+at `govulncheck` before tests. The GNS3 run tested appliance transport and
+staging only. No device was contacted, and staged native configuration was not
+applied. Baseline CI evidence is not presented as CI evidence for this
+revision.
 
 ## Historical status — 2026-11-14
 

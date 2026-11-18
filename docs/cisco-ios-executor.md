@@ -87,10 +87,9 @@ La tâche n'est déclarée `succeeded` qu'après confirmation que l'état observ
 
 ## 5. Procédure de validation en laboratoire GNS3 réel
 
-> **Statut de la validation lab en direct : NON EXÉCUTÉ**  
-> Lors de cette tâche, aucun processus/socket GNS3 local ni API sur `127.0.0.1:3080` n'était disponible. Aucune adresse Cisco n'a été contactée. Les vérifications CLI ci-dessous portent uniquement sur l'exemple documentaire; elles ne sont pas une exécution IOS.
+> **Statut actuel : Provider–Agent testé dans GNS3; exécuteur Cisco IOS NON EXÉCUTÉ.** Le 2026-11-18, le Provider et l'Agent ont réussi un transfert d'artefacts dans un projet GNS3 isolé. Aucun appareil Cisco n'a été démarré ou contacté et aucun fichier `.cfg` n'a été appliqué. Voir les [résultats du test Provider–Agent](DELIVERY/GNS3_ACCEPTANCE_TESTS.md).
 
-> **Mise à jour 2026-10-14 :** un processus `gns3server` local et son listener `127.0.0.1:3080` ont été observés. Le processus QEMU observé était nommé `fortigate-1`, hors périmètre; aucun nœud Cisco autorisé, son adresse de gestion ou son empreinte SSH indépendante n'a été confirmé. Un GET local vers `/v2/projects` a retourné HTTP 404. Aucune connexion à un routeur n'a été tentée. Utiliser le [runbook de lab Cisco IOS](lab/cisco-ios-gns3.md) pour la procédure actuelle; les cas de configuration restent NON EXÉCUTÉS.
+> **Note historique — 2026-10-14 :** un processus `gns3server` local et son listener `127.0.0.1:3080` ont été observés, sans cible Cisco autorisée confirmée. Cette observation antérieure ne décrit pas le test Provider–Agent du 2026-11-18 et ne change pas le statut de l'exécuteur Cisco : ses cas de configuration restent NON EXÉCUTÉS.
 
 ### Prérequis et préparation
 1. Utiliser un routeur IOS/IOS XE dédié à un lab GNS3 isolé et une interface de test non reliée à la production. L'adresse de gestion doit être joignable depuis l'hôte Provider. Cette procédure n'assigne ni ne modifie l'adresse IPv4 de l'interface testée.

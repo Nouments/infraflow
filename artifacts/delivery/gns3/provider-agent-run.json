@@ -1,0 +1,390 @@
+{
+  "api_operations": [
+    "GET /openapi.json",
+    "GET /v3/version",
+    "POST /v3/access/users/login",
+    "GET /v3/projects",
+    "GET /v3/templates",
+    "GET /v3/appliances",
+    "GET /v3/computes/local/docker/images",
+    "GET /v3/statistics",
+    "POST /v3/projects",
+    "POST /v3/templates",
+    "POST /v3/projects/{id}/templates/{template_id}",
+    "POST /v3/projects/{id}/links",
+    "POST /v3/projects/{id}/nodes/{node_id}/start",
+    "POST /v3/projects/{id}/nodes/{node_id}/stop",
+    "PUT /v3/templates/{template_id}",
+    "PUT /v3/projects/{id}/nodes/{node_id}"
+  ],
+  "appliance_catalog_count": 221,
+  "available_template_count": 37,
+  "available_templates": [
+    {
+      "name": "MikroTik CCR1036-8G-2S",
+      "template_id": "3cc7efb3-3dec-4fa4-ba98-96c436afe608",
+      "type": "qemu"
+    },
+    {
+      "name": "MikroTik CRS328-4C-20S-4S",
+      "template_id": "c9d14345-e88b-42f7-b938-e0c74eef85bc",
+      "type": "qemu"
+    },
+    {
+      "name": "Cisco 7200",
+      "template_id": "ef3859b1-cfac-453d-93c1-8458b65c1cd2",
+      "type": "dynamips"
+    },
+    {
+      "name": "Cisco 3640",
+      "template_id": "1d6c88ed-b116-4c6b-8c5c-c7c62445fe9d",
+      "type": "dynamips"
+    },
+    {
+      "name": "Cisco IOSvL2",
+      "template_id": "b231e235-d097-4693-90de-b82f2381f1af",
+      "type": "qemu"
+    },
+    {
+      "name": "Chromium",
+      "template_id": "f40091a3-e048-4991-93c4-a9cd97be5076",
+      "type": "docker"
+    },
+    {
+      "name": "DNS",
+      "template_id": "3e60ea06-85ea-4629-bcf3-b3d5ff9bfe12",
+      "type": "docker"
+    },
+    {
+      "name": "haproxy",
+      "template_id": "ebf9db74-d76c-418b-aba1-e5b61d54c5d9",
+      "type": "docker"
+    },
+    {
+      "name": "MikroTik WinBox 2026",
+      "template_id": "72ff3686-b86b-45cc-b628-c640a102643c",
+      "type": "docker"
+    },
+    {
+      "name": "Python-Go-Perl-PHP",
+      "template_id": "c60f6820-dd54-4e2f-921f-259c57292e46",
+      "type": "docker"
+    },
+    {
+      "name": "Cisco IOSv",
+      "template_id": "6229184a-9d99-4ff5-9e16-4a4e8d017d2d",
+      "type": "qemu"
+    },
+    {
+      "name": "Cisco IOSvm8",
+      "template_id": "62dc5717-6753-41a0-93a3-12b07814a79c",
+      "type": "qemu"
+    },
+    {
+      "name": "linuxserver-code-server",
+      "template_id": "283cd6a0-4323-4c47-a49d-f3041baa979d",
+      "type": "docker"
+    },
+    {
+      "name": "ubuntu-bind9",
+      "template_id": "26cd3d73-8072-4f63-9129-504a047cae9b",
+      "type": "docker"
+    },
+    {
+      "name": "nginx",
+      "template_id": "c58971db-677b-40b4-a834-d7521c39964c",
+      "type": "docker"
+    },
+    {
+      "name": "debian",
+      "template_id": "4ab7a4aa-dabb-4a86-9308-298523a8dfc9",
+      "type": "docker"
+    },
+    {
+      "name": "fortigate",
+      "template_id": "6147d6fe-7831-4da7-a038-c74ec966a652",
+      "type": "qemu"
+    },
+    {
+      "name": "infraflow-agent",
+      "template_id": "c079e0ed-b12b-4a7a-a1f6-31cc75cef897",
+      "type": "docker"
+    },
+    {
+      "name": "infraflow-provider",
+      "template_id": "38ca7797-1d6f-44fb-b36d-a6ebe6e4d2bd",
+      "type": "docker"
+    },
+    {
+      "name": "Cisco IOL-XE",
+      "template_id": "6bf6e3c0-9b26-44f4-96ae-66131333d65a",
+      "type": "docker"
+    },
+    {
+      "name": "Mikrotik WinBox",
+      "template_id": "f32e0eec-f153-4a1a-a319-3e3267b5962c",
+      "type": "docker"
+    },
+    {
+      "name": "MikroTik RB1100AHx4 Dude Edition",
+      "template_id": "6f03fb27-e445-45b6-b8d6-49184071bcb6",
+      "type": "qemu"
+    },
+    {
+      "name": "Cisco CSR1000v",
+      "template_id": "a21b57af-9efa-444c-bae4-17b571dfad3d",
+      "type": "qemu"
+    },
+    {
+      "name": "debian-base",
+      "template_id": "90b8ab17-cf0c-4c76-94ff-1752ee8ffa60",
+      "type": "docker"
+    },
+    {
+      "name": "arch-gns3-gui",
+      "template_id": "5f7235f8-a50e-42c6-a5f8-ba9ad7836a48",
+      "type": "docker"
+    },
+    {
+      "name": "debian-dhcp",
+      "template_id": "385f7c1a-42a0-4beb-8a2c-9a3f73335ba6",
+      "type": "docker"
+    },
+    {
+      "name": "debian-ftp",
+      "template_id": "0f66ef97-c35a-4148-8b92-4e4336ac299b",
+      "type": "docker"
+    },
+    {
+      "name": "debian-dns",
+      "template_id": "8056f674-6c62-4224-8217-0dceaaf8e967",
+      "type": "docker"
+    },
+    {
+      "name": "InfraFlow Provider appliance delivery 2026-11-18",
+      "template_id": "db3c7d3c-360e-4929-998f-08cade0c8352",
+      "type": "docker"
+    },
+    {
+      "name": "InfraFlow Agent appliance delivery 2026-11-18",
+      "template_id": "5e5b401f-178c-447d-ae0d-77594a106832",
+      "type": "docker"
+    },
+    {
+      "name": "Cloud",
+      "template_id": "b6ed2e82-d5aa-5a86-b6dd-8b9dd1c66800",
+      "type": "cloud"
+    },
+    {
+      "name": "NAT",
+      "template_id": "2d7eb722-90e8-56c1-8dfa-a30d79847984",
+      "type": "nat"
+    },
+    {
+      "name": "VPCS",
+      "template_id": "52136454-1f50-590a-94e4-816bd02d1062",
+      "type": "vpcs"
+    },
+    {
+      "name": "Ethernet switch",
+      "template_id": "92a43283-9c7e-5a68-9695-1f05a2e8dd05",
+      "type": "ethernet_switch"
+    },
+    {
+      "name": "Ethernet hub",
+      "template_id": "8ed8d072-b183-541c-81ec-6e106c3a5a2a",
+      "type": "ethernet_hub"
+    },
+    {
+      "name": "Frame Relay switch",
+      "template_id": "6ae48470-232f-50a4-a0df-5fb07e6ecba7",
+      "type": "frame_relay_switch"
+    },
+    {
+      "name": "ATM switch",
+      "template_id": "fe3f642f-1398-562b-a3a8-bb93d4b2ee16",
+      "type": "atm_switch"
+    }
+  ],
+  "captured_at_utc": "2026-11-18T19:30:31.990658+00:00",
+  "device_configuration_applied": false,
+  "gns3": {
+    "api_base": "http://127.0.0.1:3080",
+    "api_path_count": 118,
+    "api_schema_version": "3.1.0",
+    "authentication": "enabled; secrets omitted",
+    "version": "3.1.0a4"
+  },
+  "images": {
+    "infraflow-agent:delivery-20261118-r1": "sha256:6f2c5fda5626755002c9b6f197a8ef74e9f3032fef450215fcc3144ee3857c69",
+    "infraflow-provider:delivery-20261118": "sha256:a824508d81cb0a54c344eecd43a14be4e20ab5eaa0f6437ae273efdfd363452e"
+  },
+  "local_docker_image_count": 36,
+  "physical_device_contacted": false,
+  "preexisting_projects": [
+    {
+      "name": "infraflow",
+      "project_id": "853b91e1-51de-4ebd-9c1f-2c5b104325b0",
+      "status": "closed"
+    },
+    {
+      "name": "dev-mikrotik",
+      "project_id": "b62c57a6-0c40-4d87-a456-85aa515ed71d",
+      "status": "closed"
+    },
+    {
+      "name": "site A",
+      "project_id": "77e1a3b3-88b6-4895-b409-8ecc108ce022",
+      "status": "closed"
+    },
+    {
+      "name": "cisco_add_internet",
+      "project_id": "3bae405d-9301-4f35-aaef-f29c4387a098",
+      "status": "closed"
+    },
+    {
+      "name": "untitled",
+      "project_id": "5623bbc5-61df-494c-94ed-64a698f16139",
+      "status": "closed"
+    },
+    {
+      "name": "topologie",
+      "project_id": "923b12f7-b893-452b-a30a-e01f5c0157f0",
+      "status": "opened"
+    }
+  ],
+  "project": {
+    "isolated_no_cloud_or_nat": true,
+    "links": 2,
+    "name": "infraflow-appliance-lab-20261118",
+    "nodes": {
+      "Agent": {
+        "container_exit_code": 0,
+        "container_status": "exited",
+        "image": "infraflow-agent:delivery-20261118-r1",
+        "node_status": "started",
+        "template_id": "5e5b401f-178c-447d-ae0d-77594a106832"
+      },
+      "Provider": {
+        "container_exit_code": 0,
+        "container_status": "running",
+        "image": "infraflow-provider:delivery-20261118",
+        "node_status": "started",
+        "template_id": "db3c7d3c-360e-4929-998f-08cade0c8352"
+      }
+    },
+    "project_id": "ca690f7a-44e0-4af9-bb1d-813862cecf50",
+    "stats": {
+      "drawings": 0,
+      "links": 2,
+      "nodes": 3,
+      "snapshots": 0
+    },
+    "status": "opened",
+    "topology_links": [
+      {
+        "nodes": [
+          "Provider",
+          "Isolatedswitch"
+        ]
+      },
+      {
+        "nodes": [
+          "Agent",
+          "Isolatedswitch"
+        ]
+      }
+    ]
+  },
+  "provider_agent": {
+    "agent_artifact_count": 13,
+    "agent_blocked": 0,
+    "agent_completed": 13,
+    "agent_failed": 0,
+    "agent_id": "agent-gns3",
+    "agent_report_id": "db4385b701279fc45c870bb35dbd01402dedd351db51ac4ebe91113b861d661e",
+    "agent_report_submitted": true,
+    "agent_to_provider_ping": "passed",
+    "native_files_byte_identical": true,
+    "native_hashes": {
+      "device-cisco-r1.cfg": "da595d1de68d97cf34c3cb11dfd7bbfdae48739bcb53bfc6ec394c0c00264c8e",
+      "native-manifest.json": "61ab91191e6aa0cab720b2625441bca088ccb754fced288b96484b5b68c9d891"
+    },
+    "provider_https_http_status": 200,
+    "provider_report_artifacts": 13,
+    "provider_report_completed": 13,
+    "provider_report_persisted": true,
+    "registered_agent": [
+      {
+        "id": "agent-gns3",
+        "site_id": "site-gns3",
+        "status": "online"
+      }
+    ],
+    "site_id": "site-gns3"
+  },
+  "remote_computes": [
+    {
+      "compute_id": "3f2c37a4-46c7-4e4b-af9e-f50abd9d0894",
+      "connected": null,
+      "name": "debian-server"
+    }
+  ],
+  "server_resources": {
+    "computes": [
+      {
+        "compute_id": "local",
+        "compute_name": "arch-hacker (controller)",
+        "statistics": {
+          "cpu_usage_percent": 0,
+          "disk_usage_percent": 68,
+          "load_average_percent": [
+            53,
+            38,
+            48
+          ],
+          "memory_free": 5604564992,
+          "memory_total": 16475492352,
+          "memory_usage_percent": 66,
+          "memory_used": 10870927360,
+          "swap_free": 14347833344,
+          "swap_total": 17179865088,
+          "swap_usage_percent": 16,
+          "swap_used": 2832031744
+        }
+      }
+    ],
+    "links": {
+      "capturing": 0,
+      "total": 26
+    },
+    "nodes": {
+      "by_status": {
+        "started": 14
+      },
+      "by_type": {
+        "cloud": 2,
+        "docker": 8,
+        "dynamips": 2,
+        "ethernet_switch": 5,
+        "nat": 1,
+        "qemu": 7,
+        "vpcs": 3
+      },
+      "closed_project_nodes": 14,
+      "open_project_nodes": 14,
+      "total": 28
+    },
+    "projects": {
+      "closed": 5,
+      "opened": 2,
+      "total": 7
+    },
+    "webwireshark": {
+      "active_sessions": 0,
+      "containers": [],
+      "running_containers": 0,
+      "total_containers": 0
+    }
+  }
+}

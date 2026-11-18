@@ -104,3 +104,28 @@ func TestStateStoreAllowsVerifiedBootstrapArtifacts(t *testing.T) {
 		t.Fatal("accepted private agent state as a publishable artifact")
 	}
 }
+
+func TestStateStoreAllowsVerifiedNativeArtifacts(t *testing.T) {
+	root := t.TempDir()
+	store := NewStateStore(root)
+	for _, test := range []struct {
+		path string
+		data []byte
+	}{
+		{path: "lab/native/device-edge-west-1.cfg", data: []byte("hostname edge-west-1\n")},
+		{path: "lab/native/native-manifest.json", data: []byte(`{"schema_version":1}`)},
+	} {
+		if err := store.SaveArtifact(test.path, protocol.SHA256(test.data), bytes.NewReader(test.data)); err != nil {
+			t.Fatalf("save verified native artifact %q: %v", test.path, err)
+		}
+		artifact, err := store.OpenArtifact(test.path)
+		if err != nil {
+			t.Fatalf("open verified native artifact %q: %v", test.path, err)
+		}
+		got, err := io.ReadAll(artifact)
+		_ = artifact.Close()
+		if err != nil || !bytes.Equal(got, test.data) {
+			t.Fatalf("native artifact %q changed while staging: %q, %v", test.path, got, err)
+		}
+	}
+}

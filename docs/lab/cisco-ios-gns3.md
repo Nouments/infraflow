@@ -1,6 +1,6 @@
 # Validation de `cisco.ios.configure` dans un lab GNS3
 
-**Statut de cette passe : NON EXÉCUTÉ sur Cisco IOS.** Aucun nœud Cisco IOS avec adresse de gestion autorisée et empreinte de clé approuvée n'a été confirmé. Le serveur GNS3 local était actif, mais le seul processus de VM observé était nommé `fortigate-1`, hors périmètre. Aucun SSH ou appel API de configuration n'a été adressé à un équipement.
+**Statut actuel : Provider–Agent testé dans GNS3; exécuteur Cisco IOS NON EXÉCUTÉ.** Le 2026-11-18, deux appliances InfraFlow (Provider et Agent) ont été testées via le contrôleur GNS3 local et un switch Ethernet isolé. Treize artefacts ont été transférés et le rapport Agent a été conservé. Aucun nœud Cisco IOS/IOS-XE n'a été démarré ou contacté; le fichier `.cfg` est resté un artefact de rendu. Aucun SSH d'exécution et aucun appel de configuration vers un équipement n'a eu lieu. Les détails sont dans [`docs/DELIVERY/GNS3_ACCEPTANCE_TESTS.md`](../DELIVERY/GNS3_ACCEPTANCE_TESTS.md).
 
 Ce document est un runbook pour l'opérateur du lab. Les sorties et statuts attendus ci-dessous sont des critères, pas des preuves déjà obtenues.
 

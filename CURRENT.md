@@ -1,63 +1,59 @@
-# InfraFlow — Mission 85+ engineering follow-up
+# InfraFlow — Delivery and engineering status
 
 ## Current status — 2026-11-18
 
-- Repository: `Nouments/infraflow`; `develop` and `origin/develop` were fetched
-  at `9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`. The initial worktree was
-  clean. Current changes are local; no commit or push was made.
-- **M1 generation publication — IMPLEMENTED AND LOCALLY VERIFIED.** Declarative
-  `generate-device-config` publication now uses the shared bounded recovery
-  journal. It replaces outputs only when the previous report and each prior
-  configuration hash validate, rejects unmanaged or edited files, and removes
-  stale outputs from an otherwise verified prior generation.
-- **Security dependencies — UPDATED.** `govulncheck` found nine advisories in
-  Brotli, `x/net`, gRPC, and SSH dependencies. The fixed releases are pinned;
-  `x/crypto` is at 0.57.0 because `x/net` 0.60.0 requires it. The minimum Go
-  version and Docker builder images are now 1.26.
-- Independent source review found no blocking issue. The declarative report
-  remains unsigned ownership metadata, so the output root must remain trusted,
-  consistent with the existing catalog model.
+- Repository `Nouments/infraflow`, branch `develop`, source base
+  `9707df0f009662c2dbd39d63fc138389bb884675` (`stabilization9`). The starting
+  worktree was clean. Three Agent source/test files and delivery evidence/docs
+  are now local and uncommitted; no commit or push was made.
+- Fixed Agent storage validation for verified `native_device_config` and
+  `native_manifest` artifacts. Added tests for safe save/reopen and explicit
+  non-executing staging.
+- Built and tested the Provider and Agent as separate Docker appliances in a
+  new, isolated local GNS3 project. The real Provider–Agent run persisted a
+  report with 13 artifacts completed, zero failed, zero blocked. Provider and
+  Agent copies of the Cisco IOS-XE-profile configuration and native manifest
+  matched by SHA-256.
+- GNS3 was external lab tooling only. No GNS3 client, API wrapper, or product
+  runtime integration was added. The project is saved and closed; its test
+  tokens were cleared and the stopped appliance containers removed. No
+  pre-existing GNS3 project was changed.
+- **Device limit:** no Cisco node/device was started or contacted, and no
+  configuration was applied. The result proves appliance transfer, hash
+  verification, staging, and report persistence only.
 
-### Validation evidence
+### Validation
 
-- **Current engineering evidence score: 9/10** under the mission's ten-item
-  definition-of-done rubric. The first nine items have current source/test
-  evidence; Linux and Windows Actions on this exact local revision remain
-  unverified. This is not a release-readiness score. See the
-  [completion report](docs/COMPLETION_AND_TEST_REPORT.md) for the rubric and
-  evidence.
-- Baseline `go test -count=1 ./...` passed before changes.
-- After implementation and dependency updates, `go test -count=1 ./...` and
-  `go test -race -count=1 ./...` passed. The real Provider–Agent multisite
-  loopback integration test passed separately; declarative ownership and
-  regeneration regression tests passed ten repetitions.
-- The fresh-output Provider demo and separate verifier passed. They checked
-  Cisco and MikroTik render-only artifacts, bootstrap opt-in/opt-out, four-site
-  output, report/catalog hashes and sizes, and OSPF rejection without output.
-- GitHub Actions run [44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
-  on the fetched baseline failed in Linux at `govulncheck` before Go tests; its
-  scan found the nine advisories fixed in this follow-up. The Windows full
-  tests, vet, builds, formatting and diff checks passed, as did the separate
-  presentation-demo and Provider–Agent integration job. These results cover
-  the baseline commit, not this local revision.
-- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `gofmt -l .`, and
-  `git diff --check` passed. CI-pinned
-  `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` found zero reachable
-  vulnerabilities.
-- No Linux or Windows GitHub Actions run covers this local revision. Windows
-  CI could not be executed locally, and no commit or push was made.
+- `go test -count=1 ./...` — PASS.
+- `go test -race -count=1 ./...` — PASS.
+- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `go mod verify`,
+  `gofmt`, and `git diff --check` — PASS.
+- CI-pinned `govulncheck` — zero reachable vulnerabilities. It also reported
+  one imported-code finding and five findings in required modules that are not
+  reachable from this program.
+- Agent processor coverage 93.2% (90% threshold); Agent CLI coverage 66.9%
+  (65% threshold).
+- Presentation demo and verifier — PASS, including output hashes, paths,
+  sizes, bootstrap opt-in/out, and rejection of unsupported OSPF without
+  output.
+- Local GNS3 acceptance run — PASS, 13/13 artifacts; see
+  [acceptance results](docs/DELIVERY/GNS3_ACCEPTANCE_TESTS.md) and
+  [sanitized evidence](artifacts/delivery/gns3/README.md).
+- No GitHub Actions run covers this uncommitted revision. Windows CI is
+  therefore unverified.
 
-### Remaining limits
+### Readiness and remaining limits
 
-- Declarative report metadata is not signed; hostile local actors who can write
-  the output root can forge ownership metadata, as with the existing catalogs.
-- Publication recovery is journaled but is not a filesystem-wide atomic swap;
-  parent-directory durability and hostile concurrent path replacement are not
-  guaranteed. Read snapshots still allow up to 32 MiB per open with no global
-  concurrent-reader memory cap.
-- Cisco `.cfg`, MikroTik `.auto.rsc`, and FortiOS `.cfg` remain render-only.
-  No vendor parser, device, or lab validation was run; ZTP/AutoInstall remain
-  unsupported. Historical records below do not supersede this status.
+The delivery evidence score is **74/100**, not a release approval. Vendor
+parser/device validation, Terraform execution, bootstrap service operation,
+ZTP, and AutoInstall were not performed. The local GNS3 controller used HTTP,
+a wildcard listen address, and default credentials; a bearer token in the
+supplied log should be treated as exposed and rotated. See
+[`docs/DELIVERY/SECURITY_AUDIT.md`](docs/DELIVERY/SECURITY_AUDIT.md) and
+[`docs/DELIVERY/RELEASE_READINESS.md`](docs/DELIVERY/RELEASE_READINESS.md).
+
+Older engineering records below describe earlier snapshots and do not
+supersede this status.
 
 ## Historical presentation readiness follow-up — stabilization5 (superseded)
 

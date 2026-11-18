@@ -1,63 +1,51 @@
-# InfraFlow — Mission 85+ engineering follow-up
+# InfraFlow — Statut de livraison
 
 ## État courant — 2026-11-18
 
-- Dépôt `Nouments/infraflow`; `develop` et `origin/develop` ont été récupérés
-  au commit `9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`. Le worktree était
-  propre au départ. Les changements actuels sont locaux; aucun commit ni push.
-- **Publication déclarative — IMPLÉMENTÉE ET VÉRIFIÉE LOCALEMENT.**
-  `generate-device-config` réutilise maintenant le journal de récupération
-  commun. Il ne remplace des fichiers que si le rapport antérieur et les hash
-  de chaque configuration concordent; il rejette les fichiers non gérés et
-  les sorties modifiées, et retire les anciennes configurations gérées qui ne
-  figurent plus dans la nouvelle génération.
-- **Dépendances de sécurité — MISES À JOUR.** Le contrôle govulncheck initial a
-  trouvé neuf avis liés à Brotli, `x/net`, gRPC et SSH. Les versions corrigées
-  sont utilisées; `x/crypto` est en 0.57.0, exigé par `x/net` 0.60.0. Go et
-  les images de compilation Docker exigent désormais Go 1.26.
-- La revue indépendante du code n’a pas trouvé de défaut bloquant. Le rapport
-  déclaratif n’est pas signé et suppose donc une racine de sortie fiable,
-  comme le catalogue existant.
+- Dépôt `Nouments/infraflow`, branche `develop`, base source
+  `9707df0f009662c2dbd39d63fc138389bb884675` (`stabilization9`). Le worktree
+  était propre au début; trois fichiers Agent et les documents/preuves de cette
+  passe sont maintenant locaux, sans commit ni push.
+- Correctif Agent : les artefacts vérifiés `native_device_config` et
+  `native_manifest` peuvent être enregistrés et rouverts. Des tests couvrent
+  leur stockage et leur staging sans exécution.
+- Test réel des appliances Provider et Agent dans un nouveau projet GNS3 local
+  et isolé : 13 artefacts terminés, zéro échec, zéro blocage; rapport Provider
+  persisté et fichiers natifs identiques par SHA-256.
+- GNS3 n'est qu'un outil de test externe. Aucun client/API GNS3 ni intégration
+  d'exécution GNS3 n'a été ajouté. Le projet de test est enregistré puis fermé,
+  les valeurs de test effacées et les conteneurs arrêtés supprimés. Aucun
+  projet GNS3 préexistant n'a été modifié.
+- Aucun appareil Cisco n'a été démarré/contacté et aucune configuration n'a
+  été appliquée. Le résultat couvre le transport Provider–Agent, les hash, le
+  staging et la persistance du rapport uniquement.
 
-### Vérifications observées
+### Vérifications
 
-- **Score de preuve d’ingénierie : 9/10**, selon les dix critères de définition
-  de fin de mission. Les neuf premiers reposent sur le code et les tests
-  exécutés; les Actions Linux et Windows sur cette révision locale ne sont pas
-  vérifiées. Ce score n’est pas une mesure de préparation à la production. Le
-  rapport de test détaille le barème et les preuves.
-- Avant changement : `go test -count=1 ./...` — PASS.
-- Après changements et mises à jour de dépendances :
-  `go test -count=1 ./...` et `go test -race -count=1 ./...` — PASS.
-  L’intégration Provider–Agent multisite sur loopback — PASS. Les tests
-  d’ownership et de régénération déclarative — PASS sur dix répétitions.
-- Le demo Provider sur sortie temporaire neuve et son vérificateur — PASS :
-  rendus Cisco/MikroTik, bootstrap opt-in/opt-out, quatre sites, tailles/hash
-  des catalogues et rapports, rejet OSPF sans sortie. Aucun équipement n’a été
-  contacté et aucune configuration n’a été appliquée.
-- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `gofmt -l .` et
-  `git diff --check` — PASS. Le govulncheck CI `v1.9.0` a trouvé zéro
-  vulnérabilité atteignable.
-- Le run GitHub Actions de base
-  [44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
-  a échoué sous Linux à govulncheck, avant les tests; il a trouvé les neuf avis
-  corrigés ici. Le job Windows a passé les tests complets, vet, builds,
-  formatage et diff; le job séparé de démonstration et d’intégration
-  Provider–Agent a également réussi. Ces jobs portent sur le commit de base,
-  pas sur ces changements locaux.
-- Aucun run GitHub Actions Linux ou Windows ne couvre cette révision locale;
-  aucune modification n’a été commitée ou poussée.
+- `go test -count=1 ./...` et `go test -race -count=1 ./...` — PASS.
+- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `go mod verify`,
+  `gofmt` et `git diff --check` — PASS.
+- `govulncheck` CI — zéro vulnérabilité atteignable; un avis de code importé et
+  cinq avis de modules requis sont signalés comme non atteignables.
+- Couverture Agent : processor 93,2 % (seuil 90 %); CLI 66,9 % (seuil 65 %).
+- Démonstration de génération et vérificateur — PASS : hash, chemins, tailles,
+  bootstrap opt-in/opt-out, et rejet OSPF non pris en charge sans sortie.
+- Test GNS3 Provider–Agent — PASS, 13/13; voir
+  [résultats](docs/DELIVERY/GNS3_ACCEPTANCE_TESTS.md) et
+  [preuves expurgées](artifacts/delivery/gns3/README.md).
+- Aucun run GitHub Actions ne couvre cette révision non commitée; CI Windows
+  non vérifiée.
 
-### Limites restantes
+### Préparation et limites
 
-Le rapport d’ownership déclaratif n’est pas signé; une personne capable
-d’écrire dans la racine de sortie peut fabriquer des métadonnées. Le journal
-n’offre pas un échange atomique global et ne garantit pas la durabilité des
-répertoires parents; les changements de chemins par un acteur local concurrent
-ne sont pas protégés. Chaque lecteur d’artefact peut conserver 32 Mio et il
-n’existe pas de plafond global de mémoire. Cisco `.cfg`, MikroTik `.auto.rsc`
-et FortiOS `.cfg` restent du rendu non vérifié; aucun parseur constructeur,
-équipement, lab, ZTP ou AutoInstall n’a été validé.
+Score de preuve de livraison : **74/100**, sans constituer une autorisation de
+publication. Aucun parseur/appareil constructeur, exécution Terraform,
+service bootstrap, ZTP ou AutoInstall n'a été testé. Le serveur GNS3 local
+utilisait HTTP, une écoute wildcard et les identifiants par défaut; un jeton
+bearer présent dans le log fourni doit être considéré exposé et renouvelé. Voir
+les audits dans `docs/DELIVERY/`.
+
+Les comptes rendus historiques ci-dessous concernent des états antérieurs.
 
 ## Historique — préparation soutenance sur stabilization5 (supersédée)
 

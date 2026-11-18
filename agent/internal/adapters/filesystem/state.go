@@ -53,6 +53,7 @@ func validStoredArtifactPath(relativePath string) bool {
 	}
 	for _, artifactType := range []string{
 		"inventory", "topology", "generation_report", "site_manifest",
+		"native_device_config", "native_manifest",
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
 		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",

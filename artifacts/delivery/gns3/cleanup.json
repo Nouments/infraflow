@@ -1,0 +1,18 @@
+{
+  "captured_at_utc": "2026-11-18T19:46:17+00:00",
+  "project_id": "ca690f7a-44e0-4af9-bb1d-813862cecf50",
+  "project_name": "infraflow-appliance-lab-20261118",
+  "project_status": "closed",
+  "saved_nodes": [
+    "Agent",
+    "Isolatedswitch",
+    "Provider"
+  ],
+  "saved_links": 2,
+  "test_node_auth_values_empty": {
+    "Provider": true,
+    "Agent": true
+  },
+  "project_docker_containers_remaining": 0,
+  "preexisting_projects_modified": false
+}

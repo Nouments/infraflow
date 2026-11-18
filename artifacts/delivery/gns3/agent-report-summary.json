@@ -1,0 +1,85 @@
+{
+  "agent_id": "agent-gns3",
+  "artifacts": [
+    {
+      "message": "site generation report validated",
+      "output_hash": "9862d2811776602eed502fe6ba26a5a409ae9d20c6b9721455d203ef13887e6c",
+      "path": "site-gns3/generation-report.json",
+      "status": "completed"
+    },
+    {
+      "message": "inventory imported into local agent state",
+      "output_hash": "63453ce884a8ab568a20e3cc54e6a95d3461c58f1e67e18283168e7039af22d3",
+      "path": "site-gns3/inventory.json",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "da595d1de68d97cf34c3cb11dfd7bbfdae48739bcb53bfc6ec394c0c00264c8e",
+      "path": "site-gns3/native/device-cisco-r1.cfg",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "61ab91191e6aa0cab720b2625441bca088ccb754fced288b96484b5b68c9d891",
+      "path": "site-gns3/native/native-manifest.json",
+      "status": "completed"
+    },
+    {
+      "message": "site manifest validated",
+      "output_hash": "311a7191d6eeed04622b25293203b5f0025dbc5ed0df1656eb131abcd5566387",
+      "path": "site-gns3/site-manifest.json",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "67e90ddf66d49fc9e9f07feb79f49c78e3dad59f0a67d3d2cdc48d6c02e6bfcd",
+      "path": "site-gns3/terraform/locals.tf",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e",
+      "path": "site-gns3/terraform/main.tf",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94",
+      "path": "site-gns3/terraform/outputs.tf",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62",
+      "path": "site-gns3/terraform/providers.tf",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6",
+      "path": "site-gns3/terraform/terraform.tfvars.example",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4",
+      "path": "site-gns3/terraform/variables.tf",
+      "status": "completed"
+    },
+    {
+      "message": "verified artifact staged; tool execution or bootstrap service startup remains explicit",
+      "output_hash": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f",
+      "path": "site-gns3/terraform/versions.tf",
+      "status": "completed"
+    },
+    {
+      "message": "topology imported into local agent state",
+      "output_hash": "131d49ee1a3e27ec80636f223df38ca46314455e7b69a048f9cbe42ec797f1a2",
+      "path": "site-gns3/topology.json",
+      "status": "completed"
+    }
+  ],
+  "report_id": "db4385b701279fc45c870bb35dbd01402dedd351db51ac4ebe91113b861d661e",
+  "reported_at": "2026-11-18T19:20:27.280417709Z"
+}

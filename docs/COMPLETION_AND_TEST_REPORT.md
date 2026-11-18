@@ -1,6 +1,56 @@
 # Completion and test campaign report
 
-## Mission follow-up — 2026-11-18
+## Current delivery update — 2026-11-18
+
+Source base: `develop` at `9707df0f009662c2dbd39d63fc138389bb884675`
+(`stabilization9`). The three Agent source/test changes and delivery documents
+are local and uncommitted. No commit or push was made.
+
+The Agent filesystem allowlist now accepts verified `native_device_config` and
+`native_manifest` artifacts. Regression tests cover persistence and staging
+without execution. The change fixes a real failure observed in the first
+Provider–Agent appliance run.
+
+The repeat run used separate Provider and Agent Docker appliances in a new,
+isolated local GNS3 project. Registration, TLS Provider access, hash-verified
+transfer, 13/13 artifact staging, report persistence, and byte comparison of
+the native configuration and manifest passed. GNS3 was external test tooling;
+no GNS3 client/API wrapper/runtime integration was added. The project is saved
+and closed, test tokens were cleared, and its stopped containers were removed.
+No pre-existing GNS3 project was modified.
+
+### Current validation
+
+| Check | Result |
+|---|---|
+| `go test -count=1 ./...` | PASS |
+| `go test -race -count=1 ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go build ./provider/cmd ./agent/cmd` | PASS |
+| `go mod verify` | PASS |
+| CI-pinned `govulncheck` | PASS; zero reachable vulnerabilities |
+| Agent processor / CLI coverage | PASS; 93.2% / 66.9%, thresholds 90% / 65% |
+| Presentation demo and verifier | PASS |
+| Local GNS3 Provider–Agent acceptance | PASS; 13/13 artifacts |
+| GitHub Actions on this uncommitted revision | Not available |
+
+`govulncheck` also listed one imported-code finding and five required-module
+findings that are not reachable from this program. No Windows CI or Windows
+local run is claimed. Full details and sanitized evidence are linked from
+[`docs/DELIVERY/QA_TEST_REPORT.md`](DELIVERY/QA_TEST_REPORT.md) and
+[`artifacts/delivery/qa-summary.json`](../artifacts/delivery/qa-summary.json),
+and [`artifacts/delivery/gns3/README.md`](../artifacts/delivery/gns3/README.md).
+
+No Cisco device was started/contacted and no generated configuration was
+applied. The run proves Provider–Agent artifact transport, verification,
+staging, and report persistence. It does not prove vendor syntax or
+compatibility, Terraform execution, bootstrap service operation, ZTP, or
+AutoInstall. Delivery evidence score: **74/100**; see
+[`docs/DELIVERY/RELEASE_READINESS.md`](DELIVERY/RELEASE_READINESS.md).
+
+---
+
+## Historical engineering follow-up before GNS3 appliance test — 2026-11-18
 
 ### Repository baseline and assessment
 
@@ -575,9 +625,9 @@ requested sprint, not an overall InfraFlow maturity or production-readiness
 score. The unimplemented Cisco/Fortinet profiles and unavailable live evidence
 are the main remaining blockers.
 
-**Date:** 2026-10-30  
-**Branch:** `develop`  
-**Starting commit:** `710b7ee5163acb3760c1e7043d7fa8589ca4fad3`  
+**Date:** 2026-10-30
+**Branch:** `develop`
+**Starting commit:** `710b7ee5163acb3760c1e7043d7fa8589ca4fad3`
 **Push:** not performed; no commit created.
 
 ## Summary

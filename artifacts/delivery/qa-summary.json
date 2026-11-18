@@ -1,0 +1,56 @@
+{
+  "captured_at_utc": "2026-11-18T19:48:26+00:00",
+  "source_base_commit": "9707df0f009662c2dbd39d63fc138389bb884675",
+  "source_changes": [
+    "agent/internal/adapters/filesystem/state.go",
+    "agent/internal/adapters/filesystem/state_test.go",
+    "agent/internal/adapters/processor/generic_test.go"
+  ],
+  "environment": {
+    "go": "go1.27.2-X:nodwarf5",
+    "goos": "linux",
+    "goarch": "amd64",
+    "cgo_enabled": true
+  },
+  "checks": {
+    "go_test_all": "PASS",
+    "go_test_race_all": "PASS",
+    "go_vet_all": "PASS",
+    "go_build_provider_and_agent": "PASS",
+    "go_mod_verify": "PASS",
+    "gofmt": "PASS",
+    "git_diff_check": "PASS",
+    "govulncheck_v1_9_0": {
+      "result": "PASS",
+      "reachable_vulnerabilities": 0,
+      "unreachable_imported_findings": 1,
+      "unreachable_required_module_findings": 5
+    },
+    "agent_coverage": {
+      "processor_percent": 93.2,
+      "required_percent": 90,
+      "result": "PASS",
+      "cli_percent": 66.9,
+      "cli_required_percent": 65
+    },
+    "presentation_demo": {
+      "result": "PASS",
+      "provisioning_sites": 2,
+      "provisioning_catalog_artifacts": 26,
+      "bootstrap_enabled_catalog_artifacts": 16,
+      "bootstrap_disabled_catalog_artifacts": 44,
+      "unsupported_ospf_rejected_without_output": true,
+      "artifact_integrity_check": "PASS"
+    },
+    "gns3_provider_agent_appliance_test": {
+      "result": "PASS",
+      "artifacts_completed": 13,
+      "artifacts_failed": 0,
+      "artifacts_blocked": 0,
+      "provider_report_persisted": true
+    }
+  },
+  "github_actions_for_this_uncommitted_revision": "NOT_RUN",
+  "windows_ci": "NOT_VERIFIED",
+  "device_configuration_applied": false
+}

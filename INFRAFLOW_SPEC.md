@@ -117,7 +117,12 @@ The repository includes:
 
 The following items are not treated as operationally supported by the current codebase:
 
-- operational live GNS3 / lab validation of the Cisco IOS executor against physical/virtual hardware (NON EXÉCUTÉ as of 2026-10-14; a local GNS3 server was present, but no authorized Cisco IOS target/address was confirmed). The read-only preflight script and lab procedure are documented in `scripts/cisco-ios-preflight.sh` and `docs/lab/cisco-ios-gns3.md`; they are not evidence of device configuration;
+- live validation of the Cisco IOS executor against physical/virtual IOS
+  hardware remains unexecuted. A local GNS3 test on 2026-11-18 validated the
+  Provider and Agent appliances and artifact transfer only; no Cisco node was
+  contacted and no `.cfg` was applied. The preflight and IOS executor procedure
+  in `scripts/cisco-ios-preflight.sh` and `docs/lab/cisco-ios-gns3.md` are not
+  evidence of device configuration;
 - vendor-specific configuration executors for FortiGate, MikroTik, Proxmox, or other platforms;
 - advanced Cisco IOS features (NAT, ACL, dynamic routing, switchport / VLANs);
 - automatic startup-config saving (`write memory`), pending a separate explicit save task;

@@ -1,6 +1,6 @@
 # Vendor provisioning audit
 
-**Audit date:** 2026-10-30; current-state evidence updated 2026-11-14
+**Audit date:** 2026-10-30; current-state evidence updated 2026-11-18
 **Scope:** repository state on `develop`, official-source review, and the
 requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 **Evidence rule:** generated text and mock tests are not proof of device
@@ -9,14 +9,15 @@ unless an actual implementation and matching evidence exist.
 
 ## Current review status — 2026-11-18
 
-The repository baseline is `develop` at
-`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`; no vendor capability was added or
-expanded in this follow-up. The fresh-output generation demo and verifier
-passed for the existing Cisco and MikroTik render-only artifacts and their
-manifest hashes. No vendor parser, device, or lab was used. Cisco, MikroTik,
-and Fortinet output remains render-only or otherwise unverified, and ZTP/
-AutoInstall remain unsupported. Full and race Go suites passed locally; no
-current-revision Linux or Windows Actions run is available.
+The current local revision is based on `develop` HEAD
+`9707df0f009662c2dbd39d63fc138389bb884675`. Provider generation and Agent
+transfer of a Cisco IOS-XE-profile `.cfg` were exercised in an isolated GNS3
+appliance test. The Agent staged the file and its bytes matched the Provider
+copy. No vendor parser or Cisco device was used, and no configuration was
+applied. This is artifact-path evidence, not vendor compatibility evidence.
+MikroTik and Fortinet outputs remain render-only or otherwise unverified;
+ZTP/AutoInstall remain unsupported. The Go full and race suites passed locally;
+no current-revision Linux or Windows Actions run is available.
 
 ## Historical presentation-readiness evidence — 2026-11-14
 

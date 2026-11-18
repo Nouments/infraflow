@@ -112,6 +112,8 @@ func TestGenericValidatesSiteManifestAndGenerationReport(t *testing.T) {
 func TestGenericStagesToolAndBootstrapArtifactsWithoutExecutingThem(t *testing.T) {
 	processor := Generic{}
 	for _, artifact := range []protocol.Artifact{
+		{Type: "native_device_config", Path: "lab/native/device-r1.cfg"},
+		{Type: "native_manifest", Path: "lab/native/native-manifest.json"},
 		{Type: "terraform_main", Path: "lab/terraform/main.tf"},
 		{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"},
 		{Type: "bootstrap_tftp", Path: "lab/bootstrap/tftp/config.json"},

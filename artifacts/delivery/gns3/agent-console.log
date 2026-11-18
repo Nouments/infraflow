@@ -1,0 +1,15 @@
+time=2026-11-18T19:20:27.414Z level=INFO msg="agent artifact run completed" event_id=e925939ffcd186fb91018cf931705afd event=agent.run.completed service=agent source=agent-runner agent_id=agent-gns3 status=COMPLETED site_id=site-gns3 correlation_id=063b2c27112656423ec76e6ae533462a operation=download hostname=Agent run_id=063b2c27112656423ec76e6ae533462a duration_ms=158
+completed site-gns3/generation-report.json
+completed site-gns3/inventory.json
+completed site-gns3/native/device-cisco-r1.cfg
+completed site-gns3/native/native-manifest.json
+completed site-gns3/site-manifest.json
+completed site-gns3/terraform/locals.tf
+completed site-gns3/terraform/main.tf
+completed site-gns3/terraform/outputs.tf
+completed site-gns3/terraform/providers.tf
+completed site-gns3/terraform/terraform.tfvars.example
+completed site-gns3/terraform/variables.tf
+completed site-gns3/terraform/versions.tf
+completed site-gns3/topology.json
+reported execution db4385b701279fc45c870bb35dbd01402dedd351db51ac4ebe91113b861d661e

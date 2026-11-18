@@ -1,0 +1,4 @@
+InfraFlow provider https API listening on 0.0.0.0:8080
+time=2026-11-18T19:11:19.737Z level=INFO msg="HTTP API listener started" event_id=ab564e42ac0b26e6d5bbfadf392ff00e event=provider.http.started service=provider source=provider-cli status=RUNNING hostname=Provider operation=http
+InfraFlow web console available at https://0.0.0.0:8080/
+time=2026-11-18T19:11:19.738Z level=INFO msg="gRPC listener started" event_id=4ca618ae28353fb63be9d5d23833bb7a event=provider.grpc.started service=provider source=provider-cli hostname=Provider status=RUNNING operation=grpc

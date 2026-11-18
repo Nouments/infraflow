@@ -2,9 +2,12 @@
 
 ## Current review — 2026-11-18
 
-Fetched `origin/develop`; the starting branch and remote were both at
-`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`, with a clean initial worktree.
-The baseline `go test -count=1 ./...` passed.
+The current local revision is based on `develop` HEAD
+`9707df0f009662c2dbd39d63fc138389bb884675`. The Agent-only native artifact
+staging fix does not change Provider generation or publication code. The full
+and race Go suites passed locally. A real Provider–Agent run in local GNS3
+confirmed transfer and byte equality for the rendered Cisco IOS-XE profile
+artifacts; no vendor parser/device validation or application occurred.
 
 Source review confirmed that `GenerateAllContext` already stages site outputs,
 validates hashes and catalogs, preserves uncatalogued files, and publishes

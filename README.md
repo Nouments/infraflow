@@ -422,10 +422,11 @@ reports it separately, and verifies the post-apply read-back; it does not
 persist startup-config. Unsupported task types are rejected. Execution
 is never inferred from planning or artifact generation; execution records can be
 inspected and cancelled by administrators via the web console and the Linux TUI.
-Live Cisco/GNS3 validation remains **NON EXÉCUTÉ** until an authorized, reachable
-IOS node and independently verified SSH host key are available. See the
-[Cisco IOS GNS3 lab runbook](docs/lab/cisco-ios-gns3.md); its preflight checks
-connectivity, pinned host-key fingerprint, and IOS version without configuration.
+The Provider and Agent appliances passed a local isolated GNS3 artifact
+transfer test on 2026-11-18. Cisco executor validation remains **NON EXÉCUTÉ**:
+no authorized IOS node was contacted and no configuration was applied. See the
+[Provider–Agent acceptance results](docs/DELIVERY/GNS3_ACCEPTANCE_TESTS.md) and
+[Cisco IOS GNS3 lab runbook](docs/lab/cisco-ios-gns3.md).
 
 The provider HTTP API has two separate authentication domains. Agents continue
 to use the configured machine bearer token. Platform users use SQLite-backed
@@ -456,13 +457,17 @@ INFRAFLOW_AGENT_TOKEN='<same secret>' go run ./agent/cmd run \
   -config examples/agent-config.yaml
 ```
 
-## GNS3 Docker deployment
+## Docker appliances in an isolated lab
+
+These are the standard Provider and Agent appliance images. GNS3 is one
+external lab tool that can connect them; InfraFlow does not include a GNS3 API
+client or runtime integration.
 
 Build both service images from the repository root:
 
 ```sh
-docker build -f docker/infraflow-provider/Dockerfile -t infraflow-provider:gns3 .
-docker build -f docker/infraflow-agent/Dockerfile -t infraflow-agent:gns3 .
+docker build -f docker/infraflow-provider/Dockerfile -t infraflow-provider:local .
+docker build -f docker/infraflow-agent/Dockerfile -t infraflow-agent:local .
 ```
 
 The images use the existing strict YAML files and override their runtime values
@@ -480,18 +485,18 @@ Docker build context. This self-signed certificate is for an isolated lab; use
 a certificate issued by your deployment CA outside the lab:
 
 ```sh
-install -d -m 0700 "$HOME/.config/infraflow/gns3"
+install -d -m 0700 "$HOME/.config/infraflow/lab"
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 \
-  -keyout "$HOME/.config/infraflow/gns3/provider.key" \
-  -out "$HOME/.config/infraflow/gns3/provider.crt" \
+  -keyout "$HOME/.config/infraflow/lab/provider.key" \
+  -out "$HOME/.config/infraflow/lab/provider.crt" \
   -subj "/CN=192.168.0.3" \
   -addext "subjectAltName=IP:192.168.0.3" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,digitalSignature,keyCertSign" \
   -addext "extendedKeyUsage=serverAuth"
-cp "$HOME/.config/infraflow/gns3/provider.crt" \
-  "$HOME/.config/infraflow/gns3/provider-ca.pem"
-chmod 0600 "$HOME/.config/infraflow/gns3/provider.key"
+cp "$HOME/.config/infraflow/lab/provider.crt" \
+  "$HOME/.config/infraflow/lab/provider-ca.pem"
+chmod 0600 "$HOME/.config/infraflow/lab/provider.key"
 ```
 
 In the GNS3 Docker node settings, mount the provider certificate and private
