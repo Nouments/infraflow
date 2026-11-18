@@ -1,0 +1,23 @@
+{
+  "site": "site-d",
+  "devices": [
+    {
+      "name": "edge-d-firewall",
+      "role": "firewall",
+      "vendor": "fortinet",
+      "family": "fortios",
+      "identity": {},
+      "management": {},
+      "provisioning": {}
+    },
+    {
+      "name": "edge-d-router",
+      "role": "router",
+      "vendor": "cisco",
+      "family": "iosxe",
+      "identity": {},
+      "management": {},
+      "provisioning": {}
+    }
+  ]
+}

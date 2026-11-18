@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "input_hash": "76200265cec3b6e89dd0e91d14834619bb39f6dfb09c00d36a67b91d1f4a6760",
+  "sites": [
+    {
+      "site_id": "site-c",
+      "site_name": "site-c",
+      "status": "succeeded",
+      "artifact_count": 11,
+      "site_manifest_path": "site-c/site-manifest.json",
+      "generation_report_path": "site-c/generation-report.json"
+    }
+  ]
+}

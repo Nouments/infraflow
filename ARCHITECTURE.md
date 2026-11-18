@@ -41,6 +41,10 @@ boundary.
 - Validation never writes files or contacts infrastructure.
 - Planning describes work; it does not execute it.
 - Artifact generation is confined to the explicitly selected provider output directory.
+- Full and declarative generation use the bounded publication journal.
+  Declarative regeneration may replace only outputs listed by a valid prior
+  report whose configuration hashes still match; unmanaged or edited files
+  are preserved and rejected.
 - Agent streams are confined to the explicitly selected local state directory and hash-checked before atomic commit.
 - The generic scheduler is connected through the Provider execution application service and a typed executor port. Execution records, attempts, results, and per-execution transition history are persisted; the Provider composition registers two operational executors, `artifact.verify` (read-only cryptographic SHA-256 verification of published artifacts) and `cisco.ios.configure` (verified Cisco IOS Ethernet interface and hostname configuration over SSH with read-back verification), and refuses all unregistered task types.
 - Desired and observed state comparison is isolated in the reconciliation core; it reports drift and hashes without changing either state.

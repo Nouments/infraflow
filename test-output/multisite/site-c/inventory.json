@@ -1,0 +1,14 @@
+{
+  "site": "site-c",
+  "devices": [
+    {
+      "name": "edge-c",
+      "role": "edge-firewall",
+      "vendor": "fortinet",
+      "family": "fortios",
+      "identity": {},
+      "management": {},
+      "provisioning": {}
+    }
+  ]
+}

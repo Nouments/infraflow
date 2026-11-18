@@ -1,0 +1,12 @@
+{
+  "site": "site-c",
+  "nodes": [
+    {
+      "id": "edge-c",
+      "name": "edge-c",
+      "role": "edge-firewall",
+      "vendor": "fortinet"
+    }
+  ],
+  "edges": null
+}

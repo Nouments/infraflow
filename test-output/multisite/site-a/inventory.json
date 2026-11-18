@@ -1,0 +1,14 @@
+{
+  "site": "site-a",
+  "devices": [
+    {
+      "name": "edge-a",
+      "role": "edge-router",
+      "vendor": "cisco",
+      "family": "iosxe",
+      "identity": {},
+      "management": {},
+      "provisioning": {}
+    }
+  ]
+}

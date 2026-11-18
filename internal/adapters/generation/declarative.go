@@ -1,11 +1,11 @@
 package generator
 
 import (
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,7 +19,6 @@ import (
 	"infraflow/internal/adapters/catalog"
 	"infraflow/internal/adapters/config"
 	"infraflow/internal/domain"
-	"infraflow/internal/infrastructure/safefs"
 	"infraflow/pkg/protocol"
 
 	"gopkg.in/yaml.v3"
@@ -253,124 +252,128 @@ func publishDeclarativeArtifacts(outputDirectory string, input []byte, pending [
 		return nil, fmt.Errorf("output directory must be a real directory")
 	}
 
-	targets := make(map[string]string, len(pending))
+	targets := make(map[string]declarativeArtifact, len(pending))
+	var site, reportPath string
 	for _, item := range pending {
-		if !filepath.IsLocal(filepath.FromSlash(item.Path)) || strings.Contains(item.Path, "\\") {
+		if !safePublicationPath(item.Path) {
 			return nil, fmt.Errorf("unsafe generated artifact path %q", item.Path)
 		}
-		target := filepath.Join(root, filepath.FromSlash(item.Path))
-		if _, exists := targets[target]; exists {
+		if len(item.Data) > protocol.MaxArtifactBytes {
+			return nil, fmt.Errorf("generated artifact %q exceeds size limit", item.Path)
+		}
+		if _, exists := targets[item.Path]; exists {
 			return nil, fmt.Errorf("duplicate generated artifact path %q", item.Path)
 		}
-		targets[target] = item.Path
-		if err := validateDeclarativeTarget(root, item.Path); err != nil {
-			return nil, fmt.Errorf("validate generated artifact target %q: %w", item.Path, err)
+		targets[item.Path] = item
+		if item.Type == "generation_report" {
+			if reportPath != "" || !strings.HasSuffix(item.Path, "/generation-report.json") {
+				return nil, fmt.Errorf("declarative generation must publish exactly one site report")
+			}
+			reportPath = item.Path
+			site = strings.TrimSuffix(item.Path, "/generation-report.json")
+		}
+	}
+	if reportPath == "" || !protocol.ValidSiteName(site) {
+		return nil, fmt.Errorf("declarative generation report path is missing or invalid")
+	}
+
+	managed := make(map[string]struct{}, len(pending))
+	previousPaths, err := inspectDeclarativeGeneration(root, reportPath, site)
+	if err != nil {
+		return nil, fmt.Errorf("inspect previous declarative generation: %w", err)
+	}
+	for artifactPath := range previousPaths {
+		managed[artifactPath] = struct{}{}
+	}
+	for artifactPath := range targets {
+		exists, _, err := inspectPublicationTarget(root, artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("validate generated artifact target %q: %w", artifactPath, err)
+		}
+		if exists {
+			if _, owned := managed[artifactPath]; !owned {
+				return nil, fmt.Errorf("refusing to replace unmanaged file %q", artifactPath)
+			}
 		}
 	}
 
-	backups := make(map[string]string)
-	published := make(map[string]struct{}, len(pending))
-	restoreBackups := func() error {
-		var restoreErrors []error
-		for target, backup := range backups {
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-				restoreErrors = append(restoreErrors, fmt.Errorf("remove incomplete artifact %q: %w", targets[target], err))
-				continue
-			}
-			if err := os.Rename(backup, target); err != nil {
-				restoreErrors = append(restoreErrors, fmt.Errorf("restore previous artifact %q: %w", targets[target], err))
-			}
+	var stale []string
+	files := make([]publicationFile, 0, len(pending))
+	for artifactPath := range previousPaths {
+		if _, remains := targets[artifactPath]; !remains && artifactPath != reportPath {
+			stale = append(stale, artifactPath)
 		}
-		for target := range published {
-			if _, hadBackup := backups[target]; hadBackup {
-				continue
-			}
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-				restoreErrors = append(restoreErrors, fmt.Errorf("remove incomplete artifact %q: %w", targets[target], err))
-			}
-		}
-		return errors.Join(restoreErrors...)
 	}
-	for target, relative := range targets {
-		if _, err := os.Lstat(target); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return nil, errors.Join(fmt.Errorf("inspect generated artifact %q: %w", relative, err), restoreBackups())
+	for _, item := range pending {
+		phase := publicationPhaseArtifacts
+		if item.Path == reportPath {
+			phase = publicationPhaseGlobalReport
 		}
-		backup, err := os.CreateTemp(filepath.Dir(target), ".infraflow-backup-*")
-		if err != nil {
-			restoreErr := restoreBackups()
-			return nil, errors.Join(fmt.Errorf("reserve backup for artifact %q: %w", relative, err), restoreErr)
-		}
-		backupPath := backup.Name()
-		if err := backup.Close(); err != nil {
-			removeErr := os.Remove(backupPath)
-			restoreErr := restoreBackups()
-			return nil, errors.Join(fmt.Errorf("close backup for artifact %q: %w", relative, err), removeErr, restoreErr)
-		}
-		if err := os.Remove(backupPath); err != nil {
-			restoreErr := restoreBackups()
-			return nil, errors.Join(fmt.Errorf("prepare backup for artifact %q: %w", relative, err), restoreErr)
-		}
-		if err := os.Rename(target, backupPath); err != nil {
-			restoreErr := restoreBackups()
-			return nil, errors.Join(fmt.Errorf("back up existing artifact %q: %w", relative, err), restoreErr)
-		}
-		backups[target] = backupPath
+		files = append(files, publicationFile{
+			pendingFile: pendingFile{path: item.Path, data: item.Data},
+			phase:       phase,
+		})
+	}
+	sort.Strings(stale)
+	if err := publishSiteFiles(context.Background(), root, files, stale, managed, publicationHooks{}); err != nil {
+		return nil, fmt.Errorf("publish declarative artifacts: %w", err)
 	}
 
 	artifacts := make([]Artifact, 0, len(pending))
 	for _, item := range pending {
-		if err := safefs.AtomicWrite(root, item.Path, item.Data, generatedArtifactMode(item.Path, item.Data)); err != nil {
-			writeErr := fmt.Errorf("write generated artifact %q: %w", item.Path, err)
-			return nil, errors.Join(writeErr, restoreBackups())
-		}
 		artifacts = append(artifacts, Artifact{
 			Type: item.Type, Path: item.Path, InputHash: protocol.SHA256(input),
 			OutputHash: protocol.SHA256(item.Data),
 		})
-		published[filepath.Join(root, filepath.FromSlash(item.Path))] = struct{}{}
-	}
-	for target, backup := range backups {
-		if err := os.Remove(backup); err != nil {
-			return nil, fmt.Errorf("remove backup for artifact %q: %w", targets[target], err)
-		}
 	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
 	return artifacts, nil
 }
 
-func validateDeclarativeTarget(root, relativePath string) error {
-	parts := strings.Split(filepath.FromSlash(relativePath), string(filepath.Separator))
-	if len(parts) < 2 {
-		return fmt.Errorf("artifact path must include a directory")
-	}
-	current := root
-	for _, part := range parts[:len(parts)-1] {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return fmt.Errorf("artifact path contains an unsafe directory")
-		}
-	}
-	target := filepath.Join(current, parts[len(parts)-1])
-	info, err := os.Lstat(target)
-	if os.IsNotExist(err) {
-		return nil
-	}
+func inspectDeclarativeGeneration(root, reportPath, site string) (map[string]struct{}, error) {
+	managed := make(map[string]struct{})
+	exists, _, err := inspectPublicationTarget(root, reportPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("output target must be a regular file")
+	if !exists {
+		return managed, nil
 	}
-	return nil
+	reportBytes, _, err := readManagedFile(root, reportPath)
+	if err != nil {
+		return nil, fmt.Errorf("read previous report: %w", err)
+	}
+	var report DeclarativeGenerationReport
+	if err := decodeStrictJSON(reportBytes, &report); err != nil {
+		return nil, fmt.Errorf("decode previous report: %w", err)
+	}
+	if report.APIVersion != config.NetworkDeploymentAPIVersion || report.Site != site ||
+		report.Deployment == "" || report.Validation != "passed" || report.Status != "rendered_unverified" ||
+		len(report.Devices) == 0 {
+		return nil, fmt.Errorf("previous report does not identify a complete declarative generation")
+	}
+	seen := make(map[string]struct{}, len(report.Devices))
+	for _, device := range report.Devices {
+		if !protocol.ValidSiteName(device.Device) || device.ConfigPath != filepath.ToSlash(filepath.Join(site, device.Device, "config.cfg")) ||
+			!protocol.IsSHA256(device.ConfigHash) || device.Status != "rendered_unverified" ||
+			device.TemplateID == "" || device.TemplateVersion == "" || !protocol.IsSHA256(device.TemplateHash) {
+			return nil, fmt.Errorf("previous report contains invalid device provenance")
+		}
+		if _, duplicate := seen[device.ConfigPath]; duplicate {
+			return nil, fmt.Errorf("previous report contains duplicate device output %q", device.ConfigPath)
+		}
+		seen[device.ConfigPath] = struct{}{}
+		data, _, err := readManagedFile(root, device.ConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("read previous configuration %q: %w", device.ConfigPath, err)
+		}
+		if protocol.SHA256(data) != device.ConfigHash {
+			return nil, fmt.Errorf("previous configuration %q does not match its report hash", device.ConfigPath)
+		}
+		managed[device.ConfigPath] = struct{}{}
+	}
+	managed[reportPath] = struct{}{}
+	return managed, nil
 }
 
 func loadDeviceTemplates() ([]templateCandidate, error) {

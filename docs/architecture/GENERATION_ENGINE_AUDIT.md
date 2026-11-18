@@ -1,6 +1,40 @@
 # Generation Engine Audit
 
-## Mission 85+ local follow-up — `develop` baseline `bbffd4153857547204a457fa0da2c5f46e542d06`
+## Current review — 2026-11-18
+
+Fetched `origin/develop`; the starting branch and remote were both at
+`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`, with a clean initial worktree.
+The baseline `go test -count=1 ./...` passed.
+
+Source review confirmed that `GenerateAllContext` already stages site outputs,
+validates hashes and catalogs, preserves uncatalogued files, and publishes
+through the bounded recovery journal. It also confirmed that
+`generate-device-config` used a separate backup/replace path and would replace
+an arbitrary regular file at a generated path.
+
+Declarative publication now verifies the previous generation report and every
+prior configuration hash before treating those files as managed. Unmanaged
+files and edited prior configurations fail closed. Verified regeneration and
+stale-output removal use the shared journaled publisher. Regression tests cover
+those cases. The independent source review found no blocking issue; it notes
+that the report is unsigned ownership metadata, so the output root is trusted.
+
+After implementation and dependency updates, the full and race Go suites,
+generation tests, the Provider–Agent multisite loopback integration, and the
+fresh-output demo/verifier passed. Linux and Windows Actions did not run on this
+uncommitted revision. Baseline Actions
+[run 44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
+failed on Linux at `govulncheck` before tests; Windows tests and static checks
+passed, as did the separate demo and Provider–Agent integration job. Those
+results apply to the baseline commit. Exact commands and outcomes are in the
+[completion report](../COMPLETION_AND_TEST_REPORT.md).
+
+Remaining generation limits are unchanged: report ownership is unsigned,
+filesystem-wide atomic directory replacement and parent-directory durability
+are not guaranteed, and hostile concurrent filesystem path replacement is
+outside the current protections. Native vendor output remains render-only.
+
+## Historical mission 85+ local follow-up — `develop` baseline `bbffd4153857547204a457fa0da2c5f46e542d06`
 
 The starting worktree was clean and `develop` matched `origin/develop` at
 `stabilization6`. CI

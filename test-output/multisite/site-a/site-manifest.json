@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "site_id": "site-a",
+  "site_name": "site-a",
+  "status": "succeeded",
+  "generator_version": "0.1.0",
+  "template_version": "1",
+  "input_hash": "f155f062d2a2edee98375ac6b402d2a401107e5aee1c8bb10addf6573d94fb11",
+  "artifacts": [
+    {
+      "type": "inventory",
+      "path": "site-a/inventory.json",
+      "size_bytes": 229,
+      "sha256": "3a02ecd8edabaf2dc248b94ac2ec23ff546cb786942b7903356e06e3cfdee836",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_locals",
+      "path": "site-a/terraform/locals.tf",
+      "size_bytes": 984,
+      "sha256": "adc18ed2a83738ac86ec191e310be94e0ba7713d8a745ee5cba49e197b81dfff",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_main",
+      "path": "site-a/terraform/main.tf",
+      "size_bytes": 187,
+      "sha256": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_outputs",
+      "path": "site-a/terraform/outputs.tf",
+      "size_bytes": 429,
+      "sha256": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_providers",
+      "path": "site-a/terraform/providers.tf",
+      "size_bytes": 71,
+      "sha256": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_tfvars_example",
+      "path": "site-a/terraform/terraform.tfvars.example",
+      "size_bytes": 95,
+      "sha256": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_variables",
+      "path": "site-a/terraform/variables.tf",
+      "size_bytes": 280,
+      "sha256": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_versions",
+      "path": "site-a/terraform/versions.tf",
+      "size_bytes": 46,
+      "sha256": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f",
+      "documentation_references": null
+    },
+    {
+      "type": "topology",
+      "path": "site-a/topology.json",
+      "size_bytes": 169,
+      "sha256": "2e96ccc364e7a69cbb6bbf3de7f25443fd09ce07029b2559d890c6b8cdfe8fcf",
+      "documentation_references": null
+    },
+    {
+      "type": "generation_report",
+      "path": "site-a/generation-report.json",
+      "size_bytes": 399,
+      "sha256": "2f8df29eb86832e545a08c9aa644c07da3ade2207e1dc57633ef653c7b3416ee",
+      "documentation_references": null
+    }
+  ],
+  "capabilities": [
+    {
+      "feature": "autoinstall",
+      "status": "unknown",
+      "evidence": "no device-specific autoinstall mechanism was verified"
+    },
+    {
+      "feature": "bootstrap_service_execution",
+      "status": "not_configured",
+      "evidence": "generation emits static files only; no service is started"
+    },
+    {
+      "feature": "device_compatibility:edge-a",
+      "status": "UNVERIFIED",
+      "evidence": "Vendor family recognized; no real Cisco IOS XE device execution or observed state recorded yet."
+    },
+    {
+      "feature": "native_configuration_rendering",
+      "status": "not_configured"
+    },
+    {
+      "feature": "site_artifact_generation",
+      "status": "generated"
+    },
+    {
+      "feature": "ztp",
+      "status": "unknown",
+      "evidence": "no device-specific ZTP mechanism was verified"
+    }
+  ]
+}

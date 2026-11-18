@@ -15,7 +15,7 @@ The provider owns the desired infrastructure input and generated files. The agen
 
 ## Requirements
 
-- Go 1.25 or newer
+- Go 1.26 or newer
 
 ## Quick start
 
@@ -30,30 +30,32 @@ go run ./provider/cmd generate-all -f examples/infra.yaml -out ./provider-data
 go run ./provider/cmd validate -f examples/network-deployment.yaml
 ```
 
-### Current repository and CI baseline
+### Current repository and local verification — 2026-11-18
 
-The current review baseline is `develop` at
-`bbffd4153857547204a457fa0da2c5f46e542d06` (`stabilization6`), matching
-`origin/develop`; the worktree was clean before this local follow-up. GitHub
-Actions [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
-passed on that exact commit: Linux full and race tests, vet, builds, formatting,
-and diff checks; Windows full tests, vet, builds, formatting, and diff checks.
-Windows CI does not run race tests.
+The fetched `develop` and `origin/develop` baseline is
+`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`; the worktree was clean before
+this local follow-up. Declarative `generate-device-config` publication now
+uses the shared recovery journal. It replaces prior outputs only after
+verifying the previous report and configuration hashes, rejects unmanaged or
+edited files, and removes stale outputs from a verified prior generation.
 
-The current uncommitted follow-up adds journal-based recovery for interrupted
-`generate-all` publication, a fresh-output presentation demo and verifier, and
-a test-only timeout adjustment for a Windows pipe-throughput test. Focused
-generation/protocol/filesystem/Agent-artifact tests passed before the final
-review fixes; `go vet` and command builds passed on the final Go changes. The
-corrected focused generation test and final full suite were blocked by Windows
-Application Control, and the full suite also encountered `CGO_ENABLED=0`
-SQLite limitations. The final full run passed the SSH output-limit package
-after a test-only timeout increase; an earlier run timed out at the old test
-limit. Race testing is unavailable with `CGO_ENABLED=0`. The follow-up has not
-been covered by CI, and the demo has not been executed locally. See the
-[completion report](docs/COMPLETION_AND_TEST_REPORT.md)
-and [generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md) for
-commands, observed results, recovery limits, and remaining risks.
+A reachable-vulnerability scan prompted upgrades to Brotli, `x/net`, gRPC,
+and SSH dependencies. The module and Docker builder images now require Go
+1.26. The final CI-pinned `govulncheck@v1.9.0` scan reported zero reachable
+vulnerabilities.
+
+After the code and dependency changes, the full Go suite, race suite, vet,
+Provider/Agent builds, formatting check, and `git diff --check` passed. The
+fresh-output generation demo and manifest/hash verifier also passed, as did
+the real Provider–Agent multisite loopback integration test. No device was
+contacted; native vendor output remains render-only. GitHub Actions run
+[44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
+on the fetched baseline failed in Linux at `govulncheck`, before Go tests; its
+Windows full test/static checks and demo/integration jobs passed. No Linux or
+Windows GitHub Actions run covers this uncommitted revision. See the
+[completion report](docs/COMPLETION_AND_TEST_REPORT.md) and
+[generation audit](docs/architecture/GENERATION_ENGINE_AUDIT.md) for exact
+commands and remaining limits.
 
 ### Historical stabilization evidence (2026-11-12)
 
@@ -85,8 +87,12 @@ explicitly enabled.
 
 `generate-device-config` parses, resolves templates, and renders before
 acquiring the output-root lock; generic standalone generators validate before
-creating the root. Those rejected requests leave a previously absent `-out`
-path absent and do not change a pre-existing directory. `generate-all`
+creating the root. Declarative publication uses the shared recovery journal
+and only replaces prior outputs when its previous report and configuration
+hashes verify. It rejects unmanaged files and locally edited generated
+configurations without changing them. Those rejected requests leave a
+previously absent `-out` path absent and do not change a pre-existing
+directory. `generate-all`
 intentionally may publish a `partial_failure` report when an individual site
 fails. Existing output directories are never recursively deleted.
 

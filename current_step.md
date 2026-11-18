@@ -1,79 +1,63 @@
 # InfraFlow — Mission 85+ engineering follow-up
 
-## État courant — 2026-11-14
+## État courant — 2026-11-18
 
-- Dépôt `Nouments/infraflow`, branche `develop`, HEAD de départ et
-  `origin/develop` : `bbffd4153857547204a457fa0da2c5f46e542d06`
-  (`stabilization6`). Le worktree initial était propre. Les changements
-  actuels restent locaux; aucun commit ni push.
-- Le run CI disponible,
-  [43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961),
-  a réussi sur ce SHA : tests complets et race, vet, build, formatage et diff
-  sous Linux; tests complets, vet, build, formatage et diff sous Windows.
-  Windows ne lance pas `-race`. Le log Windows signalait une entrée
-  `update-environment` non prise en charge; elle est retirée localement sans
-  validation CI sur le changement.
-
-### Changements locaux
-
-- **M1 publication/récupération — IMPLEMENTED_NOT_INTEGRATION_TESTED.**
-  La publication `generate-all` écrit maintenant un journal borné et des copies
-  de rollback vérifiées avant modification. Elle restaure les anciens fichiers
-  après interruption non commise ou nettoie un état commis; `Catalog` et
-  `ReadArtifact` échouent sans exposer un état interrompu. Tests ciblés de
-  publication et interruption simulée ajoutés, mais aucune CI sur la révision
-  locale.
-- Un verrou `.infraflow-generation.lock` abandonné n’est pas supprimé
-  automatiquement. Après vérification qu’aucun générateur n’est actif,
-  l’opérateur doit retirer uniquement ce verrou; la génération suivante pourra
-  alors lancer la récupération. Les métadonnées invalides ou les hash/path
-  dangereux échouent sans modification. La synchronisation des contenus est
-  effectuée avant renommage atomique, mais la durabilité du répertoire parent
-  et les pannes d’alimentation ne sont pas garanties partout.
-- Un reader interrompu peut laisser `.infraflow-generation-reader-*.lock`;
-  les writers échouent sans publier tant qu’un marqueur existe. Arrêter tous
-  les processus InfraFlow qui peuvent lire cette racine et confirmer qu’aucun
-  reader n’est actif avant de retirer uniquement ces marqueurs. Le nettoyage
-  automatique n’est pas sûr puisqu’un marqueur actif et un marqueur abandonné
-  ne peuvent pas être distingués actuellement. L’échec de la première écriture
-  du journal nettoie maintenant son backup inutilisé.
-- **Démo — IMPLEMENTED_NOT_EXECUTED.** Ajout d’un lanceur Bash vers un dossier
-  temporaire neuf, d’un vérificateur Python et d’un job CI Linux. Les scripts
-  réutilisent la CLI et contrôlent manifestes, rapports, confinement site,
-  tailles, SHA-256, opt-in bootstrap, rendu natif et rejet OSPF. Aucun run de
-  cette démo ou de son job n’a été observé pour les changements locaux.
-- Le délai du test de limite de sortie par pipe a été étendu de 1 à 10 s
-  (test seulement); cinq répétitions isolées ont réussi. L’assertion et le
-  comportement de production restent inchangés.
+- Dépôt `Nouments/infraflow`; `develop` et `origin/develop` ont été récupérés
+  au commit `9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`. Le worktree était
+  propre au départ. Les changements actuels sont locaux; aucun commit ni push.
+- **Publication déclarative — IMPLÉMENTÉE ET VÉRIFIÉE LOCALEMENT.**
+  `generate-device-config` réutilise maintenant le journal de récupération
+  commun. Il ne remplace des fichiers que si le rapport antérieur et les hash
+  de chaque configuration concordent; il rejette les fichiers non gérés et
+  les sorties modifiées, et retire les anciennes configurations gérées qui ne
+  figurent plus dans la nouvelle génération.
+- **Dépendances de sécurité — MISES À JOUR.** Le contrôle govulncheck initial a
+  trouvé neuf avis liés à Brotli, `x/net`, gRPC et SSH. Les versions corrigées
+  sont utilisées; `x/crypto` est en 0.57.0, exigé par `x/net` 0.60.0. Go et
+  les images de compilation Docker exigent désormais Go 1.26.
+- La revue indépendante du code n’a pas trouvé de défaut bloquant. Le rapport
+  déclaratif n’est pas signé et suppose donc une racine de sortie fiable,
+  comme le catalogue existant.
 
 ### Vérifications observées
 
-- Tests ciblés génération/protocole/filesystem/artefacts Agent : PASS lors
-  d’un run avant les derniers correctifs de revue. Un test ajouté a d’abord
-  échoué car son snapshot incluait son propre marqueur reader; l’ordre du test
-  a été corrigé. Les reruns ciblé et complet finaux ont été bloqués quand
-  Windows Application Control a refusé `generation.test.exe`; les nouveaux
-  tests de cleanup/récupération ne sont pas revendiqués comme réussis.
-- `go test -count=5 -run '^TestSSHSessionOutputLimitFailsAndCloses$' ./provider/internal/adapters/executors` : PASS après l’augmentation du délai de test.
-- `go test -count=1 ./...` : FAIL sur le worktree final. Application Control
-  a bloqué plusieurs exécutables de test; `CGO_ENABLED=0` a empêché SQLite et
-  le Provider temporaire du test multisite de démarrer. Le package du test de
-  limite de sortie a passé après l’augmentation du délai de test.
-- `go test -race -count=1 ./...` : indisponible, Go répond
-  `-race requires cgo; enable cgo by setting CGO_ENABLED=1`.
-- `go vet ./...` et `go build ./provider/cmd ./agent/cmd` : PASS sur les
-  changements Go finaux. `gofmt -l` sur fichiers Go modifiés, `git diff
-  --check` et Bash `-n` : PASS. Python et la démo complète ne sont pas exécutés
-  localement; aucun runtime Python utilisable n’est présent.
+- **Score de preuve d’ingénierie : 9/10**, selon les dix critères de définition
+  de fin de mission. Les neuf premiers reposent sur le code et les tests
+  exécutés; les Actions Linux et Windows sur cette révision locale ne sont pas
+  vérifiées. Ce score n’est pas une mesure de préparation à la production. Le
+  rapport de test détaille le barème et les preuves.
+- Avant changement : `go test -count=1 ./...` — PASS.
+- Après changements et mises à jour de dépendances :
+  `go test -count=1 ./...` et `go test -race -count=1 ./...` — PASS.
+  L’intégration Provider–Agent multisite sur loopback — PASS. Les tests
+  d’ownership et de régénération déclarative — PASS sur dix répétitions.
+- Le demo Provider sur sortie temporaire neuve et son vérificateur — PASS :
+  rendus Cisco/MikroTik, bootstrap opt-in/opt-out, quatre sites, tailles/hash
+  des catalogues et rapports, rejet OSPF sans sortie. Aucun équipement n’a été
+  contacté et aucune configuration n’a été appliquée.
+- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `gofmt -l .` et
+  `git diff --check` — PASS. Le govulncheck CI `v1.9.0` a trouvé zéro
+  vulnérabilité atteignable.
+- Le run GitHub Actions de base
+  [44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
+  a échoué sous Linux à govulncheck, avant les tests; il a trouvé les neuf avis
+  corrigés ici. Le job Windows a passé les tests complets, vet, builds,
+  formatage et diff; le job séparé de démonstration et d’intégration
+  Provider–Agent a également réussi. Ces jobs portent sur le commit de base,
+  pas sur ces changements locaux.
+- Aucun run GitHub Actions Linux ou Windows ne couvre cette révision locale;
+  aucune modification n’a été commitée ou poussée.
 
-### Limites et prochaine action
+### Limites restantes
 
-Récupération dépendante des entrées filesystem conservées après interruption;
-pas de garantie de swap atomique global ni de durabilité contre panne système.
-Générateurs standalone/déclaratif encore hors transaction commune, pas de
-limite globale de mémoire des lecteurs, opérations de chemins sensibles aux
-courses d’un acteur local hostile. Aucune validation de syntaxe constructeur,
-matériel, ZTP ou AutoInstall. CI requise sur la révision finale.
+Le rapport d’ownership déclaratif n’est pas signé; une personne capable
+d’écrire dans la racine de sortie peut fabriquer des métadonnées. Le journal
+n’offre pas un échange atomique global et ne garantit pas la durabilité des
+répertoires parents; les changements de chemins par un acteur local concurrent
+ne sont pas protégés. Chaque lecteur d’artefact peut conserver 32 Mio et il
+n’existe pas de plafond global de mémoire. Cisco `.cfg`, MikroTik `.auto.rsc`
+et FortiOS `.cfg` restent du rendu non vérifié; aucun parseur constructeur,
+équipement, lab, ZTP ou AutoInstall n’a été validé.
 
 ## Historique — préparation soutenance sur stabilization5 (supersédée)
 

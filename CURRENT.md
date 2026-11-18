@@ -1,77 +1,63 @@
 # InfraFlow — Mission 85+ engineering follow-up
 
-## Current status — 2026-11-14
+## Current status — 2026-11-18
 
-- Repository: `Nouments/infraflow`; branch `develop`; starting HEAD and
-  `origin/develop`: `bbffd4153857547204a457fa0da2c5f46e542d06`
-  (`stabilization6`). The starting worktree was clean. Current changes are
-  local and uncommitted; no commit or push was made.
-- Latest checked-in revision CI:
-  [run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
-  passed on that exact SHA. Linux passed full and race tests, vet, command
-  builds, formatting, and diff checks. Windows passed full tests, vet, command
-  builds, formatting, and diff checks; Windows CI does not run race tests.
-  Windows logs showed an unsupported `update-environment` action input; the
-  local workflow removes it, but that change is not CI-verified.
-
-### Local implementation status
-
-- **M1 publication journal/recovery — IMPLEMENTED_NOT_INTEGRATION_TESTED.**
-  Full-generation publication now writes a bounded strict journal and verified
-  rollback copies before touching published paths. It invalidates old
-  manifests, publishes artifacts/reports/manifests in phases, marks commit only
-  after the final manifest, and restores or cleans up on recovery. `Catalog`
-  and `ReadArtifact` fail closed while recovery state exists. This local code
-  has focused simulated-interruption and publication-phase regression tests;
-  final-revision CI has not run.
-- A stale `.infraflow-generation.lock` is not automatically removed. An
-  operator must first confirm that no generator is active, then remove only
-  that lock file so the next generation can recover. Invalid/missing journals
-  and unsafe or hash-mismatched recovery data fail closed. File contents are
-  synced before atomic rename; parent-directory durability and power-loss
-  recovery are not guaranteed across supported filesystems.
-- A crashed reader may leave `.infraflow-generation-reader-*.lock`; writers
-  fail closed while any marker remains. After stopping all InfraFlow processes
-  that can access the root and confirming no reader is active, remove only
-  those exact marker files. Do not remove a reader marker while a reader may
-  still be active. A regression test covers fail-closed behavior and resumption
-  after explicit cleanup. An initial journal-write failure now cleans up its
-  unused backup; a regression test checks that the prior catalog remains
-  readable.
-- **Presentation demo — IMPLEMENTED_NOT_EXECUTED.** A fresh-temp Bash launcher,
-  separate Python verifier, and Linux CI job were added. They use existing CLI
-  commands and check manifests/reports, site scope, sizes, hashes, bootstrap
-  opt-in, vendor-rendered text, and unsupported OSPF. The demo and new CI job
-  have not run on this worktree.
-- A test-only timeout was raised from 1 to 10 seconds for the 1 MiB pipe
-  output-limit case; five isolated repetitions passed. Production timeout
-  behavior and the assertion are unchanged.
+- Repository: `Nouments/infraflow`; `develop` and `origin/develop` were fetched
+  at `9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`. The initial worktree was
+  clean. Current changes are local; no commit or push was made.
+- **M1 generation publication — IMPLEMENTED AND LOCALLY VERIFIED.** Declarative
+  `generate-device-config` publication now uses the shared bounded recovery
+  journal. It replaces outputs only when the previous report and each prior
+  configuration hash validate, rejects unmanaged or edited files, and removes
+  stale outputs from an otherwise verified prior generation.
+- **Security dependencies — UPDATED.** `govulncheck` found nine advisories in
+  Brotli, `x/net`, gRPC, and SSH dependencies. The fixed releases are pinned;
+  `x/crypto` is at 0.57.0 because `x/net` 0.60.0 requires it. The minimum Go
+  version and Docker builder images are now 1.26.
+- Independent source review found no blocking issue. The declarative report
+  remains unsigned ownership metadata, so the output root must remain trusted,
+  consistent with the existing catalog model.
 
 ### Validation evidence
 
-- `go test -count=1 ./internal/adapters/generation ./pkg/protocol ./provider/internal/adapters/filesystem ./agent/internal/delivery/artifacts` — PASS in one run before the final review fixes. A later generation run exposed a test snapshot setup issue, which was corrected; the final targeted rerun was blocked by Windows Application Control on `generation.test.exe`. Protocol, filesystem, and Agent-artifact packages passed in the preceding invocation.
-- `go test -count=5 -run '^TestSSHSessionOutputLimitFailsAndCloses$' ./provider/internal/adapters/executors` — PASS after the test-only timeout adjustment.
-- `go test -count=1 ./...` — FAIL on the final worktree. Windows Application Control blocked `toolrunner.test.exe`, `generation.test.exe`, `executors.test.exe`, `filesystem.test.exe`, `httpapi.test.exe`, and `web.test.exe`. `CGO_ENABLED=0` caused SQLite-dependent failures and prevented the Provider subprocess from starting. The SSH output-limit package passed in this run after its test-only timeout was raised; an earlier run timed out at the old one-second limit. No full-suite pass is claimed.
-- `go test -race -count=1 ./internal/adapters/generation ./pkg/protocol` — NOT RUN; Go returned `-race requires cgo` (`CGO_ENABLED=0`).
-- `go vet ./...` and `go build ./provider/cmd ./agent/cmd` — PASS on the final local Go changes.
-- `gofmt -l` on modified Go files, `git diff --check`, and Bash `-n` for the demo launcher — PASS. Python syntax and actual demo execution were NOT RUN locally; no usable Python runtime was found.
+- **Current engineering evidence score: 9/10** under the mission's ten-item
+  definition-of-done rubric. The first nine items have current source/test
+  evidence; Linux and Windows Actions on this exact local revision remain
+  unverified. This is not a release-readiness score. See the
+  [completion report](docs/COMPLETION_AND_TEST_REPORT.md) for the rubric and
+  evidence.
+- Baseline `go test -count=1 ./...` passed before changes.
+- After implementation and dependency updates, `go test -count=1 ./...` and
+  `go test -race -count=1 ./...` passed. The real Provider–Agent multisite
+  loopback integration test passed separately; declarative ownership and
+  regeneration regression tests passed ten repetitions.
+- The fresh-output Provider demo and separate verifier passed. They checked
+  Cisco and MikroTik render-only artifacts, bootstrap opt-in/opt-out, four-site
+  output, report/catalog hashes and sizes, and OSPF rejection without output.
+- GitHub Actions run [44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
+  on the fetched baseline failed in Linux at `govulncheck` before Go tests; its
+  scan found the nine advisories fixed in this follow-up. The Windows full
+  tests, vet, builds, formatting and diff checks passed, as did the separate
+  presentation-demo and Provider–Agent integration job. These results cover
+  the baseline commit, not this local revision.
+- `go vet ./...`, `go build ./provider/cmd ./agent/cmd`, `gofmt -l .`, and
+  `git diff --check` passed. CI-pinned
+  `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` found zero reachable
+  vulnerabilities.
+- No Linux or Windows GitHub Actions run covers this local revision. Windows
+  CI could not be executed locally, and no commit or push was made.
 
-### Remaining critical limits
+### Remaining limits
 
-- Journal recovery handles process interruption when the filesystem retains
-  required directory entries; no cross-platform filesystem-wide atomic swap
-  or power-loss durability is claimed.
-- Standalone and declarative generators do not use the full-generation
-  transaction/catalog lifecycle. Artifact snapshots can retain up to 32 MiB
-  per open with no global concurrent-reader memory cap. Path checks are not
-  race-proof against hostile local filesystem mutation.
-- Native Cisco `.cfg`, MikroTik `.auto.rsc`, and FortiOS `.cfg` remain
-  render-only; no vendor hardware or syntax validation was performed. No
-  end-to-end ZTP/AutoInstall device flow was demonstrated.
-
-Current local changes are not CI-validated and are not release-ready.
-Historical records below are retained for context and do not supersede this
-status.
+- Declarative report metadata is not signed; hostile local actors who can write
+  the output root can forge ownership metadata, as with the existing catalogs.
+- Publication recovery is journaled but is not a filesystem-wide atomic swap;
+  parent-directory durability and hostile concurrent path replacement are not
+  guaranteed. Read snapshots still allow up to 32 MiB per open with no global
+  concurrent-reader memory cap.
+- Cisco `.cfg`, MikroTik `.auto.rsc`, and FortiOS `.cfg` remain render-only.
+  No vendor parser, device, or lab validation was run; ZTP/AutoInstall remain
+  unsupported. Historical records below do not supersede this status.
 
 ## Historical presentation readiness follow-up — stabilization5 (superseded)
 

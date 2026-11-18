@@ -7,7 +7,18 @@ requested Cisco IOS XE, MikroTik RouterOS, and FortiOS provisioning paths.
 compatibility. No capability below is marked `IMPLEMENTED` or `LAB-VERIFIED`
 unless an actual implementation and matching evidence exist.
 
-## Current presentation-readiness evidence — 2026-11-14
+## Current review status — 2026-11-18
+
+The repository baseline is `develop` at
+`9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`; no vendor capability was added or
+expanded in this follow-up. The fresh-output generation demo and verifier
+passed for the existing Cisco and MikroTik render-only artifacts and their
+manifest hashes. No vendor parser, device, or lab was used. Cisco, MikroTik,
+and Fortinet output remains render-only or otherwise unverified, and ZTP/
+AutoInstall remain unsupported. Full and race Go suites passed locally; no
+current-revision Linux or Windows Actions run is available.
+
+## Historical presentation-readiness evidence — 2026-11-14
 
 The requested starting branch was fetched at
 `develop` HEAD `093ed33944fc3f35ac477079cd6b0cc63f575f01`

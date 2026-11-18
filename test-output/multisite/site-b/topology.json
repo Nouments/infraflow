@@ -1,0 +1,12 @@
+{
+  "site": "site-b",
+  "nodes": [
+    {
+      "id": "edge-b",
+      "name": "edge-b",
+      "role": "edge-router",
+      "vendor": "mikrotik"
+    }
+  ],
+  "edges": null
+}

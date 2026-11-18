@@ -1,0 +1,14 @@
+sites:
+  - name: site-a
+    id: site-a
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: false
+      tftp: false
+      pxe: false
+    devices:
+      - name: edge-a
+        role: edge-router
+        vendor: cisco
+        family: iosxe

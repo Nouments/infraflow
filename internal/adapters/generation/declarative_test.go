@@ -156,6 +156,89 @@ func TestGenerateDeclarativeConfigIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestGenerateDeclarativeConfigRejectsUnmanagedExistingOutput(t *testing.T) {
+	output := t.TempDir()
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const userData = "user-owned configuration\n"
+	if err := os.WriteFile(configPath, []byte(userData), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := GenerateDeclarativeConfig([]byte(declarativeInput), output); err == nil || !strings.Contains(err.Error(), "unmanaged file") {
+		t.Fatalf("expected unmanaged output to be preserved and rejected, got %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || string(data) != userData {
+		t.Fatalf("generation changed user-owned output: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "demo", "generation-report.json")); !os.IsNotExist(err) {
+		t.Fatalf("rejected generation published a report: %v", err)
+	}
+}
+
+func TestGenerateDeclarativeConfigReplacesOnlyVerifiedPriorOutputs(t *testing.T) {
+	output := t.TempDir()
+	if _, err := GenerateDeclarativeConfig([]byte(declarativeInput), output); err != nil {
+		t.Fatal(err)
+	}
+	updatedInput := strings.Replace(declarativeInput, "192.0.2.1/24", "192.0.2.2/24", 1)
+	artifacts, err := GenerateDeclarativeConfig([]byte(updatedInput), output)
+	if err != nil {
+		t.Fatalf("regeneration of verified InfraFlow outputs failed: %v", err)
+	}
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configBytes), "ip address 192.0.2.2 255.255.255.0") {
+		t.Fatalf("regeneration did not update declared intent:\n%s", configBytes)
+	}
+	var report DeclarativeGenerationReport
+	reportBytes, err := os.ReadFile(filepath.Join(output, "demo", "generation-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reportBytes, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Devices[0].ConfigHash != protocol.SHA256(configBytes) {
+		t.Fatalf("updated report hash %q does not match configuration", report.Devices[0].ConfigHash)
+	}
+	for _, artifact := range artifacts {
+		data, err := os.ReadFile(filepath.Join(output, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if protocol.SHA256(data) != artifact.OutputHash {
+			t.Fatalf("updated artifact hash does not match %q", artifact.Path)
+		}
+	}
+}
+
+func TestGenerateDeclarativeConfigPreservesEditedPriorOutput(t *testing.T) {
+	output := t.TempDir()
+	if _, err := GenerateDeclarativeConfig([]byte(declarativeInput), output); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	const edited = "operator-edited configuration\n"
+	if err := os.WriteFile(configPath, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := GenerateDeclarativeConfig([]byte(declarativeInput), output); err == nil || !strings.Contains(err.Error(), "does not match its report hash") {
+		t.Fatalf("expected edited output to fail closed, got %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil || string(data) != edited {
+		t.Fatalf("generation changed operator-edited output: %q, %v", data, err)
+	}
+}
+
 func TestGenerateDeclarativeConfigRejectsUnsupportedTemplateCases(t *testing.T) {
 	tests := []struct {
 		name  string

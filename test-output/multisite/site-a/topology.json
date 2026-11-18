@@ -1,0 +1,12 @@
+{
+  "site": "site-a",
+  "nodes": [
+    {
+      "id": "edge-a",
+      "name": "edge-a",
+      "role": "edge-router",
+      "vendor": "cisco"
+    }
+  ],
+  "edges": null
+}

@@ -1,132 +1,105 @@
 # Completion and test campaign report
 
-## Mission 85+ follow-up — local status on `develop`
+## Mission follow-up — 2026-11-18
 
-**Starting SHA:** `bbffd4153857547204a457fa0da2c5f46e542d06`
-(`stabilization6`), matching `origin/develop`; the starting worktree was clean.
-Current changes remain uncommitted. No push or merge was performed.
+### Repository baseline and assessment
 
-### CI baseline (not validation of this local diff)
+- Fetched `origin/develop`; branch `develop`, HEAD and origin HEAD were
+  `9ec97bc8fd16f02b60f4e65eb0d6912b4e3fb444`. The starting worktree was
+  clean. No commit or push was made.
+- Read the requested architecture, specification, status, completion,
+  generation, Agent, and vendor-provisioning reports. Their latest local
+  status referred to older commits and a Windows environment, so I verified
+  source and tests on this Linux workspace.
+- Existing implementation includes strict YAML/network validation,
+  deterministic plans, staged multi-site generation, a hash-verified
+  publication journal, site-scoped Agent transfer, persistent typed execution,
+  cancellation/recovery, and a real Provider–Agent loopback test.
+- Confirmed defect: declarative `generate-device-config` publication backed up
+  and overwrote any regular file at an output path without proving InfraFlow
+  owned it. It also used a private rollback implementation rather than the
+  shared interruption journal. The highest-value M1 slice was to correct this
+  path without rewriting the working generators.
 
-GitHub Actions
-[run 43634679961](https://github.com/Nouments/infraflow/actions/runs/43634679961)
-passed on the starting SHA. Job results showed Linux full tests, race tests,
-vet, builds, formatting, and diff checks passed; Windows full tests, vet,
-builds, formatting, and diff checks passed. Windows does not run race tests.
-The Windows log also warned that `update-environment` is not a supported
-`msys2/setup-msys2@v2` input. The local workflow removes that input and adds a
-Linux demo job, neither of which has run in CI.
+### Implementation
 
-### Changes implemented locally
+- Declarative publication now uses the shared journaled publisher. It reads the
+  previous site report and verifies each configuration SHA-256 before treating
+  outputs as managed. It rejects unmanaged files and edited prior configs,
+  removes stale configs from a valid prior generation, and publishes the new
+  report after configurations in the same rollback-aware transaction.
+- Added regression tests for unmanaged-file preservation, edited-output
+  preservation, and replacement of verified prior outputs. Existing shared
+  publication interruption/rollback tests continue to cover the journal path.
+- `govulncheck` initially found nine advisories in `github.com/andybalholm/brotli`
+  v1.1.0, `golang.org/x/net` v0.56.0, `google.golang.org/grpc` v1.83.1, and
+  `golang.org/x/crypto` v0.54.0. Updated them to Brotli v1.2.7, `x/net` v0.60.0,
+  gRPC v1.83.2, and `x/crypto` v0.57.0 (`x/net` v0.60.0 requires that version).
+  The module minimum and Docker build stages now use Go 1.26.
+- Independent Reviewer/QA inspected the diff and found no blocking issue. The
+  report used to establish declarative ownership is unsigned; this assumes a
+  trusted output root, matching the existing catalog model.
 
-- Full `generate-all` publication now creates a versioned, bounded journal and
-  SHA-256-verified rollback copies before touching published files. The journal
-  records original/new hashes, original modes, backup location, and created
-  directories. Manifests/reports remain invalidated until artifacts and
-  metadata have been written; the final manifest precedes the journal's
-  committed marker. Recovery restores uncommitted files or cleans a committed
-  transaction. `Catalog` and `ReadArtifact` reject an outstanding journal or
-  backup state rather than observing partial publication.
-- A simulated interruption after an artifact write and publication-failure
-  injection across artifact/site-catalog/global-report/global-manifest phases
-  were added. Unsafe recovery metadata is rejected without changing the prior
-  output. A committed journal can be cleaned after its backup directory has
-  already been removed.
-- Recovery runs under the output-root writer lock before a public generation
-  proceeds. A stale `.infraflow-generation.lock` is not automatically removed:
-  the operator must confirm no generator is active, then remove that lock file
-  before retrying. Invalid journal or backup state fails closed. Atomic file
-  contents are synced before rename, but parent-directory sync and
-  cross-platform power-loss durability are not guaranteed. This is
-  rollback/recovery, not a filesystem-wide atomic swap.
-- A crashed reader may leave a `.infraflow-generation-reader-*.lock` marker;
-  writers fail closed while any such marker exists. After stopping every
-  InfraFlow process that can access the output root and confirming no reader
-  is active, an operator may remove only those marker files. For example, in
-  PowerShell: `Get-ChildItem -LiteralPath $out -Filter '.infraflow-generation-reader-*.lock' -File | ForEach-Object { Remove-Item -LiteralPath $_.FullName }`.
-  Do not remove markers while a reader may still be active. A regression test covers the
-  fail-closed behavior and resumption after explicit cleanup.
-- If the initial journal write fails before publication begins, its unused
-  backup directory is removed. A regression test verifies the prior generation
-  remains catalog-readable and no orphan backup blocks future operations.
-- Added `scripts/presentation-demo-launch.sh`,
-  `scripts/presentation-demo-verify.py`, and a Linux CI job. The launcher
-  invokes existing CLI commands in a new temporary directory; the verifier
-  checks root/site manifests and reports, site confinement, exact output file
-  set, sizes, hashes, native text/provenance, bootstrap opt-in/opt-out, and
-  unsupported OSPF rejection. No local execution of this new demo occurred;
-  no successful result is claimed.
-- Increased only the test timeout for the 1 MiB SSH output-limit pipe test
-  from 1 to 10 seconds after local runs timed out before reaching the output
-  limit. The five-run isolated rerun passed; production timeout and assertion
-  were not changed.
+### Validation and observed results
 
-### Local commands and actual results
+### Definition-of-done evidence score
 
-Environment: Windows/amd64, `CGO_ENABLED=0`, `GOOS=windows`,
-`GOARCH=amd64`. Windows Application Control blocked some generated Go test
-executables and the Provider subprocess; no security policy was modified.
+**9/10; not a release-readiness score.** The rubric assigns one point to each
+of the ten mission definition-of-done claims, and awards a point only when
+current source plus executed tests support it. The first nine are covered by
+the current full suite and integration/demo evidence below: validated intent,
+deterministic planning, supported artifact generation, safe publication and
+hashes, site-scoped Agent synchronization, registered Provider execution,
+persisted results/audit, cancellation/failure handling, and fail-closed
+unsupported behavior. No point is awarded for documentation alone, mocks as
+hardware evidence, or CI that did not run on this revision. The tenth claim,
+passing Linux and Windows Actions on the final revision, remains unverified.
+Earlier scores in the archived reports used prior scopes and are superseded by
+this definition-of-done rubric.
 
-| Command/action | Actual result |
+| Command/check | Result |
 |---|---|
-| `go test -count=1 ./internal/adapters/generation ./pkg/protocol ./provider/internal/adapters/filesystem ./agent/internal/delivery/artifacts` | PASS once before the final committed-journal cleanup edge-case test. A later run was blocked at `generation.test.exe` by Application Control; protocol, filesystem, and Agent-artifact packages passed in that later invocation. |
-| `go test -count=5 -run '^TestSSHSessionOutputLimitFailsAndCloses$' ./provider/internal/adapters/executors` | PASS after the test-only timeout adjustment. |
-| `go test -count=1 ./...` | FAIL on the final worktree. Windows Application Control blocked `toolrunner.test.exe`, `generation.test.exe`, `executors.test.exe`, `filesystem.test.exe`, `httpapi.test.exe`, and `web.test.exe`. `CGO_ENABLED=0` caused SQLite tests to fail with `go-sqlite3 requires cgo to work`; the multisite Agent test and Provider CLI subprocess also failed when the Provider could not start its SQLite database. The SSH output-limit package passed in this run after its test-only timeout was increased; an earlier run timed out at the old 1-second test limit. |
-| `go test -race -count=1 ./internal/adapters/generation ./pkg/protocol` | NOT RUN; Go returned `-race requires cgo; enable cgo by setting CGO_ENABLED=1`. |
-| `go vet ./...` | PASS on the final local Go changes. |
-| `go build ./provider/cmd ./agent/cmd` | PASS on the final local Go changes. |
-| `gofmt -l` on modified Go files | PASS; no files listed. |
-| `git diff --check` | PASS; Git reported only that it will normalize CRLF in the workflow file on the next write. |
-| `bash -n scripts/presentation-demo-launch.sh` via Git Bash | PASS. |
-| Python verifier syntax and complete demo | NOT RUN locally; no usable Python runtime was available and generated `go run` executables are subject to Application Control. |
-| GitHub Actions for the current uncommitted diff | NOT RUN. The successful run above validates only starting SHA `bbffd4153857547204a457fa0da2c5f46e542d06`. |
+| Baseline `go test -count=1 ./...` before changes | PASS |
+| Final `go test -count=1 ./...` | PASS |
+| Final `go test -race -count=1 ./...` | PASS |
+| `go test -count=1 ./internal/adapters/generation` | PASS |
+| Declarative ownership/regeneration tests with `-count=10` | PASS |
+| `go test -count=1 ./agent/internal/application -run '^TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts$'` | PASS; real Provider and Agent executables over loopback |
+| `go vet ./...` | PASS |
+| `go build ./provider/cmd ./agent/cmd` | PASS |
+| `gofmt -l .` | PASS; no files listed |
+| `git diff --check` | PASS |
+| `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` | PASS; zero reachable vulnerabilities |
+| `go mod tidy` | PASS |
+| `bash scripts/presentation-demo-launch.sh` | PASS; fresh root `/tmp/infraflow-presentation-demo.ZOiSFLGB` |
+| `python3 scripts/presentation-demo-verify.py /tmp/infraflow-presentation-demo.ZOiSFLGB` | PASS; 26 provisioning, 16 bootstrap-enabled, and 44 bootstrap-disabled site artifacts; hashes, sizes, paths, bootstrap opt-in/out, and unsupported OSPF checked |
 
-The independent review found that a failed initial journal write could leave
-an orphan backup and that a crashed reader could leave a marker blocking
-writers. The initial-journal cleanup and stale-reader fail-closed regression
-tests have been added. One generation-test run executed but failed because its
-snapshot included the intentionally created stale marker; the test was
-corrected to take the snapshot after creating that marker. The final targeted
-rerun and full-suite run were blocked when Windows Application Control denied
-`generation.test.exe`, so neither new regression is claimed as passing.
+The scanner also reported one finding in imported code and five findings in
+required modules that it did not find reachable from this program. No vendor
+parser or device test was performed. The generated Cisco and MikroTik configs
+remain render-only; FortiOS remains render-only; no ZTP/AutoInstall workflow
+was exercised.
 
-### Remaining risks and status
+### CI and remaining limits
 
-- **M1 — PARTIALLY IMPLEMENTED / local verification only:** journal recovery and
-  simulated interruption coverage exist; stale writer and reader marker cleanup
-  still needs an operator, parent-directory durability is not guaranteed, and
-  current-diff CI plus independent approval are outstanding.
-- Standalone and declarative generators still have separate publication
-  contracts. Path operations are not race-proof against hostile concurrent
-  filesystem mutation. Artifact snapshots permit up to 32 MiB per open with no
-  global reader/memory cap.
-- Cisco IOS SSH executor behavior is tested with mocks/local transport, but no
-  authorized hardware/lab run was performed. Cisco `.cfg`, RouterOS 7
-  `.auto.rsc`, and FortiOS `.cfg` remain render-only or unverified. No
-  end-to-end ZTP/AutoInstall workflow was executed.
-- No local full-suite or race-suite pass, demo pass, or current-revision CI pass
-  is claimed. Release readiness remains **NOT READY**.
-
-### Official score — common rubric
-
-The starting repository score is **43/100**. Earlier informal scores of 58
-and 75 used different assumptions and are not comparable; this rubric is now
-the only reference. Local work changes the provisional score by one point to
-**44/100**; it is not a milestone-completion or readiness claim.
-
-| Category | Weight | Starting score | Current local score | Evidence and missing acceptance criteria | Next action |
-|---|---:|---:|---:|---|---|
-| A. Validation, planning and generation | 25 | 18 | 19 | Strict YAML/semantic validation, planning, deterministic renderers, manifests and hashes; local full-generation journal recovery and focused tests. Still lacks unified standalone/declarative contract, offline vendor syntax validation, power-loss durability, and current-diff CI. | Run final focused and full CI, then unify generator contracts only as a separately scoped task. |
-| B. Providers, Agent, transport and security | 20 | 12 | 12 | Authenticated APIs, site-scoped Agent transfer, hash/size/path checks, typed task execution, and secret redaction exist. No live vendor validation; global reader-memory bounds and stronger filesystem race resistance remain absent. | Add resource limits and adversarial filesystem testing; perform authorized security review. |
-| C. Observability and audit | 10 | 6 | 6 | Structured, redacted logs, outbox, persisted events, and SSE are present. Prometheus metrics and richer operational retention controls are incomplete. | Define operational metrics and retention requirements, then implement and test them. |
-| D. Real device execution | 15 | 3 | 3 | Typed Cisco IOS SSH executor and read-back verification are implemented and covered by mock/local-transport tests. No authorized device run or hardware evidence. | Validate only in an authorized isolated lab and record device/version evidence. |
-| E. ZTP / AutoInstall | 15 | 1 | 1 | Generic bootstrap files and experimental services exist; no vendor-specific end-to-end device flow, application, or completion verification. | Defer until vendor model/version prerequisites and an isolated lab are approved. |
-| F. Multi-vendor capability | 10 | 0 | 0 | Cisco/MikroTik/Fortinet produce render-only text; none has vendor parser or hardware evidence. Unverified text earns no provider-completion credit. | Add vendor parser and hardware validation per vendor before claiming validated support. |
-| G. Quality, tests and CI | 5 | 3 | 3 | Checked-in baseline has passing Linux/Windows CI and Linux race tests; local targeted tests, vet, and builds have evidence. Current diff has no CI pass; local full and race tests are blocked/failed, and fuzz/vulnerability/benchmark requirements remain incomplete. | Obtain Linux/Windows CI for this exact revision; rerun tests in a CGO-enabled, policy-permitted environment. |
-| **Total** | **100** | **43** | **44** | No credit for unexecuted CI, unsupported features, mocks as hardware proof, or generation as ZTP. | |
-
-The increase is limited to the implemented but not fully CI-validated journal
-recovery. No score credit is claimed for the unexecuted demo.
+- Fetched baseline GitHub Actions
+  [run 44249869562](https://github.com/Nouments/infraflow/actions/runs/44249869562)
+  failed on Linux at `govulncheck` before Go tests ran; that scan found the
+  nine advisories listed above. The Windows job passed full tests, vet, builds,
+  formatting, and diff checks. The separate presentation-demo job, including
+  the Provider–Agent multisite integration, also passed. These jobs ran on the
+  baseline commit, not this local revision.
+- The Linux and Windows GitHub Actions workflows were not run on this local
+  revision. Running them requires a CI event for a committed revision; this
+  mission forbids commit/push without approval. The local full and race suites
+  ran successfully on Linux, but they are not Windows CI evidence.
+- The output root must be trusted because its prior declarative report is
+  unsigned. Journal recovery is not a filesystem-wide atomic swap and does not
+  guarantee parent-directory durability. Existing path operations are not
+  race-proof against a hostile process changing the output tree concurrently.
+- Each open artifact snapshot can retain up to 32 MiB, with no process-wide
+  concurrent-reader memory cap. No real device was contacted, no hardware
+  compatibility is claimed, and ZTP/AutoInstall remain unsupported.
 
 ## Historical stabilization5 presentation-readiness follow-up — superseded
 

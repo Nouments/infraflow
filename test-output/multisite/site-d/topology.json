@@ -1,0 +1,18 @@
+{
+  "site": "site-d",
+  "nodes": [
+    {
+      "id": "edge-d-firewall",
+      "name": "edge-d-firewall",
+      "role": "firewall",
+      "vendor": "fortinet"
+    },
+    {
+      "id": "edge-d-router",
+      "name": "edge-d-router",
+      "role": "router",
+      "vendor": "cisco"
+    }
+  ],
+  "edges": null
+}

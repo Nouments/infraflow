@@ -1,6 +1,7 @@
+
 agent:
   id: site-agent-01
-  site_id: site-01
+  site_id: site-a
   capabilities:
     - inventory
     - topology
@@ -12,14 +13,3 @@ provider:
   token_env: INFRAFLOW_AGENT_TOKEN
   tls:
     enabled: false
-
-# For remote or cloud deployments, use the actual provider DNS/IP and enable TLS:
-# provider:
-#   address: 203.0.113.10:8443
-#   token_env: INFRAFLOW_AGENT_TOKEN
-#   tls:
-#     enabled: true
-#     ca_file: /etc/infraflow/provider-ca.pem
-#     certificate_file: /run/secrets/agent.crt
-#     key_file: /run/secrets/agent.key
-# Client certificates are optional; TLS certificate verification remains enabled.

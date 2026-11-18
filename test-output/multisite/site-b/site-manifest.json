@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "site_id": "site-b",
+  "site_name": "site-b",
+  "status": "succeeded",
+  "generator_version": "0.1.0",
+  "template_version": "1",
+  "input_hash": "058e72f07609ed5ccfcb3f68dbc5f0112822a92458e5d8bbd47a15ace277a084",
+  "artifacts": [
+    {
+      "type": "inventory",
+      "path": "site-b/inventory.json",
+      "size_bytes": 262,
+      "sha256": "13464f726d51042a79db9cdb8c213ba9595d7c1a6bf5fd54e2ba48050a168843",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_locals",
+      "path": "site-b/terraform/locals.tf",
+      "size_bytes": 990,
+      "sha256": "a7579c7172b7a1fe2f115132dcfd35ddf2cc32c3be002458426b262377b047c1",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_main",
+      "path": "site-b/terraform/main.tf",
+      "size_bytes": 187,
+      "sha256": "5ac14e9de344483afc90dc597eda065f18626466f451803ec670d3bbd31a668e",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_outputs",
+      "path": "site-b/terraform/outputs.tf",
+      "size_bytes": 429,
+      "sha256": "940b10d57115dcb85296962a9f3ee000a00acfcc5a8cae129bb10c156958da94",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_providers",
+      "path": "site-b/terraform/providers.tf",
+      "size_bytes": 71,
+      "sha256": "2f38d03d06758432ddae929356ac559607e566f88a8636a555d59a9c8f6b8d62",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_tfvars_example",
+      "path": "site-b/terraform/terraform.tfvars.example",
+      "size_bytes": 95,
+      "sha256": "4a96dfd34c69bbda6822520f31fdf39431f5ff50c6ea4fb8c9e841ed11c47ee6",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_variables",
+      "path": "site-b/terraform/variables.tf",
+      "size_bytes": 280,
+      "sha256": "e9c69f68a6037d74ab37aaea82d96430d17e9c1bb0239e1a367e2f95ca9a06d4",
+      "documentation_references": null
+    },
+    {
+      "type": "terraform_versions",
+      "path": "site-b/terraform/versions.tf",
+      "size_bytes": 46,
+      "sha256": "170a095448594538f45479e728023566f9a5c60f2967e1314eb15f6ad661a88f",
+      "documentation_references": null
+    },
+    {
+      "type": "topology",
+      "path": "site-b/topology.json",
+      "size_bytes": 172,
+      "sha256": "2d6455f0ad447390be552baa33b1a8bf17d4045da6561935425102e93c262e73",
+      "documentation_references": null
+    },
+    {
+      "type": "generation_report",
+      "path": "site-b/generation-report.json",
+      "size_bytes": 399,
+      "sha256": "4b5b36544a67188d6a4829e992b2cac86a930ecf09e10b0789dec8d27b38d6c8",
+      "documentation_references": null
+    }
+  ],
+  "capabilities": [
+    {
+      "feature": "autoinstall",
+      "status": "unknown",
+      "evidence": "no device-specific autoinstall mechanism was verified"
+    },
+    {
+      "feature": "bootstrap_service_execution",
+      "status": "not_configured",
+      "evidence": "generation emits static files only; no service is started"
+    },
+    {
+      "feature": "device_compatibility:edge-b",
+      "status": "UNVERIFIED",
+      "evidence": "Vendor family recognized; no real MikroTik RouterOS lab verification or observed state recorded yet."
+    },
+    {
+      "feature": "native_configuration_rendering",
+      "status": "not_configured"
+    },
+    {
+      "feature": "site_artifact_generation",
+      "status": "generated"
+    },
+    {
+      "feature": "ztp",
+      "status": "unknown",
+      "evidence": "no device-specific ZTP mechanism was verified"
+    }
+  ]
+}

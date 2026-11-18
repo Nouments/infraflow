@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "status": "succeeded",
+  "input_hash": "982f3fd133b330d2c244523ba4d63148c592534edd926dd56ba81b5007c1b839",
+  "sites": [
+    {
+      "site_id": "site-a",
+      "site_name": "site-a",
+      "status": "succeeded",
+      "artifact_count": 11,
+      "site_manifest_path": "site-a/site-manifest.json",
+      "site_manifest_sha256": "30c9fd3f070a3a3ff63c24526af7f721e1b19135e780ff2964594b1073d935ac",
+      "generation_report_path": "site-a/generation-report.json"
+    },
+    {
+      "site_id": "site-b",
+      "site_name": "site-b",
+      "status": "succeeded",
+      "artifact_count": 11,
+      "site_manifest_path": "site-b/site-manifest.json",
+      "site_manifest_sha256": "fc53254f3969d9d9ae7b989ec0955a1a75fde8b3a04d44fa292f6f966d4041e4",
+      "generation_report_path": "site-b/generation-report.json"
+    },
+    {
+      "site_id": "site-c",
+      "site_name": "site-c",
+      "status": "succeeded",
+      "artifact_count": 11,
+      "site_manifest_path": "site-c/site-manifest.json",
+      "site_manifest_sha256": "64ae12a4a2617c06655dc032d5a8b71610f0d6f598a19ac1ec7d698bc04f04b9",
+      "generation_report_path": "site-c/generation-report.json"
+    },
+    {
+      "site_id": "site-d",
+      "site_name": "site-d",
+      "status": "succeeded",
+      "artifact_count": 11,
+      "site_manifest_path": "site-d/site-manifest.json",
+      "site_manifest_sha256": "3229380465e5c51f4bfc7bdba7cb6c6979ffa6a503946195db0c75833e150336",
+      "generation_report_path": "site-d/generation-report.json"
+    }
+  ]
+}
