@@ -36,6 +36,7 @@ const (
 
 const (
 	CapabilityImplemented  CapabilityState = "IMPLEMENTED"
+	CapabilityPartial      CapabilityState = "PARTIAL"
 	CapabilityLabVerified  CapabilityState = "LAB-VERIFIED"
 	CapabilityExperimental CapabilityState = "EXPERIMENTAL"
 	CapabilityUnverified   CapabilityState = "UNVERIFIED"
@@ -287,8 +288,14 @@ type Site struct {
 }
 
 type Bootstrap struct {
-	Network string `yaml:"network,omitempty" json:"network,omitempty"`
-	Gateway string `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	Network      string                 `yaml:"network,omitempty" json:"network,omitempty"`
+	Gateway      string                 `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	FortiManager *FortiManagerBootstrap `yaml:"fortimanager,omitempty" json:"fortimanager,omitempty"`
+}
+
+type FortiManagerBootstrap struct {
+	IP     string `yaml:"ip" json:"ip"`
+	Domain string `yaml:"domain" json:"domain"`
 }
 
 type Device struct {
@@ -303,6 +310,29 @@ type Device struct {
 	Management   Management     `yaml:"management,omitempty" json:"management,omitempty"`
 	Provisioning Provisioning   `yaml:"provisioning,omitempty" json:"provisioning,omitempty"`
 	Network      *DeviceNetwork `yaml:"network,omitempty" json:"network,omitempty"`
+	Routing      *Routing       `yaml:"routing,omitempty" json:"routing,omitempty"`
+}
+
+// Routing describes optional dynamic routing intent. OSPF is only emitted when
+// explicitly configured; the renderer never turns it on as an implicit default.
+type Routing struct {
+	OSPF *OSPFConfig `yaml:"ospf,omitempty" json:"ospf,omitempty"`
+}
+
+type OSPFConfig struct {
+	Enabled   *bool         `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	ProcessID int           `yaml:"process_id,omitempty" json:"process_id,omitempty"`
+	RouterID  string        `yaml:"router_id,omitempty" json:"router_id,omitempty"`
+	Networks  []OSPFNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
+}
+
+type OSPFNetwork struct {
+	Prefix string `yaml:"prefix" json:"prefix"`
+	Area   uint32 `yaml:"area,omitempty" json:"area,omitempty"`
+}
+
+func (config *OSPFConfig) IsEnabled() bool {
+	return config != nil && (config.Enabled == nil || *config.Enabled)
 }
 
 type Identity struct {

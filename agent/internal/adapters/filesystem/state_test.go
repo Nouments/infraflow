@@ -105,6 +105,29 @@ func TestStateStoreAllowsVerifiedBootstrapArtifacts(t *testing.T) {
 	}
 }
 
+func TestStateStoreAllowsVerifiedCiscoAutoInstallFiles(t *testing.T) {
+	root := t.TempDir()
+	store := NewStateStore(root)
+	for _, path := range []string{
+		"lab/bootstrap/tftp/network-confg",
+		"lab/bootstrap/tftp/edge7200-confg",
+	} {
+		data := []byte("IOS bootstrap artifact\n")
+		if err := store.SaveArtifact(path, protocol.SHA256(data), bytes.NewReader(data)); err != nil {
+			t.Fatalf("save Cisco AutoInstall artifact %q: %v", path, err)
+		}
+		opened, err := store.OpenArtifact(path)
+		if err != nil {
+			t.Fatalf("open Cisco AutoInstall artifact %q: %v", path, err)
+		}
+		got, err := io.ReadAll(opened)
+		_ = opened.Close()
+		if err != nil || !bytes.Equal(got, data) {
+			t.Fatalf("Cisco AutoInstall artifact %q changed in Agent state: %q, %v", path, got, err)
+		}
+	}
+}
+
 func TestStateStoreAllowsVerifiedNativeArtifacts(t *testing.T) {
 	root := t.TempDir()
 	store := NewStateStore(root)

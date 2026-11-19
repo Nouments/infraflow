@@ -54,13 +54,16 @@ type bootstrapReservation struct {
 }
 
 type bootstrapDHCPOptions struct {
-	DNS              []string `json:"dns_servers"`
-	NextServer       string   `json:"next_server"`
-	NextServerSource string   `json:"next_server_source"`
-	BootMode         string   `json:"boot_mode"`
-	BootFilename     string   `json:"boot_filename"`
-	TFTPDirectory    string   `json:"tftp_directory"`
-	IPXEScript       string   `json:"ipxe_script"`
+	DNS                []string `json:"dns_servers"`
+	NextServer         string   `json:"next_server"`
+	NextServerSource   string   `json:"next_server_source"`
+	BootMode           string   `json:"boot_mode"`
+	BootFilename       string   `json:"boot_filename"`
+	TFTPDirectory      string   `json:"tftp_directory"`
+	IPXEScript         string   `json:"ipxe_script"`
+	CiscoAutoInstall   bool     `json:"cisco_autoinstall,omitempty"`
+	FortiManagerIP     string   `json:"fortimanager_ip,omitempty"`
+	FortiManagerDomain string   `json:"fortimanager_domain,omitempty"`
 }
 
 type bootstrapDNS struct {
@@ -150,8 +153,28 @@ func prepareBootstrapArtifacts(infrastructure domain.Infrastructure) ([]bootstra
 	inputHash := protocol.SHA256(canonicalInput)
 	files := make([]bootstrapPendingFile, 0, len(canonical.Sites)*6)
 	artifacts := make([]Artifact, 0, len(canonical.Sites)*6)
+	var nativeTemplates []templateCandidate
 	for _, site := range canonical.Sites {
+		if siteHasCiscoAutoInstall(site) {
+			var err error
+			nativeTemplates, err = loadDeviceTemplates()
+			if err != nil {
+				return nil, nil, fmt.Errorf("load Cisco AutoInstall native templates: %w", err)
+			}
+			break
+		}
+	}
+	for _, site := range canonical.Sites {
+		if err := validateSiteBootstrapProfiles(site); err != nil {
+			return nil, nil, err
+		}
 		siteArtifactStart := len(artifacts)
+		autoInstallFiles, autoInstallArtifacts, err := buildCiscoAutoInstallArtifacts(site, nativeTemplates, inputHash)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, autoInstallFiles...)
+		artifacts = append(artifacts, autoInstallArtifacts...)
 		type bootstrapJSONFile struct {
 			name     string
 			template string
@@ -182,7 +205,7 @@ func prepareBootstrapArtifacts(infrastructure domain.Infrastructure) ([]bootstra
 		if bootstrapServiceEnabled(site, "tftp") {
 			jsonFiles = append(jsonFiles, bootstrapJSONFile{
 				name: "tftp/config.json", template: "templates/bootstrap/tftp/config.json.tmpl",
-				value: buildBootstrapTFTP(site), typeName: "bootstrap_tftp",
+				value: buildBootstrapTFTP(site, autoInstallTFTPFiles(site)), typeName: "bootstrap_tftp",
 			})
 		}
 		pxeEnabled := bootstrapPXEEnabled(site)
@@ -236,6 +259,24 @@ func prepareBootstrapArtifacts(infrastructure domain.Infrastructure) ([]bootstra
 	}
 
 	return files, artifacts, nil
+}
+
+func validateSiteBootstrapProfiles(site domain.Site) error {
+	if !bootstrapPXEEnabled(site) && !bootstrapServiceEnabled(site, "dhcp") && !bootstrapServiceEnabled(site, "tftp") {
+		return nil
+	}
+	for _, device := range site.Devices {
+		profile, known := domain.BootstrapProfileFor(device)
+		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+		methodOutputImplemented := method == string(domain.ProvisioningMethodFortiManagerZTP) ||
+			method == string(domain.ProvisioningMethodFortiOSFortiManager) ||
+			method == string(domain.ProvisioningMethodCiscoIOSXEAutoInstall)
+		if !known || profile.State == domain.CapabilityImplemented || profile.State == domain.CapabilityLabVerified || (profile.State == domain.CapabilityPartial && methodOutputImplemented) {
+			continue
+		}
+		return fmt.Errorf("site %s, device %s: bootstrap method %q cannot use generic DHCP/TFTP/PXE output: %s", site.Name, device.Name, device.Provisioning.Method, profile.Reason)
+	}
+	return nil
 }
 
 func writeBootstrapArtifacts(outputDirectory string, files []bootstrapPendingFile) error {
@@ -341,10 +382,29 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 		reservedAddresses = append(reservedAddresses, uintToIP(address).String())
 	}
 	options := bootstrapDHCPOptions{DNS: []string{}, NextServerSource: "agent_runtime", IPXEScript: "pxe/ipxe/bootstrap.ipxe"}
+	for _, device := range site.Devices {
+		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+		if method == string(domain.ProvisioningMethodCiscoAutoInstall) || method == string(domain.ProvisioningMethodCiscoIOSXEAutoInstall) {
+			options.CiscoAutoInstall = true
+			options.BootMode = "cisco-autoinstall"
+		} else if method == string(domain.ProvisioningMethodFortiManagerZTP) || method == string(domain.ProvisioningMethodFortiOSFortiManager) {
+			if site.Bootstrap.FortiManager == nil {
+				return bootstrapDHCP{}, fmt.Errorf("site %q: FortiManager ZTP requires bootstrap.fortimanager.ip and bootstrap.fortimanager.domain", site.Name)
+			}
+			options.FortiManagerIP = site.Bootstrap.FortiManager.IP
+			options.FortiManagerDomain = site.Bootstrap.FortiManager.Domain
+			options.BootMode = "fortimanager-ztp"
+		}
+	}
 	if bootstrapServiceEnabled(site, "tftp") {
-		options.BootMode = "ipxe"
-		options.BootFilename = "undionly.kpxe"
 		options.TFTPDirectory = "tftp"
+		if !options.CiscoAutoInstall && options.FortiManagerIP == "" {
+			options.BootMode = "ipxe"
+			options.BootFilename = "undionly.kpxe"
+		}
+	}
+	if options.CiscoAutoInstall && (!bootstrapServiceEnabled(site, "dhcp") || !bootstrapServiceEnabled(site, "tftp")) {
+		return bootstrapDHCP{}, fmt.Errorf("site %q: Cisco IOS AutoInstall requires both DHCP and TFTP services", site.Name)
 	}
 	return bootstrapDHCP{
 		Version: 1, Service: "dhcp", Enabled: bootstrapServiceEnabled(site, "dhcp"), Site: site.Name,
@@ -384,15 +444,118 @@ func buildBootstrapDNS(site domain.Site) (bootstrapDNS, error) {
 	return bootstrapDNS{Version: 1, Service: "dns", Enabled: bootstrapServiceEnabled(site, "dns"), Site: site.Name, Zone: zone, TTL: 60, Records: records, ReverseRecords: reverseRecords}, nil
 }
 
-func buildBootstrapTFTP(site domain.Site) bootstrapTFTP {
+func buildBootstrapTFTP(site domain.Site, extraFiles []string) bootstrapTFTP {
+	allowed := []bootstrapTFTPFile{
+		{Path: "undionly.kpxe", Source: "agent_runtime"},
+		{Path: "ipxe.efi", Source: "agent_runtime"},
+	}
+	for _, name := range extraFiles {
+		allowed = append(allowed, bootstrapTFTPFile{Path: name, Source: "agent_runtime"})
+	}
 	return bootstrapTFTP{
 		Version: 1, Service: "tftp", Enabled: bootstrapServiceEnabled(site, "tftp"), Site: site.Name,
 		RootDirectory: "tftp", ReadOnly: true,
-		AllowedFiles: []bootstrapTFTPFile{
-			{Path: "undionly.kpxe", Source: "agent_runtime"},
-			{Path: "ipxe.efi", Source: "agent_runtime"},
-		},
+		AllowedFiles: allowed,
 	}
+}
+
+func autoInstallTFTPFiles(site domain.Site) []string {
+	if !siteHasCiscoAutoInstall(site) {
+		return nil
+	}
+	files := []string{"network-confg"}
+	devices := append([]domain.Device(nil), site.Devices...)
+	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
+	for _, device := range devices {
+		if isCiscoAutoInstallMethod(device.Provisioning.Method) {
+			files = append(files, device.Name+"-confg")
+		}
+	}
+	return files
+}
+
+func siteHasCiscoAutoInstall(site domain.Site) bool {
+	for _, device := range site.Devices {
+		if isCiscoAutoInstallMethod(device.Provisioning.Method) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCiscoAutoInstallMethod(method domain.ProvisioningMethod) bool {
+	value := strings.ToLower(strings.TrimSpace(string(method)))
+	return value == string(domain.ProvisioningMethodCiscoAutoInstall) || value == string(domain.ProvisioningMethodCiscoIOSXEAutoInstall)
+}
+
+func buildCiscoAutoInstallArtifacts(site domain.Site, templates []templateCandidate, inputHash string) ([]bootstrapPendingFile, []Artifact, error) {
+	if !siteHasCiscoAutoInstall(site) {
+		return nil, nil, nil
+	}
+	if templates == nil {
+		return nil, nil, fmt.Errorf("site %q: load native templates for Cisco AutoInstall", site.Name)
+	}
+	if !bootstrapServiceEnabled(site, "dhcp") || !bootstrapServiceEnabled(site, "tftp") {
+		return nil, nil, fmt.Errorf("site %q: Cisco IOS AutoInstall requires both DHCP and TFTP services", site.Name)
+	}
+	if _, _, err := net.ParseCIDR(site.Bootstrap.Network); err != nil {
+		return nil, nil, fmt.Errorf("site %q: Cisco IOS AutoInstall requires a valid DHCP bootstrap network", site.Name)
+	}
+	_, network, _ := net.ParseCIDR(site.Bootstrap.Network)
+	devices := append([]domain.Device(nil), site.Devices...)
+	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
+	var networkConfig strings.Builder
+	files := make([]bootstrapPendingFile, 0, len(devices)+1)
+	artifacts := make([]Artifact, 0, len(devices)+1)
+	for _, device := range devices {
+		if !isCiscoAutoInstallMethod(device.Provisioning.Method) {
+			continue
+		}
+		if _, err := nativeProfileFor(device); err != nil {
+			return nil, nil, err
+		}
+		ip := net.ParseIP(device.Management.IPv4).To4()
+		if ip == nil || !network.Contains(ip) {
+			return nil, nil, fmt.Errorf("site %q, device %q: Cisco AutoInstall requires management.ipv4 inside the DHCP bootstrap network", site.Name, device.Name)
+		}
+		if len(device.Identity.MACs) == 0 {
+			return nil, nil, fmt.Errorf("site %q, device %q: Cisco AutoInstall requires an Ethernet MAC for a deterministic DHCP reservation", site.Name, device.Name)
+		}
+		for _, mac := range device.Identity.MACs {
+			parsed, err := net.ParseMAC(mac)
+			if err != nil || len(parsed) != 6 {
+				return nil, nil, fmt.Errorf("site %q, device %q: Cisco AutoInstall requires a valid Ethernet MAC address", site.Name, device.Name)
+			}
+		}
+		if !nativeHostname.MatchString(device.Name) {
+			return nil, nil, fmt.Errorf("site %q, device %q: Cisco AutoInstall hostname is not a safe IOS hostname", site.Name, device.Name)
+		}
+		profile, err := nativeProfileFor(device)
+		if err != nil {
+			return nil, nil, err
+		}
+		rendered, err := renderNativeArtifact(device, profile, templates)
+		if err != nil {
+			return nil, nil, err
+		}
+		networkConfig.WriteString("ip host ")
+		networkConfig.WriteString(device.Name)
+		networkConfig.WriteByte(' ')
+		networkConfig.WriteString(ip.String())
+		networkConfig.WriteByte('\n')
+		path := filepath.ToSlash(filepath.Join(site.Name, "bootstrap", "tftp", device.Name+"-confg"))
+		data := []byte(rendered.contents)
+		files = append(files, bootstrapPendingFile{path: path, data: data})
+		artifacts = append(artifacts, Artifact{Type: "bootstrap_cisco_autoinstall_config", Path: path, InputHash: inputHash, OutputHash: protocol.SHA256(data)})
+	}
+	if len(artifacts) == 0 {
+		return nil, nil, fmt.Errorf("site %q: AutoInstall method did not select a supported Cisco IOS device", site.Name)
+	}
+	path := filepath.ToSlash(filepath.Join(site.Name, "bootstrap", "tftp", "network-confg"))
+	data := []byte(networkConfig.String())
+	files = append(files, bootstrapPendingFile{path: path, data: data})
+	artifacts = append(artifacts, Artifact{Type: "bootstrap_cisco_autoinstall_network", Path: path, InputHash: inputHash, OutputHash: protocol.SHA256(data)})
+	return files, artifacts, nil
 }
 
 func buildBootstrapPXE(site domain.Site) bootstrapPXE {

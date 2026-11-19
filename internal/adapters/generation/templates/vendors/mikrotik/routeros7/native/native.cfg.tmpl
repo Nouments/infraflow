@@ -2,4 +2,7 @@
 {{range .Interfaces}}{{if eq .IPv4Mode "static"}}/ip address add address={{.IPv4Address}} interface="{{.Name}}"
 {{else if eq .IPv4Mode "dhcp"}}/ip dhcp-client add interface="{{.Name}}" disabled=no
 {{end}}{{end}}{{range .Routes}}/ip route add dst-address={{.Destination}} gateway="{{.Gateway}}"{{if .Distance}} distance={{.Distance}}{{end}}
-{{end}}
+{{end}}{{if .OSPF}}/routing ospf instance add name=infraflow-v2 version=2 router-id={{.OSPF.RouterID}}
+{{range .OSPF.Areas}}/routing ospf area add name={{.Name}} area-id={{.ID}} instance=infraflow-v2
+{{end}}{{range .OSPF.Networks}}/routing ospf interface-template add networks={{.RouterOSNetwork}} area={{.AreaName}}
+{{end}}{{end}}

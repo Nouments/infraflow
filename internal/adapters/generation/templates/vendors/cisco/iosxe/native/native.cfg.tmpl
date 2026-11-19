@@ -6,4 +6,8 @@ hostname {{.Name}}
 {{else}} shutdown
 {{end}}{{end}}!
 {{end}}{{range .Routes}}ip route {{.Destination}} {{.Netmask}}{{if .Interface}} {{.Interface}}{{end}}{{if .NextHop}} {{.NextHop}}{{end}}{{if .Distance}} {{.Distance}}{{end}}
+{{end}}{{if .OSPF}}router ospf {{.OSPF.ProcessID}}
+ router-id {{.OSPF.RouterID}}
+{{range .OSPF.Networks}} network {{.CiscoNetwork}} {{.CiscoWildcard}} area {{.Area}}
+{{end}}!
 {{end}}

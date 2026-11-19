@@ -57,6 +57,7 @@ func validStoredArtifactPath(relativePath string) bool {
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
 		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",
+		"bootstrap_cisco_autoinstall_network", "bootstrap_cisco_autoinstall_config",
 		"bootstrap_ipxe_script", "bootstrap_ipxe_menu",
 	} {
 		if protocol.ValidArtifactPath(site, protocol.Artifact{Type: artifactType, Path: relativePath}) {

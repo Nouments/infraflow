@@ -1,0 +1,32 @@
+id: infraflow.cisco.ios.7200.native
+version: "1"
+manufacturer: cisco
+model: "7200"
+os_family: ios
+os_versions:
+  - "15.3(3)XB12"
+provisioning_method: native-config
+template_file: native.cfg.tmpl
+features:
+  - system.hostname
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - interfaces.admin_state
+  - routes.static_ipv4
+  - routing.ospf
+variables:
+  - device.name
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.interfaces.enabled
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+required_variables:
+  - device.name
+status: render-only
+source: "Exact Cisco 7200 IOS 15.3(3)XB12 AutoInstall profile; syntax and execution must be verified against the running appliance"
+source_references:
+  - https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/syst-mgmt/b-system-management/m_cf-autoinstall-0.html

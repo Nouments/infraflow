@@ -255,11 +255,15 @@ def main() -> None:
     require(demo_root.is_dir(), f"demo root is not a directory: {demo_root}")
     require(
         {entry.name for entry in demo_root.iterdir()} == {
-            "provisioning", "bootstrap-enabled", "multisite-disabled", "unsupported-ospf.log"
+            "provisioning", "bootstrap-enabled", "multisite-disabled", "ospf"
         },
         "demo root contains missing or unexpected entries",
     )
-    require(not (demo_root / "unsupported-ospf").exists(), "unsupported OSPF published output")
+    ospf_config = (demo_root / "ospf" / "demo" / "R1" / "config.cfg").read_text(encoding="utf-8")
+    require("router ospf 10" in ospf_config, "generated Cisco config omitted OSPF process")
+    require("network 192.168.10.0 0.0.0.255 area 0" in ospf_config,
+            "generated Cisco config omitted OSPF network declaration")
+    print("PASS: Cisco OSPF config rendered from the declared site YAML")
 
     provisioning = verify_catalog(
         "provisioning", demo_root / "provisioning", {"cisco-render-demo", "routeros-auto-rsc-demo"}
@@ -322,15 +326,6 @@ def main() -> None:
         require(not (demo_root / "multisite-disabled" / name / "bootstrap").exists(),
                 f"{name}: bootstrap directory exists despite explicit service opt-out")
     print("PASS: bootstrap files are emitted for explicit opt-in and absent for explicit opt-out")
-
-    rejection = (demo_root / "unsupported-ospf.log").read_text(encoding="utf-8")
-    expected_error = (
-        "infraflow-provider: spec.devices[0].routing.ospf: unsupported; "
-        "no matching OSPF template is registered"
-    )
-    require(rejection.splitlines().count(expected_error) == 1, "unsupported OSPF rejection text differs")
-    require(not (demo_root / "unsupported-ospf").exists(), "unsupported OSPF produced output")
-    print(f"PASS: unsupported OSPF rejected without output: {expected_error}")
 
     print("\n--- Cisco native configuration (render-only) ---")
     print(f"Path: {cisco_path}")

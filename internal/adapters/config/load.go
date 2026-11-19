@@ -129,7 +129,7 @@ func validateCapabilityRegistry(registry domain.CapabilityRegistry) error {
 				return fmt.Errorf("unsupported capability state for %s/%s: empty state", key, method)
 			}
 			switch capability.State {
-			case domain.CapabilityImplemented, domain.CapabilityLabVerified, domain.CapabilityExperimental, domain.CapabilityUnverified, domain.CapabilityUnsupported, domain.CapabilityUnknown:
+			case domain.CapabilityImplemented, domain.CapabilityLabVerified, domain.CapabilityPartial, domain.CapabilityExperimental, domain.CapabilityUnverified, domain.CapabilityUnsupported, domain.CapabilityUnknown:
 				if capability.State.IsUsable() && strings.TrimSpace(capability.Evidence) == "" {
 					return fmt.Errorf("unsupported capability state for %s/%s: %s requires evidence", key, method, capability.State)
 				}
@@ -215,6 +215,14 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 		} else if site.Bootstrap.Gateway != "" {
 			problems = append(problems, prefix+": bootstrap gateway requires a bootstrap network")
 		}
+		if manager := site.Bootstrap.FortiManager; manager != nil {
+			if !validIPv4Address(manager.IP) || net.ParseIP(manager.IP).To4().Equal(net.IPv4zero) {
+				problems = append(problems, prefix+": bootstrap.fortimanager.ip must be a non-zero IPv4 address")
+			}
+			if !validDNSDomain(manager.Domain) {
+				problems = append(problems, prefix+": bootstrap.fortimanager.domain must be a valid DNS name")
+			}
+		}
 
 		seenDevices := make(map[string]struct{})
 		seenDeviceIDs := make(map[string]struct{})
@@ -224,6 +232,14 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 			devicePrefix := prefix + ", device " + display(device.Name)
 			if len(device.OSVersion) > 64 || strings.ContainsAny(device.OSVersion, "\r\n") {
 				problems = append(problems, devicePrefix+": os_version must be no longer than 64 characters and contain no line breaks")
+			}
+			method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+			if method == string(domain.ProvisioningMethodFortiManagerZTP) || method == string(domain.ProvisioningMethodFortiOSFortiManager) {
+				if site.Bootstrap.FortiManager == nil {
+					problems = append(problems, devicePrefix+": FortiManager ZTP requires bootstrap.fortimanager.ip and bootstrap.fortimanager.domain")
+				} else if !site.Services["dhcp"] {
+					problems = append(problems, devicePrefix+": FortiManager ZTP requires the site DHCP service")
+				}
 			}
 			if strings.TrimSpace(device.Name) == "" {
 				problems = append(problems, devicePrefix+": name is required")
@@ -263,6 +279,7 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 				seenMACs[normalizedMAC] = device.Name
 			}
 			problems = append(problems, validateDeviceNetwork(devicePrefix, device, seenIPv4Addresses)...)
+			problems = append(problems, validateRouting(devicePrefix, device)...)
 		}
 
 		seenLinkIDs := make(map[string]struct{})
@@ -392,6 +409,67 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 
 	sort.Strings(problems)
 	return problems
+}
+
+func validateRouting(prefix string, device domain.Device) ValidationErrors {
+	var problems ValidationErrors
+	if device.Routing == nil || device.Routing.OSPF == nil || !device.Routing.OSPF.IsEnabled() {
+		return problems
+	}
+	ospf := device.Routing.OSPF
+	if ospf.ProcessID < 0 || ospf.ProcessID > 65535 {
+		problems = append(problems, prefix+": routing.ospf.process_id must be between 1 and 65535")
+	}
+	if ospf.RouterID != "" && (!validIPv4Address(ospf.RouterID) || net.ParseIP(ospf.RouterID).To4().Equal(net.IPv4zero)) {
+		problems = append(problems, prefix+": routing.ospf.router_id must be a non-zero IPv4 address")
+	}
+	if ospf.RouterID == "" && device.Management.IPv4 == "" {
+		foundStaticAddress := false
+		if device.Network != nil {
+			for _, iface := range device.Network.Interfaces {
+				if iface.IPv4Mode == "static" && validIPv4Address(strings.SplitN(iface.IPv4Address, "/", 2)[0]) {
+					foundStaticAddress = true
+					break
+				}
+			}
+		}
+		if !foundStaticAddress {
+			problems = append(problems, prefix+": routing.ospf.router_id is required when no management or static interface IPv4 address can supply a router ID")
+		}
+	}
+	if len(ospf.Networks) == 0 {
+		foundStaticPrefix := false
+		if device.Network != nil {
+			for _, iface := range device.Network.Interfaces {
+				if iface.IPv4Mode == "static" && validIPv4NetworkPrefix(networkPrefix(iface.IPv4Address)) {
+					foundStaticPrefix = true
+					break
+				}
+			}
+		}
+		if !foundStaticPrefix {
+			problems = append(problems, prefix+": routing.ospf.networks is required when no static interface prefixes can be derived")
+		}
+	}
+	seenPrefixes := make(map[string]struct{}, len(ospf.Networks))
+	for index, network := range ospf.Networks {
+		if !validIPv4NetworkPrefix(network.Prefix) {
+			problems = append(problems, fmt.Sprintf("%s: routing.ospf.networks[%d].prefix must be a canonical IPv4 network CIDR", prefix, index))
+		}
+		if _, exists := seenPrefixes[network.Prefix]; exists {
+			problems = append(problems, fmt.Sprintf("%s: routing.ospf.networks[%d].prefix is duplicated", prefix, index))
+		}
+		seenPrefixes[network.Prefix] = struct{}{}
+	}
+	return problems
+}
+
+func networkPrefix(address string) string {
+	_, network, err := net.ParseCIDR(address)
+	if err != nil || network.IP.To4() == nil {
+		return ""
+	}
+	return network.String()
 }
 
 func validateDeviceNetwork(prefix string, device domain.Device, seenIPv4Addresses map[string]string) ValidationErrors {
@@ -636,6 +714,28 @@ func validateDeviceNetwork(prefix string, device domain.Device, seenIPv4Addresse
 
 func validTopologyIdentifier(value string) bool {
 	return len(value) <= 128 && protocol.ValidSiteName(value)
+}
+
+func validDNSDomain(value string) bool {
+	value = strings.TrimSuffix(strings.TrimSpace(value), ".")
+	if len(value) == 0 || len(value) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || !isASCIIAlphaNumeric(label[0]) || !isASCIIAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for _, char := range label {
+			if char > 127 || !isASCIIAlphaNumeric(byte(char)) && char != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isASCIIAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
 func validInterfaceIdentifier(value string) bool {

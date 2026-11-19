@@ -14,6 +14,7 @@ features:
   - interfaces.idempotent_owned_update
   - routes.static_ipv4
   - routes.idempotent_owned_update
+  - routing.ospf
 variables:
   - device.name
   - network.interfaces.name

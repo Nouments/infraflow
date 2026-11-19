@@ -37,6 +37,18 @@ func TestParseNetworkDeploymentAdaptsVersionedSchema(t *testing.T) {
 	}
 }
 
+func TestParseNetworkDeploymentAdaptsExplicitOSPFIntent(t *testing.T) {
+	input := strings.Replace(validNetworkDeployment, "          enabled: true\n", "          enabled: true\n      routing:\n        ospf:\n          router_id: 192.0.2.1\n          networks:\n            - prefix: 192.0.2.0/24\n              area: 0\n", 1)
+	infrastructure, _, err := ParseNetworkDeployment([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ospf := infrastructure.Sites[0].Devices[0].Routing.OSPF
+	if ospf == nil || !ospf.IsEnabled() || ospf.RouterID != "192.0.2.1" || len(ospf.Networks) != 1 || ospf.Networks[0].Area != 0 {
+		t.Fatalf("OSPF intent was not retained in the domain model: %#v", infrastructure.Sites[0].Devices[0].Routing)
+	}
+}
+
 func TestParseNetworkDeploymentRejectsInvalidAndUnsupportedInput(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -50,7 +62,6 @@ func TestParseNetworkDeploymentRejectsInvalidAndUnsupportedInput(t *testing.T) {
 		{"missing interface state", strings.Replace(validNetworkDeployment, "          enabled: true\n", "", 1), "spec.devices[0].interfaces[0].enabled"},
 		{"invalid IPv4", strings.Replace(validNetworkDeployment, "192.0.2.1/24", "not-an-ip", 1), "spec.devices[0].interfaces[0].ipv4"},
 		{"invalid IPv4 prefix", strings.Replace(validNetworkDeployment, "192.0.2.1/24", "192.0.2.1/33", 1), "spec.devices[0].interfaces[0].ipv4"},
-		{"OSPF without template", validNetworkDeployment + "      routing:\n        ospf:\n          process_id: 1\n", "spec.devices[0].routing.ospf"},
 		{"unsupported version", strings.Replace(validNetworkDeployment, "infraflow/v1", "infraflow/v2", 1), "apiVersion"},
 	}
 	for _, test := range tests {

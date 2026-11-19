@@ -179,7 +179,7 @@ spec:
 	}
 }
 
-func TestGenerateDeviceConfigRejectsUnsupportedOSPFWithoutOutput(t *testing.T) {
+func TestGenerateDeviceConfigRendersOSPFAndPreservesExistingOutput(t *testing.T) {
 	input := writeInput(t, `apiVersion: infraflow/v1
 kind: NetworkDeployment
 metadata:
@@ -205,15 +205,18 @@ spec:
 `)
 	output := filepath.Join(t.TempDir(), "generated")
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 1 ||
-		!strings.Contains(stderr.String(), "spec.devices[0].routing.ospf") {
-		t.Fatalf("unsupported OSPF request was not clearly rejected: code=%d stderr=%q", code, stderr.String())
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", output}, &stdout, &stderr); code != 0 {
+		t.Fatalf("supported OSPF request failed: code=%d stderr=%q", code, stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(output, "demo", "R1", "config.cfg")); !os.IsNotExist(err) {
-		t.Fatalf("incompatible request left configuration behind: %v", err)
+	configPath := filepath.Join(output, "demo", "R1", "config.cfg")
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("rejected request left output directory behind: %v", err)
+	for _, expected := range []string{"router ospf 10", "router-id 10.255.0.1", "network 192.168.10.0 0.0.0.255 area 0"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("generated config missing OSPF line %q: %s", expected, contents)
+		}
 	}
 
 	existingOutput := filepath.Join(t.TempDir(), "existing")
@@ -226,19 +229,21 @@ spec:
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"generate-device-config", "-f", input, "-out", existingOutput}, &stdout, &stderr); code != 1 ||
-		!strings.Contains(stderr.String(), "spec.devices[0].routing.ospf") {
-		t.Fatalf("unsupported request was not rejected for existing output: code=%d stderr=%q", code, stderr.String())
+	if code := Run([]string{"generate-device-config", "-f", input, "-out", existingOutput}, &stdout, &stderr); code != 0 {
+		t.Fatalf("OSPF generation failed with existing output: code=%d stderr=%q", code, stderr.String())
 	}
 	entries, err := os.ReadDir(existingOutput)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(sentinelPath) {
-		t.Fatalf("rejected request changed existing output directory entries: %#v", entries)
+	if len(entries) != 2 {
+		t.Fatalf("generation did not preserve existing data and publish config: %#v", entries)
 	}
 	if contents, err := os.ReadFile(sentinelPath); err != nil || string(contents) != "preserve this file\n" {
-		t.Fatalf("rejected request changed existing user data: %q, %v", contents, err)
+		t.Fatalf("generation changed existing user data: %q, %v", contents, err)
+	}
+	if _, err := os.Stat(filepath.Join(existingOutput, "demo", "R1", "config.cfg")); err != nil {
+		t.Fatalf("generated OSPF config missing beside existing data: %v", err)
 	}
 }
 

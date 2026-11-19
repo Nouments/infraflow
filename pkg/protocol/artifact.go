@@ -165,6 +165,14 @@ func ValidArtifactPath(site string, artifact Artifact) bool {
 		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "dns" && parts[3] == "config.json"
 	case "bootstrap_tftp":
 		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "tftp" && parts[3] == "config.json"
+	case "bootstrap_cisco_autoinstall_network":
+		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "tftp" && parts[3] == "network-confg"
+	case "bootstrap_cisco_autoinstall_config":
+		if len(parts) != 4 || parts[1] != "bootstrap" || parts[2] != "tftp" || !strings.HasSuffix(parts[3], "-confg") {
+			return false
+		}
+		name := strings.TrimSuffix(parts[3], "-confg")
+		return len(name) <= 35 && siteNamePattern.MatchString(name)
 	case "bootstrap_pxe":
 		return len(parts) == 4 && parts[1] == "bootstrap" && parts[2] == "pxe" && parts[3] == "metadata.json"
 	case "bootstrap_ipxe_script":

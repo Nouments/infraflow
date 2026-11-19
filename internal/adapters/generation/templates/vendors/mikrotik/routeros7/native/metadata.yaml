@@ -12,6 +12,7 @@ features:
   - interfaces.ipv4_static
   - interfaces.ipv4_dhcp
   - routes.static_ipv4
+  - routing.ospf
 variables:
   - device.name
   - network.interfaces.name

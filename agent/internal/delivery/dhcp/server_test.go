@@ -74,6 +74,65 @@ func TestHandleOffersReservationAndAcknowledgesRequestedLease(t *testing.T) {
 	}
 }
 
+func TestCiscoAutoInstallOfferUsesOption150WithoutPXEBootFilename(t *testing.T) {
+	config := validConfig()
+	config.Options.CiscoAutoInstall = true
+	config.Options.BootFilename = ""
+	server, err := NewServer(config, net.ParseIP("192.168.50.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac, _ := net.ParseMAC("00:11:22:33:44:66")
+	conn := &packetConn{}
+	server.Handle(conn, &net.UDPAddr{IP: net.IPv4bcast, Port: 68}, makePacket(t, dhcpv4.MessageTypeDiscover, mac))
+	offer := decodeResponse(t, conn.written)
+	if offer.MessageType() != dhcpv4.MessageTypeOffer {
+		t.Fatalf("unexpected DHCP response: %s", offer.Summary())
+	}
+	if got := dhcpv4.GetIP(dhcpv4.OptionTFTPServerAddress, offer.Options); got == nil || !got.Equal(net.ParseIP("192.168.50.2")) {
+		t.Fatalf("DHCP option 150 does not point at the service address: %v", got)
+	}
+	if offer.BootFileNameOption() != "" {
+		t.Fatalf("Cisco AutoInstall offer unexpectedly supplied a PXE boot filename: %q", offer.BootFileNameOption())
+	}
+}
+
+func TestValidateCiscoAutoInstallRejectsPXEBootFilename(t *testing.T) {
+	config := validConfig()
+	config.Options.CiscoAutoInstall = true
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "must not set a PXE boot filename") {
+		t.Fatalf("Cisco AutoInstall accepted an unrelated PXE boot filename: %v", err)
+	}
+}
+
+func TestFortiManagerOfferAdvertisesOptions240And241(t *testing.T) {
+	config := validConfig()
+	config.Options.FortiManagerIP = "192.0.2.250"
+	config.Options.FortiManagerDomain = "manager.lab.example"
+	server, err := NewServer(config, net.ParseIP("192.168.50.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac, _ := net.ParseMAC("00:11:22:33:44:66")
+	conn := &packetConn{}
+	server.Handle(conn, &net.UDPAddr{IP: net.IPv4bcast, Port: 68}, makePacket(t, dhcpv4.MessageTypeDiscover, mac))
+	offer := decodeResponse(t, conn.written)
+	if got := offer.Options.Get(dhcpv4.GenericOptionCode(240)); !bytes.Equal(got, []byte{192, 0, 2, 250}) {
+		t.Fatalf("DHCP option 240 has incorrect FortiManager IP value: %v", got)
+	}
+	if got := string(offer.Options.Get(dhcpv4.GenericOptionCode(241))); got != "manager.lab.example" {
+		t.Fatalf("DHCP option 241 has incorrect FortiManager domain value: %q", got)
+	}
+}
+
+func TestValidateFortiManagerRequiresBothDiscoveryOptions(t *testing.T) {
+	config := validConfig()
+	config.Options.FortiManagerIP = "192.0.2.250"
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "requires a non-zero IPv4 address and valid DNS domain") {
+		t.Fatalf("FortiManager option 240 was allowed without option 241: %v", err)
+	}
+}
+
 func TestHandleAllocatesPoolAndRejectsAddressOutsidePool(t *testing.T) {
 	server, err := NewServer(validConfig(), net.ParseIP("192.168.50.2"))
 	if err != nil {

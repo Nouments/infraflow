@@ -262,10 +262,7 @@ func (service *Service) CapabilityMatrix(input []byte) ([]CapabilityMatrixRow, e
 	}
 	for _, site := range infrastructure.Sites {
 		for _, device := range site.Devices {
-			methods, ok := infrastructure.CapabilityRegistry.Entries[contextKey(device)]
-			if !ok {
-				continue
-			}
+			methods := infrastructure.CapabilityRegistry.Entries[contextKey(device)]
 			methodNames := make([]string, 0, len(methods))
 			for method := range methods {
 				methodNames = append(methodNames, method)
@@ -296,6 +293,30 @@ func (service *Service) CapabilityMatrix(input []byte) ([]CapabilityMatrixRow, e
 				}
 				row.Ready = row.State.IsUsable() && row.TemplateID != ""
 				matrix = append(matrix, row)
+			}
+			selectedMethod := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+			if selectedMethod != "" {
+				if _, exists := methods[selectedMethod]; !exists {
+					if profile, known := domain.BootstrapProfileFor(device); known {
+						matrix = append(matrix, CapabilityMatrixRow{
+							Site: site.Name, Device: device.Name, Vendor: strings.TrimSpace(device.Vendor),
+							Family: strings.TrimSpace(device.Family), Model: strings.TrimSpace(device.Model),
+							Method: selectedMethod, State: profile.State,
+							Evidence: strings.Join(append(append([]string(nil), profile.RequiredServices...), profile.Reason), "; "),
+							Ready:    profile.State.IsUsable(),
+						})
+					}
+				}
+			}
+			if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+				if profile, known := domain.OSPFProfileFor(device); known {
+					matrix = append(matrix, CapabilityMatrixRow{
+						Site: site.Name, Device: device.Name, Vendor: strings.TrimSpace(device.Vendor),
+						Family: strings.TrimSpace(device.Family), Model: strings.TrimSpace(device.Model),
+						Method: "ospf", State: profile.State, Evidence: profile.Reason,
+						Ready: profile.State.IsUsable(),
+					})
+				}
 			}
 		}
 	}

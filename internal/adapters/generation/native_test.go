@@ -167,6 +167,44 @@ end`,
 	}
 }
 
+func TestGenerateNativeRequiresExactCiscoIOSAutoInstallProfile(t *testing.T) {
+	device := domain.Device{
+		Name: "edge7200", Vendor: "cisco", Family: "ios", Model: "Cisco 7200", OSVersion: "15.3(3)XB12",
+		Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodCiscoAutoInstall},
+		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+			Name: "FastEthernet0/0", Role: "management", IPv4Mode: "static", IPv4Address: "192.0.2.10/24",
+		}}},
+	}
+	root := t.TempDir()
+	artifacts, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 2 {
+		t.Fatalf("expected native config and manifest, got %#v", artifacts)
+	}
+	configuration := readNativeArtifact(t, root, "lab/native/device-edge7200.cfg")
+	if !strings.Contains(configuration, "hostname edge7200") || !strings.Contains(configuration, "interface FastEthernet0/0") || !strings.Contains(configuration, "ip address 192.0.2.10 255.255.255.0") {
+		t.Fatalf("unexpected Cisco IOS native output: %s", configuration)
+	}
+	var manifest nativeManifest
+	if err := json.Unmarshal([]byte(readNativeArtifact(t, root, "lab/native/native-manifest.json")), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Devices) != 1 || manifest.Devices[0].Family != "ios" || manifest.Devices[0].Model != "Cisco 7200" || manifest.Devices[0].OSVersion != "15.3(3)XB12" || manifest.Devices[0].ProvisioningMethod != string(domain.ProvisioningMethodCiscoAutoInstall) || manifest.Devices[0].CompatibilityStatus != "unknown" {
+		t.Fatalf("profile provenance or unverified compatibility status missing: %#v", manifest.Devices)
+	}
+
+	for _, invalid := range []domain.Device{
+		{Name: device.Name, Vendor: device.Vendor, Family: device.Family, Model: "7200", OSVersion: "15.3(3)XB13", Provisioning: device.Provisioning, Network: device.Network},
+		{Name: device.Name, Vendor: device.Vendor, Family: device.Family, Model: "7200", OSVersion: device.OSVersion, Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodNativeConfig}, Network: device.Network},
+	} {
+		if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{invalid}}}}, filepath.Join(t.TempDir(), "out")); err == nil {
+			t.Fatalf("unsupported Cisco IOS AutoInstall identity was accepted: %#v", invalid)
+		}
+	}
+}
+
 func TestFortiOSExampleMatchesExpectedConfiguration(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "..", "examples", "fortios-native.yaml")
 	data, err := os.ReadFile(examplePath)
@@ -732,13 +770,13 @@ func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
 			wantMessage: "does not confirm the required TLS-only transport",
 		},
 		{
-			name: "Cisco AutoInstall profile gap",
+			name: "Cisco AutoInstall wrong model is rejected",
 			device: domain.Device{
-				Name: "router1", Vendor: "cisco", Family: "iosxe",
+				Name: "router1", Vendor: "cisco", Family: "ios", Model: "7500", OSVersion: "15.3(3)XB12",
 				Provisioning: domain.Provisioning{Method: "cisco-autoinstall"},
 				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
 			},
-			wantMessage: "no model/release-specific discovery and filename profile is verified",
+			wantMessage: "Cisco IOS AutoInstall supports only model 7200",
 		},
 		{
 			name: "Fortinet ZTP inputs missing",
@@ -747,12 +785,12 @@ func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
 				Provisioning: domain.Provisioning{Method: "fortimanager-ztp"},
 				Network:      &domain.DeviceNetwork{VDOM: "root", Interfaces: []domain.NetworkInterface{{Name: "port1", Role: "wan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
 			},
-			wantMessage: "exact model, FortiOS release, backend",
+			wantMessage: "bootstrap.fortimanager.ip and bootstrap.fortimanager.domain",
 		},
 		{
 			name:        "unknown RouterOS model",
 			device:      autoRSCDevice("CCR2004", "7.x", "1", "ether1"),
-			wantMessage: "does not support model",
+			wantMessage: "RouterOS Auto Import requires the exact RB750Gr3 model profile",
 		},
 		{
 			name:        "unsupported RouterOS version",
@@ -788,6 +826,19 @@ func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
 				t.Fatalf("rejected profile left a native manifest: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestGenerateNativeSupportsExplicitRouterOSAutoRSCMethodAlias(t *testing.T) {
+	device := autoRSCDevice("RB750Gr3", "7.x", "1", "ether1")
+	device.Provisioning.Method = domain.ProvisioningMethodMikroTikRouterOS7AutoRSC
+	root := t.TempDir()
+	artifacts, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 2 || !strings.Contains(readNativeArtifact(t, root, "lab/native/device-r1.auto.rsc"), "/system identity set name=") {
+		t.Fatalf("explicit RouterOS Auto Import alias did not render its profile: %#v", artifacts)
 	}
 }
 

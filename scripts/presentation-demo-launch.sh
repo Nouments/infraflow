@@ -58,26 +58,15 @@ expect_validation examples/multisite-preparation.yaml \
 	'Valid: 4 site(s), 5 device(s); no infrastructure changes made.'
 run_provider generate-all -f examples/multisite-preparation.yaml -out "$demo_root/multisite-disabled"
 
-printf '\n== Confirm unsupported OSPF fails closed ==\n'
-rejection_log="$demo_root/unsupported-ospf.log"
-if go run ./provider/cmd generate-device-config \
-	-f examples/network-deployment-unsupported-ospf.yaml \
-	-out "$demo_root/unsupported-ospf" >"$rejection_log" 2>&1; then
-	printf 'Unsupported OSPF unexpectedly succeeded.\n' >&2
+printf '\n== Generate and verify Cisco OSPF configuration ==\n'
+run_provider generate-device-config \
+	-f examples/network-deployment-ospf.yaml \
+	-out "$demo_root/ospf"
+if ! grep -Fq 'router ospf 10' "$demo_root/ospf/demo/R1/config.cfg"; then
+	printf 'OSPF configuration was not generated.\n' >&2
 	exit 1
 fi
-expected_error='infraflow-provider: spec.devices[0].routing.ospf: unsupported; no matching OSPF template is registered'
-if ! grep -Fxq "$expected_error" "$rejection_log"; then
-	printf 'Unsupported OSPF failed with an unexpected error:\n' >&2
-	cat "$rejection_log" >&2
-	exit 1
-fi
-if [[ -e "$demo_root/unsupported-ospf" ]]; then
-	printf 'Unsupported OSPF published output unexpectedly: %s\n' "$demo_root/unsupported-ospf" >&2
-	exit 1
-fi
-printf '%s\n' "$expected_error"
-printf 'PASS: rejected with no output directory.\n'
+printf 'PASS: Cisco OSPF configuration rendered; device application is not claimed.\n'
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 	printf 'root=%s\n' "$demo_root" >>"$GITHUB_OUTPUT"

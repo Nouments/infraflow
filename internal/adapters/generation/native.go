@@ -137,11 +137,37 @@ type nativeTemplateRouteData struct {
 	Gateway          string
 }
 
+type nativeTemplateOSPFNetworkData struct {
+	CiscoNetwork    string
+	CiscoWildcard   string
+	RouterOSNetwork string
+	FortiNetwork    string
+	FortiNetmask    string
+	Sequence        int
+	Owner           string
+	Area            uint32
+	AreaID          string
+	AreaName        string
+}
+
+type nativeTemplateOSPFAreaData struct {
+	ID   string
+	Name string
+}
+
+type nativeTemplateOSPFData struct {
+	RouterID  string
+	ProcessID int
+	Networks  []nativeTemplateOSPFNetworkData
+	Areas     []nativeTemplateOSPFAreaData
+}
+
 type nativeTemplateData struct {
 	Name       string
 	VDOM       string
 	Interfaces []nativeTemplateInterfaceData
 	Routes     []nativeTemplateRouteData
+	OSPF       *nativeTemplateOSPFData
 }
 
 // GenerateNative renders a conservative, text-only native configuration for
@@ -281,6 +307,12 @@ func renderNativeSite(site domain.Site, templates []templateCandidate) ([]native
 	seenIdentities := make(map[string]struct{}, len(devices))
 	for _, device := range devices {
 		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+		if method == string(domain.ProvisioningMethodFortiManagerZTP) || method == string(domain.ProvisioningMethodFortiOSFortiManager) ||
+			method == string(domain.ProvisioningMethodFortiDeployCloud) || method == string(domain.ProvisioningMethodFortiOSFortiDeploy) {
+			// The FortiManager/FortiDeploy backend performs device-side configuration;
+			// local generation only emits discovery settings when that method supports it.
+			continue
+		}
 		if device.Network == nil && (method == "" || method == "ssh" || method == "api" || method == "https") {
 			continue
 		}
@@ -342,6 +374,7 @@ type nativeProfile int
 
 const (
 	nativeCiscoIOSXE nativeProfile = iota
+	nativeCiscoIOSAutoInstall
 	nativeMikroTikRouterOS7
 	nativeFortiOS
 )
@@ -349,6 +382,8 @@ const (
 func nativeVendor(profile nativeProfile) string {
 	switch profile {
 	case nativeCiscoIOSXE:
+		return "cisco"
+	case nativeCiscoIOSAutoInstall:
 		return "cisco"
 	case nativeMikroTikRouterOS7:
 		return "mikrotik"
@@ -363,6 +398,8 @@ func nativeFamily(profile nativeProfile) string {
 	switch profile {
 	case nativeCiscoIOSXE:
 		return "iosxe"
+	case nativeCiscoIOSAutoInstall:
+		return "ios"
 	case nativeMikroTikRouterOS7:
 		return "routeros"
 	case nativeFortiOS:
@@ -376,6 +413,8 @@ func nativeTemplateID(profile nativeProfile) string {
 	switch profile {
 	case nativeCiscoIOSXE:
 		return "infraflow.cisco.iosxe.native"
+	case nativeCiscoIOSAutoInstall:
+		return "infraflow.cisco.ios.7200.native"
 	case nativeMikroTikRouterOS7:
 		return "infraflow.mikrotik.routeros7.native"
 	case nativeFortiOS:
@@ -391,10 +430,27 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 	switch {
 	case vendor == "cisco" && (family == "iosxe" || family == "ios-xe" || family == "ios_xe"):
 		return nativeCiscoIOSXE, nil
+	case vendor == "cisco" && family == "ios":
+		model := strings.ToLower(strings.TrimSpace(device.Model))
+		if model != "7200" && model != "cisco 7200" {
+			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only model 7200; got %q", device.Name, device.Model)
+		}
+		if strings.TrimSpace(device.OSVersion) != "15.3(3)XB12" {
+			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only version 15.3(3)XB12; got %q", device.Name, device.OSVersion)
+		}
+		if strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method))) != string(domain.ProvisioningMethodCiscoAutoInstall) {
+			return 0, fmt.Errorf("device %s: Cisco IOS 7200 requires explicit provisioning.method cisco-autoinstall", device.Name)
+		}
+		return nativeCiscoIOSAutoInstall, nil
 	case vendor == "mikrotik" && family == "routeros":
 		version := strings.TrimSpace(device.OSVersion)
 		if !routerOS7Version.MatchString(version) {
 			return 0, fmt.Errorf("device %s: native MikroTik renderer requires an explicit RouterOS 7 version", device.Name)
+		}
+		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
+		if (method == string(domain.ProvisioningMethodAutoRSC) || method == string(domain.ProvisioningMethodMikroTikRouterOS7AutoRSC)) &&
+			!strings.EqualFold(strings.TrimSpace(device.Model), "RB750Gr3") {
+			return 0, fmt.Errorf("device %s: RouterOS Auto Import requires the exact RB750Gr3 model profile", device.Name)
 		}
 		return nativeMikroTikRouterOS7, nil
 	case (vendor == "fortinet" || vendor == "fortigate") && (family == "fortios" || family == "fortigate"):
@@ -412,12 +468,17 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 	switch method {
 	case "", string(domain.ProvisioningMethodSSH), string(domain.ProvisioningMethodAPI), string(domain.ProvisioningMethodHTTPS),
 		string(domain.ProvisioningMethodNativeConfig), string(domain.ProvisioningMethodCiscoIOSXENative),
+		string(domain.ProvisioningMethodCiscoAutoInstall), string(domain.ProvisioningMethodCiscoIOSXEAutoInstall),
 		string(domain.ProvisioningMethodMikroTikRouterOS7API), string(domain.ProvisioningMethodFortiOSNative):
 		if err := validateNativeMethodForProfile(method, profile); err != nil {
 			return nativeRenderedArtifact{}, err
 		}
 		templateDevice := device
 		templateDevice.Provisioning.Method = domain.ProvisioningMethodNativeConfig
+		if profile == nativeCiscoIOSAutoInstall {
+			templateDevice.Model = "7200"
+			templateDevice.Family = "ios"
+		}
 		if templateDevice.Provisioning.TemplateVersion == "" {
 			templateDevice.Provisioning.TemplateVersion = nativeTemplateVersion
 		}
@@ -436,7 +497,7 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 		if err := candidate.Parsed.Execute(&output, data); err != nil {
 			return nativeRenderedArtifact{}, fmt.Errorf("execute native template %q: %w", candidate.Metadata.ID, err)
 		}
-		contents := strings.ReplaceAll(output.String(), "\r\n", "\n")
+	contents := strings.TrimSuffix(strings.ReplaceAll(output.String(), "\r\n", "\n"), "\n")
 		provisioningMethod := method
 		if provisioningMethod == "" {
 			provisioningMethod = string(domain.ProvisioningMethodNativeConfig)
@@ -450,28 +511,11 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 			validationStatus:   candidate.Metadata.Status, extension: ".cfg",
 		}, nil
 	case string(domain.ProvisioningMethodAutoRSC):
-		if profile != nativeMikroTikRouterOS7 {
-			return nativeRenderedArtifact{}, fmt.Errorf("device %s: auto-rsc provisioning is only supported for MikroTik RouterOS 7", device.Name)
-		}
-		if device.Network == nil {
-			return nativeRenderedArtifact{}, fmt.Errorf("device %s: RouterOS auto-rsc requires network intent", device.Name)
-		}
-		candidate, err := resolveTemplateForDevice(device, method, templates)
-		if err != nil {
-			return nativeRenderedArtifact{}, err
-		}
-		contents, err := renderRouterOSAutoRSC(device, candidate)
-		return nativeRenderedArtifact{
-			contents: contents, templateID: candidate.Metadata.ID,
-			templateVersion: candidate.Metadata.Version, templateHash: candidate.Hash,
-			provisioningMethod: method, sourceReferences: append([]string(nil), candidate.Metadata.SourceReferences...),
-			supportedFeatures: append([]string(nil), candidate.Metadata.Features...),
-			validationStatus:  candidate.Metadata.Status, extension: ".auto.rsc",
-		}, err
+		return renderRouterOSAutoRSCArtifact(device, method, templates)
+	case string(domain.ProvisioningMethodMikroTikRouterOS7AutoRSC):
+		return renderRouterOSAutoRSCArtifact(device, string(domain.ProvisioningMethodAutoRSC), templates)
 	case string(domain.ProvisioningMethodCiscoZTP), string(domain.ProvisioningMethodCiscoIOSXEZTP):
 		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Cisco ZTP generation is blocked; repository evidence documents HTTP/TFTP bootstrap examples but does not confirm the required TLS-only transport for a model/release profile", device.Name)
-	case string(domain.ProvisioningMethodCiscoAutoInstall), string(domain.ProvisioningMethodCiscoIOSXEAutoInstall):
-		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Cisco AutoInstall generation is unsupported; no model/release-specific discovery and filename profile is verified", device.Name)
 	case string(domain.ProvisioningMethodFortiManagerZTP), string(domain.ProvisioningMethodFortiDeployCloud),
 		string(domain.ProvisioningMethodFortiOSFortiManager), string(domain.ProvisioningMethodFortiOSFortiDeploy):
 		return nativeRenderedArtifact{}, fmt.Errorf("device %s: Fortinet ZTP generation is unsupported until an exact model, FortiOS release, backend, and required DHCP/enrollment values are established", device.Name)
@@ -480,14 +524,39 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 	}
 }
 
+func renderRouterOSAutoRSCArtifact(device domain.Device, method string, templates []templateCandidate) (nativeRenderedArtifact, error) {
+	profile, err := nativeProfileFor(device)
+	if err != nil {
+		return nativeRenderedArtifact{}, err
+	}
+	if profile != nativeMikroTikRouterOS7 {
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: auto-rsc provisioning is only supported for MikroTik RouterOS 7", device.Name)
+	}
+	if device.Network == nil {
+		return nativeRenderedArtifact{}, fmt.Errorf("device %s: RouterOS auto-rsc requires network intent", device.Name)
+	}
+	candidate, err := resolveTemplateForDevice(device, string(domain.ProvisioningMethodAutoRSC), templates)
+	if err != nil {
+		return nativeRenderedArtifact{}, err
+	}
+	contents, err := renderRouterOSAutoRSC(device, candidate)
+	return nativeRenderedArtifact{
+		contents: contents, templateID: candidate.Metadata.ID,
+		templateVersion: candidate.Metadata.Version, templateHash: candidate.Hash,
+		provisioningMethod: method, sourceReferences: append([]string(nil), candidate.Metadata.SourceReferences...),
+		supportedFeatures: append([]string(nil), candidate.Metadata.Features...),
+		validationStatus:  candidate.Metadata.Status, extension: ".auto.rsc",
+	}, err
+}
+
 func nativeSupportedFeatures(profile nativeProfile) []string {
 	switch profile {
-	case nativeCiscoIOSXE:
-		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4"}
+	case nativeCiscoIOSXE, nativeCiscoIOSAutoInstall:
+		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4", "routing.ospf"}
 	case nativeMikroTikRouterOS7:
-		return []string{"system.identity", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "routes.static_ipv4"}
+		return []string{"system.identity", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "routes.static_ipv4", "routing.ospf"}
 	case nativeFortiOS:
-		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4"}
+		return []string{"system.hostname", "interfaces.ipv4_static", "interfaces.ipv4_dhcp", "interfaces.admin_state", "routes.static_ipv4", "routing.ospf"}
 	default:
 		return nil
 	}
@@ -496,6 +565,14 @@ func nativeSupportedFeatures(profile nativeProfile) []string {
 func validateNativeMethodForProfile(method string, profile nativeProfile) error {
 	switch method {
 	case string(domain.ProvisioningMethodCiscoIOSXENative):
+		if profile != nativeCiscoIOSXE {
+			return fmt.Errorf("method %q requires Cisco IOS-XE", method)
+		}
+	case string(domain.ProvisioningMethodCiscoAutoInstall):
+		if profile != nativeCiscoIOSAutoInstall {
+			return fmt.Errorf("method %q requires the exact Cisco IOS 7200 15.3(3)XB12 profile", method)
+		}
+	case string(domain.ProvisioningMethodCiscoIOSXEAutoInstall):
 		if profile != nativeCiscoIOSXE {
 			return fmt.Errorf("method %q requires Cisco IOS-XE", method)
 		}
@@ -560,7 +637,87 @@ func buildNativeTemplateData(device domain.Device, profile nativeProfile) (nativ
 			FortinetSequence: route.FortinetSequence, Gateway: gateway,
 		})
 	}
+	if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+		ospf, err := buildNativeOSPFData(device)
+		if err != nil {
+			return nativeTemplateData{}, err
+		}
+		data.OSPF = ospf
+	}
 	return data, nil
+}
+
+func buildNativeOSPFData(device domain.Device) (*nativeTemplateOSPFData, error) {
+	if device.Routing == nil || device.Routing.OSPF == nil || !device.Routing.OSPF.IsEnabled() {
+		return nil, nil
+	}
+	config := device.Routing.OSPF
+	processID := config.ProcessID
+	if processID == 0 {
+		processID = 1
+	}
+	routerID := strings.TrimSpace(config.RouterID)
+	if routerID == "" {
+		routerID = strings.TrimSpace(device.Management.IPv4)
+	}
+	if routerID == "" && device.Network != nil {
+		for _, iface := range device.Network.Interfaces {
+			if iface.IPv4Mode == "static" {
+				address, _, err := net.ParseCIDR(iface.IPv4Address)
+				if err == nil && address.To4() != nil {
+					routerID = address.To4().String()
+					break
+				}
+			}
+		}
+	}
+	if net.ParseIP(routerID).To4() == nil || net.ParseIP(routerID).To4().Equal(net.IPv4zero) {
+		return nil, fmt.Errorf("device %s: OSPF requires a non-zero IPv4 router ID or a management/static interface address", device.Name)
+	}
+	prefixes := append([]domain.OSPFNetwork(nil), config.Networks...)
+	if len(prefixes) == 0 && device.Network != nil {
+		for _, iface := range device.Network.Interfaces {
+			if iface.IPv4Mode != "static" {
+				continue
+			}
+			_, network, err := net.ParseCIDR(iface.IPv4Address)
+			if err == nil && network.IP.To4() != nil {
+				prefixes = append(prefixes, domain.OSPFNetwork{Prefix: network.String()})
+			}
+		}
+	}
+	if len(prefixes) == 0 {
+		return nil, fmt.Errorf("device %s: OSPF requires explicit networks or at least one static IPv4 interface", device.Name)
+	}
+	result := &nativeTemplateOSPFData{RouterID: routerID, ProcessID: processID}
+	areas := make(map[string]struct{})
+	for index, item := range prefixes {
+		address, network, err := net.ParseCIDR(item.Prefix)
+		if err != nil || address.To4() == nil || network.IP.To4() == nil || network.String() != item.Prefix {
+			return nil, fmt.Errorf("device %s: invalid canonical IPv4 OSPF network %q", device.Name, item.Prefix)
+		}
+		mask := network.Mask
+		wildcard := net.IPv4(^mask[0], ^mask[1], ^mask[2], ^mask[3])
+		areaID := net.IPv4(byte(item.Area>>24), byte(item.Area>>16), byte(item.Area>>8), byte(item.Area)).String()
+		areaName := "area-" + strings.ReplaceAll(areaID, ".", "-")
+		result.Networks = append(result.Networks, nativeTemplateOSPFNetworkData{
+			CiscoNetwork: network.IP.To4().String(), CiscoWildcard: wildcard.String(), RouterOSNetwork: network.String(),
+			FortiNetwork: network.IP.To4().String(), FortiNetmask: net.IP(mask).String(),
+			Sequence: index + 1, Area: item.Area, AreaID: areaID, AreaName: areaName,
+		})
+		if _, exists := areas[areaID]; !exists {
+			areas[areaID] = struct{}{}
+			result.Areas = append(result.Areas, nativeTemplateOSPFAreaData{ID: areaID, Name: areaName})
+		}
+	}
+	sort.Slice(result.Networks, func(i, j int) bool {
+		if result.Networks[i].Area != result.Networks[j].Area {
+			return result.Networks[i].Area < result.Networks[j].Area
+		}
+		return result.Networks[i].CiscoNetwork < result.Networks[j].CiscoNetwork
+	})
+	sort.Slice(result.Areas, func(i, j int) bool { return result.Areas[i].ID < result.Areas[j].ID })
+	return result, nil
 }
 
 func resolveTemplateForDevice(device domain.Device, method string, templates []templateCandidate) (templateCandidate, error) {
@@ -704,6 +861,9 @@ func missingTemplateFeatures(device domain.Device, supported []string) []string 
 			available["routes.static_ipv4"] = true
 		}
 	}
+	if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+		available["routing.ospf"] = true
+	}
 	var missing []string
 	for feature, requested := range available {
 		if !requested {
@@ -735,6 +895,7 @@ type routerOSAutoRSCTemplateData struct {
 	Name       string
 	Interfaces []routerOSInterfaceTemplateData
 	Routes     []routerOSRouteTemplateData
+	OSPF       *nativeTemplateOSPFData
 }
 
 func renderRouterOSAutoRSC(device domain.Device, candidate templateCandidate) (string, error) {
@@ -803,6 +964,16 @@ func renderRouterOSAutoRSC(device domain.Device, candidate templateCandidate) (s
 			Destination: route.Destination, Gateway: gateway, Distance: route.Distance,
 			Owner: "infraflow:" + ownerID + ":route:" + route.Destination,
 		})
+	}
+	if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+		ospf, err := buildNativeOSPFData(device)
+		if err != nil {
+			return "", err
+		}
+		for index := range ospf.Networks {
+			ospf.Networks[index].Owner = "infraflow:" + ownerID + ":ospf:" + ospf.Networks[index].RouterOSNetwork
+		}
+		data.OSPF = ospf
 	}
 	var output strings.Builder
 	if err := candidate.Parsed.Execute(&output, data); err != nil {

@@ -110,10 +110,23 @@ type renderedInterface struct {
 	Enabled bool
 }
 
+type renderedOSPFNetwork struct {
+	Address  string
+	Wildcard string
+	Area     uint32
+}
+
+type renderedOSPF struct {
+	ProcessID int
+	RouterID  string
+	Networks  []renderedOSPFNetwork
+}
+
 type deviceConfigTemplateData struct {
 	TemplateID      string
 	TemplateVersion string
 	Interfaces      []renderedInterface
+	OSPF            *renderedOSPF
 }
 
 type declarativeArtifact struct {
@@ -210,7 +223,7 @@ func prepareDeclarativeArtifacts(input []byte) ([]declarativeArtifact, error) {
 		if err := selected.Parsed.Execute(&configBuffer, templateData); err != nil {
 			return nil, fmt.Errorf("execute template %q: %w", selected.Metadata.ID, err)
 		}
-		configContents := []byte(configBuffer.String())
+		configContents := []byte(strings.TrimSuffix(configBuffer.String(), "\n"))
 		if len(strings.TrimSpace(string(configContents))) == 0 {
 			return nil, fmt.Errorf("template %q produced an empty configuration", selected.Metadata.ID)
 		}
@@ -482,6 +495,9 @@ func findEquipment(equipmentCatalog *catalog.Catalog, manufacturer, model string
 
 func selectDeviceTemplate(device domain.Device, declared config.NetworkDeploymentDevice, record catalog.Record, templates []templateCandidate) ([]TemplateEvaluation, templateCandidate, error) {
 	requestedFeatures := []string{"interfaces.ipv4_static", "interfaces.admin_state"}
+	if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+		requestedFeatures = append(requestedFeatures, "routing.ospf")
+	}
 	var evaluations []TemplateEvaluation
 	var eligible []templateCandidate
 	for _, candidate := range templates {
@@ -576,6 +592,18 @@ func buildDeviceTemplateData(device domain.Device, selected templateCandidate) (
 		})
 	}
 	sort.Slice(result.Interfaces, func(i, j int) bool { return result.Interfaces[i].Name < result.Interfaces[j].Name })
+	if device.Routing != nil && device.Routing.OSPF.IsEnabled() {
+		ospf, err := buildNativeOSPFData(device)
+		if err != nil {
+			return deviceConfigTemplateData{}, nil, err
+		}
+		result.OSPF = &renderedOSPF{ProcessID: ospf.ProcessID, RouterID: ospf.RouterID}
+		for _, network := range ospf.Networks {
+			result.OSPF.Networks = append(result.OSPF.Networks, renderedOSPFNetwork{
+				Address: network.CiscoNetwork, Wildcard: network.CiscoWildcard, Area: network.Area,
+			})
+		}
+	}
 	return result, map[string]any{"interfaces": variableInterfaces}, nil
 }
 

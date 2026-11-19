@@ -117,10 +117,7 @@ func TestGenerateAllPreflightRejectsWithoutChangingOutputRoot(t *testing.T) {
 }
 
 func TestGenerateDeclarativeConfigRejectsWithoutChangingOutputRoot(t *testing.T) {
-	input, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "network-deployment-unsupported-ospf.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	input := []byte(strings.Replace(declarativeInput, "os: ios-xe", "os: ios-x", 1))
 	assertRejectedGenerationPreservesOutputRoot(t, func(output string) error {
 		_, err := GenerateDeclarativeConfig(input, output)
 		return err
@@ -1730,6 +1727,209 @@ func TestGenerateBootstrapCreatesPoolsReservationsDNSAndPXE(t *testing.T) {
 	}
 	if !strings.Contains(string(ipxe), "next-server") || !strings.Contains(string(ipxe), "agence-01") {
 		t.Fatalf("unexpected iPXE script: %s", ipxe)
+	}
+}
+
+func TestGenerateBootstrapCreatesCiscoIOSAutoInstallFilesAndDHCPOptionProfile(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: ios-lab
+    bootstrap:
+      network: 192.0.2.0/24
+      gateway: 192.0.2.1
+    services:
+      dhcp: true
+      tftp: true
+    devices:
+      - name: edge7200
+        vendor: cisco
+        family: ios
+        model: 7200
+        os_version: "15.3(3)XB12"
+        provisioning:
+          method: cisco-autoinstall
+        identity:
+          macs: ["00:11:22:33:44:55"]
+        management:
+          ipv4: 192.0.2.10
+        network:
+          interfaces:
+            - name: FastEthernet0/0
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.10/24
+              enabled: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	artifacts, err := GenerateBootstrap(infrastructure, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, artifact := range artifacts {
+		paths[artifact.Path] = true
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		if err != nil {
+			t.Fatalf("read generated artifact %s: %v", artifact.Path, err)
+		}
+		if protocol.SHA256(data) != artifact.OutputHash || artifact.InputHash == "" {
+			t.Fatalf("AutoInstall artifact has invalid hash metadata: %#v", artifact)
+		}
+	}
+	for _, path := range []string{
+		"ios-lab/bootstrap/tftp/network-confg",
+		"ios-lab/bootstrap/tftp/edge7200-confg",
+		"ios-lab/bootstrap/tftp/config.json",
+		"ios-lab/bootstrap/dhcp/config.json",
+	} {
+		if !paths[path] {
+			t.Errorf("required AutoInstall artifact is missing: %s", path)
+		}
+	}
+	networkConfig, err := os.ReadFile(filepath.Join(root, "ios-lab/bootstrap/tftp/network-confg"))
+	if err != nil || string(networkConfig) != "ip host edge7200 192.0.2.10\n" {
+		t.Fatalf("unexpected AutoInstall host map %q: %v", networkConfig, err)
+	}
+	deviceConfig, err := os.ReadFile(filepath.Join(root, "ios-lab/bootstrap/tftp/edge7200-confg"))
+	if err != nil || !strings.Contains(string(deviceConfig), "hostname edge7200") || !strings.Contains(string(deviceConfig), "ip address 192.0.2.10 255.255.255.0") {
+		t.Fatalf("unexpected generated IOS config %q: %v", deviceConfig, err)
+	}
+	var dhcp bootstrapDHCP
+	data, err := os.ReadFile(filepath.Join(root, "ios-lab/bootstrap/dhcp/config.json"))
+	if err != nil || json.Unmarshal(data, &dhcp) != nil {
+		t.Fatalf("read DHCP artifact: %v", err)
+	}
+	if !dhcp.Options.CiscoAutoInstall || dhcp.Options.BootFilename != "" || dhcp.Options.BootMode != "cisco-autoinstall" || dhcp.Options.TFTPDirectory != "tftp" {
+		t.Fatalf("AutoInstall DHCP profile included unrelated PXE options: %#v", dhcp.Options)
+	}
+	var tftp bootstrapTFTP
+	data, err = os.ReadFile(filepath.Join(root, "ios-lab/bootstrap/tftp/config.json"))
+	if err != nil || json.Unmarshal(data, &tftp) != nil {
+		t.Fatalf("read TFTP artifact: %v", err)
+	}
+	allowed := map[string]bool{}
+	for _, file := range tftp.AllowedFiles {
+		allowed[file.Path] = true
+	}
+	if !allowed["network-confg"] || !allowed["edge7200-confg"] || !tftp.ReadOnly {
+		t.Fatalf("TFTP profile does not allow the two generated files: %#v", tftp)
+	}
+}
+
+func TestGenerateBootstrapCreatesFortiManagerDHCPDiscoveryOptions(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: forti-lab
+    bootstrap:
+      network: 192.0.2.0/24
+      fortimanager:
+        ip: 192.0.2.250
+        domain: manager.lab.example
+    services:
+      dhcp: true
+    devices:
+      - name: firewall1
+        vendor: fortinet
+        family: fortios
+        model: FG-60F
+        os_version: "7.0.8"
+        provisioning:
+          method: fortimanager-ztp
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateBootstrap(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "forti-lab", "bootstrap", "dhcp", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dhcp bootstrapDHCP
+	if err := json.Unmarshal(data, &dhcp); err != nil {
+		t.Fatal(err)
+	}
+	if dhcp.Options.FortiManagerIP != "192.0.2.250" || dhcp.Options.FortiManagerDomain != "manager.lab.example" {
+		t.Fatalf("DHCP discovery config omitted FortiManager option values: %#v", dhcp.Options)
+	}
+}
+
+func TestGenerateBootstrapCreatesCiscoIOSXEAutoInstallFiles(t *testing.T) {
+	infrastructure, err := config.Parse([]byte(`sites:
+  - name: xe-lab
+    bootstrap:
+      network: 192.0.2.0/24
+    services:
+      dhcp: true
+      tftp: true
+    devices:
+      - name: edgexe
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        os_version: "16.7.1"
+        provisioning:
+          method: cisco-iosxe-autoinstall
+        identity:
+          macs: ["00:11:22:33:44:55"]
+        management:
+          ipv4: 192.0.2.10
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.10/24
+              enabled: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := GenerateBootstrap(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "xe-lab", "bootstrap", "tftp", "edgexe-confg")
+	contents, err := os.ReadFile(configPath)
+	if err != nil || !strings.Contains(string(contents), "hostname edgexe") {
+		t.Fatalf("Cisco IOS XE AutoInstall config not generated: %q, %v", contents, err)
+	}
+}
+
+func TestGenerateBootstrapDoesNotFallbackForUnsupportedVendorMethods(t *testing.T) {
+	tests := []struct {
+		name   string
+		device domain.Device
+	}{
+		{
+			name:   "Cisco ZTP",
+			device: domain.Device{Name: "edge1", Vendor: "cisco", Family: "iosxe", Model: "C9350", OSVersion: "17.18.1", Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodCiscoIOSXEZTP}},
+		},
+		{
+			name:   "MikroTik Auto Import",
+			device: domain.Device{Name: "edge1", Vendor: "mikrotik", Family: "routeros", Model: "RB750Gr3", OSVersion: "7.20.1", Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodAutoRSC}},
+		},
+		{
+			name:   "FortiDeploy",
+			device: domain.Device{Name: "edge1", Vendor: "fortinet", Family: "fortios", Model: "FG-60F", OSVersion: "7.0.8", Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodFortiDeployCloud}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "generated")
+			infrastructure := domain.Infrastructure{Sites: []domain.Site{{
+				Name: "lab", Services: map[string]bool{"dhcp": true, "tftp": true}, Devices: []domain.Device{test.device},
+			}}}
+			if _, err := GenerateBootstrap(infrastructure, root); err == nil || !strings.Contains(err.Error(), "cannot use generic DHCP/TFTP/PXE output") {
+				t.Fatalf("GenerateBootstrap silently fell back for %s: %v", test.name, err)
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatalf("rejected %s selection left output behind: %v", test.name, err)
+			}
+		})
 	}
 }
 

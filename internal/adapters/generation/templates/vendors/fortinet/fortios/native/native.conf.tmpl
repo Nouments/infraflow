@@ -22,5 +22,18 @@ config vdom
 {{if .Distance}}                set distance {{.Distance}}
 {{end}}            next
 {{end}}        end
+{{end}}{{if .OSPF}}        config router ospf
+            set router-id {{.OSPF.RouterID}}
+            config area
+{{range .OSPF.Areas}}                edit {{.ID}}
+                next
+{{end}}            end
+            config network
+{{range .OSPF.Networks}}                edit {{.Sequence}}
+                    set prefix {{.FortiNetwork}} {{.FortiNetmask}}
+                    set area {{.AreaID}}
+                next
+{{end}}            end
+        end
 {{end}}    next
 end

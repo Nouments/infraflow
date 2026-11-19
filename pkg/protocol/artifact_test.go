@@ -50,6 +50,23 @@ func TestArtifactValidationIsSharedAndRestrictive(t *testing.T) {
 	if !ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: "lab/native/device-r1.auto.rsc"}) {
 		t.Fatal("expected valid RouterOS auto-script artifact path")
 	}
+	for _, artifact := range []Artifact{
+		{Type: "bootstrap_cisco_autoinstall_network", Path: "lab/bootstrap/tftp/network-confg"},
+		{Type: "bootstrap_cisco_autoinstall_config", Path: "lab/bootstrap/tftp/edge-r1-confg"},
+	} {
+		if !ValidArtifactPath("lab", artifact) {
+			t.Errorf("expected valid Cisco AutoInstall artifact path: %#v", artifact)
+		}
+	}
+	for _, artifact := range []Artifact{
+		{Type: "bootstrap_cisco_autoinstall_network", Path: "lab/bootstrap/tftp/../escape"},
+		{Type: "bootstrap_cisco_autoinstall_config", Path: "lab/bootstrap/tftp/-confg"},
+		{Type: "bootstrap_cisco_autoinstall_config", Path: "lab/bootstrap/tftp/device.cfg"},
+	} {
+		if ValidArtifactPath("lab", artifact) {
+			t.Errorf("accepted invalid Cisco AutoInstall artifact path: %#v", artifact)
+		}
+	}
 	for _, path := range []string{"lab/native/device-../escape.cfg", "lab/native/device-a/b.cfg", "lab/native/device-.cfg", "lab/native/device-.auto.rsc", "lab/native/device-r1.rsc"} {
 		if ValidArtifactPath("lab", Artifact{Type: "native_device_config", Path: path}) {
 			t.Errorf("accepted invalid native device artifact path %q", path)

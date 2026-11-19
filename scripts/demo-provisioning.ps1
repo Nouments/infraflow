@@ -5,7 +5,7 @@ $demoRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("infraflow-demo-" + [gu
 $output = Join-Path $demoRoot 'generated'
 $infraOutput = Join-Path $demoRoot 'infra'
 $multisiteOutput = Join-Path $demoRoot 'multisite'
-$unsupportedOutput = Join-Path $demoRoot 'unsupported'
+$ospfOutput = Join-Path $demoRoot 'ospf'
 
 function Invoke-Provider {
     param([string[]] $Arguments)
@@ -173,15 +173,16 @@ try {
     Write-Output '7. Verified artifact SHA-256'
     Get-FileHash -LiteralPath $routerOSPath -Algorithm SHA256
 
-    Write-Output '8. Unsupported OSPF intent must fail without publishing output'
-    & go run ./provider/cmd generate-all -f examples/network-deployment-unsupported-ospf.yaml -out $unsupportedOutput
-    if ($LASTEXITCODE -eq 0) {
-        throw 'Unsupported OSPF intent unexpectedly succeeded'
+    Write-Output '8. Generate Cisco OSPF configuration from declared site intent'
+    & go run ./provider/cmd generate-device-config -f examples/network-deployment-ospf.yaml -out $ospfOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cisco OSPF generation failed'
     }
-    if (Test-Path -LiteralPath $unsupportedOutput) {
-        throw 'Unsupported intent left a published output directory'
+    $ospfConfig = Get-Content -Raw -LiteralPath (Join-Path $ospfOutput 'demo\R1\config.cfg')
+    if (-not $ospfConfig.Contains('router ospf 10')) {
+        throw 'Generated Cisco configuration omitted the OSPF process'
     }
-    Write-Output "PASS: unsupported intent rejected (exit $LASTEXITCODE); no output published"
+    Write-Output 'PASS: OSPF config rendered; device application is not claimed'
 
     Write-Output "Demo output retained at: $demoRoot"
     Write-Output 'Generated files are not automatically delivered, executed, or verified on devices.'

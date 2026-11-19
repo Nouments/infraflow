@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"infraflow/agent/internal/adapters/providergrpc"
 	"infraflow/agent/internal/adapters/providerhttp"
 	"infraflow/agent/internal/application"
+	"infraflow/agent/internal/application/diagnostics"
 	"infraflow/agent/internal/application/toolrunner"
 	"infraflow/agent/internal/config"
 	artifacthttp "infraflow/agent/internal/delivery/artifacts"
@@ -48,6 +50,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	}
 	if arguments[0] == "serve-tftp" {
 		return runTFTPServer(arguments[1:], stdout, stderr)
+	}
+	if arguments[0] == "diagnose" {
+		return runDiagnose(arguments[1:], stdout, stderr)
 	}
 	if arguments[0] == "validate-terraform" {
 		return runTerraformValidation(arguments[1:], stdout, stderr)
@@ -567,8 +572,75 @@ Usage:
 	infraflow-agent serve-bootstrap -directory <state-dir> -interface <name> -listen <ipv4> [-port 80]
 	infraflow-agent serve-dhcp -config <dhcp-config.json> -interface <name> -listen <ipv4> [-port 67]
 	infraflow-agent serve-tftp -config <tftp-config.json> -root <bootstrap-dir> -interface <name> -listen <ipv4> [-port 69]
+	infraflow-agent diagnose (-run-id <id>|-device-id <id>) [-provider-log <jsonl>] [-agent-log <jsonl>] [-bootstrap-log <file>] [-device-console <file>] [-expected-hostname <name>] [-expected-ipv4 <address>] [-json]
 	infraflow-agent validate-terraform -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 
 The agent reads its provider address and TLS settings from YAML. Its token value is read from the configured environment variable. Artifact files are downloaded with gRPC streaming.`)
+}
+
+func runDiagnose(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("diagnose", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	providerLog := flags.String("provider-log", "", "Provider event log (JSONL or text)")
+	agentLog := flags.String("agent-log", "", "Agent event log (JSONL or text)")
+	bootstrapLog := flags.String("bootstrap-log", "", "DHCP/TFTP bootstrap service log")
+	deviceConsole := flags.String("device-console", "", "device console capture")
+	runID := flags.String("run-id", "", "filter correlated events by run ID")
+	deviceID := flags.String("device-id", "", "filter correlated events by device ID")
+	expectedHostname := flags.String("expected-hostname", "", "expected device hostname for console post-check")
+	expectedIPv4 := flags.String("expected-ipv4", "", "expected device IPv4 address for console post-check")
+	jsonOutput := flags.Bool("json", false, "write a machine-readable JSON report")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || (*runID == "" && *deviceID == "") {
+		fmt.Fprintln(stderr, "infraflow-agent: diagnose requires -run-id or -device-id")
+		return 2
+	}
+	files := make([]diagnostics.SourceFile, 0, 4)
+	for _, item := range []struct{ name, path string }{
+		{"provider", *providerLog}, {"agent", *agentLog}, {"bootstrap", *bootstrapLog}, {"device-console", *deviceConsole},
+	} {
+		if item.path != "" {
+			files = append(files, diagnostics.SourceFile{Name: item.name, Path: item.path})
+		}
+	}
+	events, err := diagnostics.ReadFiles(files)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: diagnose: %v\n", observability.Redact(err.Error()))
+		return 2
+	}
+	report := diagnostics.Analyze(events, diagnostics.Filter{
+		RunID: *runID, DeviceID: *deviceID, ExpectedHostname: *expectedHostname, ExpectedIPv4: *expectedIPv4,
+	})
+	if *jsonOutput {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(report); err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: write diagnostic report: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "Observed status: %s\n", report.ObservedStatus)
+	fmt.Fprintf(stdout, "Last confirmed successful stage: %s\n", valueOrUnknown(report.LastConfirmedSuccessfulStage))
+	fmt.Fprintf(stdout, "Failure stage: %s\n", valueOrUnknown(report.FailureStage))
+	fmt.Fprintf(stdout, "Likely cause: %s\n", report.LikelyCause)
+	fmt.Fprintf(stdout, "Confidence: %s\n", report.Confidence)
+	fmt.Fprintf(stdout, "Recommended next action: %s\n", report.RecommendedNextAction)
+	for _, evidence := range report.Evidence {
+		fmt.Fprintf(stdout, "Evidence [%s/%s]: %s\n", evidence.Source, evidence.Stage, evidence.Message)
+	}
+	for _, missing := range report.MissingEvidence {
+		fmt.Fprintf(stdout, "Missing evidence: %s\n", missing)
+	}
+	return 0
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }

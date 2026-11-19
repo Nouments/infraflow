@@ -51,23 +51,19 @@ func TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts(t *testing.T) {
 			t.Fatalf("Provider %s failed: %v\n%s", commandName, err, output)
 		}
 	}
-	unsupportedOutput := filepath.Join(tempRoot, "unsupported")
-	unsupported := exec.CommandContext(
+	ospfOutput := filepath.Join(tempRoot, "ospf")
+	ospf := exec.CommandContext(
 		ctx, providerBinary, "generate-device-config",
-		"-f", filepath.Join(repoRoot, "examples", "network-deployment-unsupported-ospf.yaml"),
-		"-out", unsupportedOutput,
+		"-f", filepath.Join(repoRoot, "examples", "network-deployment-ospf.yaml"),
+		"-out", ospfOutput,
 	)
-	unsupported.Dir = repoRoot
-	if output, err := unsupported.CombinedOutput(); err == nil {
-		t.Fatalf("unsupported OSPF generation unexpectedly succeeded: %s", output)
+	ospf.Dir = repoRoot
+	if output, err := ospf.CombinedOutput(); err != nil {
+		t.Fatalf("OSPF generation failed: %v\n%s", err, output)
 	}
-	for _, path := range []string{
-		filepath.Join(unsupportedOutput, "demo", "R1", "config.cfg"),
-		filepath.Join(unsupportedOutput, "demo", "generation-report.json"),
-	} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Errorf("unsupported generation published partial artifact %s: %v", path, err)
-		}
+	ospfConfig, err := os.ReadFile(filepath.Join(ospfOutput, "demo", "R1", "config.cfg"))
+	if err != nil || !bytes.Contains(ospfConfig, []byte("router ospf 10")) {
+		t.Fatalf("OSPF config was not generated: %s, %v", ospfConfig, err)
 	}
 	generate := exec.CommandContext(ctx, providerBinary, "generate-all", "-f", example, "-out", artifactRoot)
 	generate.Dir = repoRoot

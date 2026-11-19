@@ -9,6 +9,7 @@ import (
 
 	"infraflow/internal/adapters/catalog"
 	"infraflow/internal/adapters/config"
+	"infraflow/internal/domain"
 	"infraflow/pkg/protocol"
 )
 
@@ -95,9 +96,18 @@ func TestGenerateDeclarativeConfigResolvesTemplateAndWritesReport(t *testing.T) 
 		report.Devices[0].ConfigSyntaxValidation.Name != configSyntaxValidationName ||
 		!strings.Contains(report.Devices[0].ConfigSyntaxValidation.Message, "No offline syntax parser is registered for Cisco IOS-XE") ||
 		report.PhysicalDeviceValidation != "not_performed" || report.Devices[0].TemplateID == "" ||
-		report.CompatibilityScope != "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified" ||
-		report.Devices[0].Candidates[0].Score != 93 || !report.Devices[0].Candidates[0].Selected {
+		report.CompatibilityScope != "declared manufacturer/model/OS matched local template metadata; physical hardware and OS compatibility are not verified" {
 		t.Fatalf("report did not expose selected candidate and score: %#v", report)
+	}
+	selected := false
+	for _, candidate := range report.Devices[0].Candidates {
+		if candidate.Selected && candidate.Score == 93 && candidate.TemplateID == report.Devices[0].TemplateID {
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		t.Fatalf("report did not expose the selected candidate and score: %#v", report.Devices[0].Candidates)
 	}
 	if report.Devices[0].Variables["interfaces"] == nil || report.Devices[0].CatalogStatus != "partial" {
 		t.Fatalf("report omitted resolved variables or catalog status: %#v", report.Devices[0])
@@ -248,7 +258,6 @@ func TestGenerateDeclarativeConfigRejectsUnsupportedTemplateCases(t *testing.T) 
 		{"unknown model", strings.Replace(declarativeInput, "isr-1100", "catalyst-9300", 1), "no hardware catalog record"},
 		{"unknown OS family", strings.Replace(declarativeInput, "ios-xe", "ios-x", 1), "no compatible template"},
 		{"unsupported OS version", strings.Replace(declarativeInput, "os: ios-xe", "os: ios-xe\n      os_version: 17.9.4", 1), "OS version"},
-		{"unsupported OSPF", declarativeInput + "      routing:\n        ospf:\n          process_id: 10\n", "routing.ospf"},
 		{"malformed YAML", "apiVersion: [", "decode NetworkDeployment"},
 	}
 	for _, test := range tests {
@@ -262,6 +271,55 @@ func TestGenerateDeclarativeConfigRejectsUnsupportedTemplateCases(t *testing.T) 
 				t.Fatalf("incompatible input left a generated configuration behind: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestGenerateDeclarativeConfigRendersOSPFForRegisteredCiscoTemplate(t *testing.T) {
+	input := strings.Replace(declarativeInput, "          enabled: true\n", "          enabled: true\n      routing:\n        ospf:\n          process_id: 10\n          router_id: 10.255.0.1\n          networks:\n            - prefix: 192.168.10.0/24\n              area: 0\n", 1)
+	output := t.TempDir()
+	if _, err := GenerateDeclarativeConfig([]byte(input), output); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(output, "demo", "R1", "config.cfg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"router ospf 10", "router-id 10.255.0.1", "network 192.168.10.0 0.0.0.255 area 0"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("generated Cisco config missing OSPF command %q: %s", expected, contents)
+		}
+	}
+}
+
+func TestGenerateNativeRendersOSPFForCiscoRouterOSAndFortiOS(t *testing.T) {
+	ospf := &domain.Routing{OSPF: &domain.OSPFConfig{
+		ProcessID: 10, RouterID: "10.255.0.1",
+		Networks: []domain.OSPFNetwork{{Prefix: "192.168.10.0/24", Area: 0}},
+	}}
+	devices := []domain.Device{
+		{Name: "R1", Vendor: "cisco", Family: "iosxe", Model: "isr-1100", Routing: ospf, Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet0/0/0", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}}},
+		{Name: "R2", Vendor: "mikrotik", Family: "routeros", Model: "RB5009", OSVersion: "7.20.1", Routing: ospf, Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "ether1", IPv4Mode: "static", IPv4Address: "192.0.2.2/24"}}}},
+		{Name: "FW1", Vendor: "fortinet", Family: "fortios", Model: "FG-60F", Routing: ospf, Network: &domain.DeviceNetwork{VDOM: "root", Interfaces: []domain.NetworkInterface{{Name: "port1", IPv4Mode: "static", IPv4Address: "192.0.2.3/24"}}}},
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: devices}}}, root); err != nil {
+		t.Fatal(err)
+	}
+	checks := []struct{ path string; lines []string }{
+		{"lab/native/device-R1.cfg", []string{"router ospf 10", "network 192.168.10.0 0.0.0.255 area 0"}},
+		{"lab/native/device-R2.cfg", []string{"/routing ospf instance add", "/routing ospf area add name=area-0-0-0-0", "networks=192.168.10.0/24 area=area-0-0-0-0"}},
+		{"lab/native/device-FW1.cfg", []string{"config router ospf", "set router-id 10.255.0.1", "set area 0.0.0.0"}},
+	}
+	for _, check := range checks {
+		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(check.path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range check.lines {
+			if !strings.Contains(string(contents), line) {
+				t.Errorf("%s missing OSPF line %q: %s", check.path, line, contents)
+			}
+		}
 	}
 }
 

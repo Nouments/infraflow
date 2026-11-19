@@ -54,14 +54,15 @@ type NetworkDeploymentRouting struct {
 }
 
 type NetworkDeploymentOSPF struct {
-	ProcessID int                            `yaml:"process_id"`
-	RouterID  string                         `yaml:"router_id"`
-	Networks  []NetworkDeploymentOSPFNetwork `yaml:"networks"`
+	Enabled   *bool                          `yaml:"enabled,omitempty"`
+	ProcessID int                            `yaml:"process_id,omitempty"`
+	RouterID  string                         `yaml:"router_id,omitempty"`
+	Networks  []NetworkDeploymentOSPFNetwork `yaml:"networks,omitempty"`
 }
 
 type NetworkDeploymentOSPFNetwork struct {
 	Prefix string `yaml:"prefix"`
-	Area   int    `yaml:"area"`
+	Area   uint32 `yaml:"area,omitempty"`
 }
 
 // ParseNetworkDeployment strictly decodes the versioned user-facing schema,
@@ -124,10 +125,6 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 		if len(declared.Interfaces) == 0 {
 			return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("%s.interfaces: at least one interface is required", devicePath)
 		}
-		if declared.Routing != nil && declared.Routing.OSPF != nil {
-			return domain.Infrastructure{}, NetworkDeployment{}, fmt.Errorf("%s.routing.ospf: unsupported; no matching OSPF template is registered", devicePath)
-		}
-
 		device := domain.Device{
 			Name:      declared.Name,
 			Vendor:    strings.TrimSpace(declared.Vendor),
@@ -179,6 +176,16 @@ func ParseNetworkDeployment(data []byte) (domain.Infrastructure, NetworkDeployme
 			})
 		}
 		device.Network = network
+		if declared.Routing != nil && declared.Routing.OSPF != nil {
+			ospf := declared.Routing.OSPF
+			converted := &domain.OSPFConfig{
+				Enabled: ospf.Enabled, ProcessID: ospf.ProcessID, RouterID: ospf.RouterID,
+			}
+			for _, item := range ospf.Networks {
+				converted.Networks = append(converted.Networks, domain.OSPFNetwork{Prefix: item.Prefix, Area: item.Area})
+			}
+			device.Routing = &domain.Routing{OSPF: converted}
+		}
 		site.Devices = append(site.Devices, device)
 	}
 	infrastructure := domain.Infrastructure{Sites: []domain.Site{site}}

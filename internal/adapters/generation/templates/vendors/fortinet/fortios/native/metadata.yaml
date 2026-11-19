@@ -13,6 +13,7 @@ features:
   - interfaces.ipv4_dhcp
   - interfaces.admin_state
   - routes.static_ipv4
+  - routing.ospf
 variables:
   - device.name
   - network.vdom

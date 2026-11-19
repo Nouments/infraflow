@@ -5,4 +5,8 @@
 {{if .Enabled}} no shutdown
 {{else}} shutdown
 {{end}}!
+{{end}}{{if .OSPF}}router ospf {{.OSPF.ProcessID}}
+ router-id {{.OSPF.RouterID}}
+{{range .OSPF.Networks}} network {{.Address}} {{.Wildcard}} area {{.Area}}
+{{end}}!
 {{end}}

@@ -1,0 +1,78 @@
+sites:
+  - name: provisioning-lab
+    bootstrap:
+      network: 192.0.2.0/24
+      gateway: 192.0.2.1
+      fortimanager:
+        ip: 192.0.2.250
+        domain: fmg.lab.example
+    services:
+      dhcp: true
+      tftp: true
+    devices:
+      - name: edgexe
+        role: router
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        os_version: "16.7.1"
+        provisioning:
+          method: cisco-iosxe-autoinstall
+        identity:
+          macs: ["00:11:22:33:44:51"]
+        management:
+          ipv4: 192.0.2.10
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.10/24
+              enabled: true
+        routing:
+          ospf:
+            enabled: true
+            router_id: 192.0.2.10
+
+      - name: mikrotik1
+        role: router
+        vendor: mikrotik
+        family: routeros
+        model: RB750Gr3
+        os_version: "7.20.1"
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        management:
+          ipv4: 192.0.2.11
+        network:
+          interfaces:
+            - name: ether1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.11/24
+        routing:
+          ospf:
+            enabled: true
+            router_id: 192.0.2.11
+
+      - name: fortigate1
+        role: firewall
+        vendor: fortinet
+        family: fortios
+        model: FG-60F
+        os_version: "7.0.8"
+        provisioning:
+          method: fortimanager-ztp
+        management:
+          ipv4: 192.0.2.12
+        network:
+          vdom: root
+          interfaces:
+            - name: wan1
+              role: wan
+              ipv4_mode: dhcp
+        routing:
+          ospf:
+            enabled: true
+            router_id: 192.0.2.12

@@ -52,13 +52,16 @@ type Reservation struct {
 }
 
 type ConfigOptions struct {
-	DNS              []string `json:"dns_servers"`
-	NextServer       string   `json:"next_server"`
-	NextServerSource string   `json:"next_server_source"`
-	BootMode         string   `json:"boot_mode"`
-	BootFilename     string   `json:"boot_filename"`
-	TFTPDirectory    string   `json:"tftp_directory"`
-	IPXEScript       string   `json:"ipxe_script"`
+	DNS                []string `json:"dns_servers"`
+	NextServer         string   `json:"next_server"`
+	NextServerSource   string   `json:"next_server_source"`
+	BootMode           string   `json:"boot_mode"`
+	BootFilename       string   `json:"boot_filename"`
+	TFTPDirectory      string   `json:"tftp_directory"`
+	IPXEScript         string   `json:"ipxe_script"`
+	CiscoAutoInstall   bool     `json:"cisco_autoinstall,omitempty"`
+	FortiManagerIP     string   `json:"fortimanager_ip,omitempty"`
+	FortiManagerDomain string   `json:"fortimanager_domain,omitempty"`
 }
 
 type lease struct {
@@ -174,6 +177,15 @@ func (config Config) Validate() error {
 	}
 	if source := config.Options.NextServerSource; source != "" && source != "agent_runtime" && net.ParseIP(source).To4() == nil {
 		return fmt.Errorf("DHCP next_server_source must be agent_runtime or an IPv4 address")
+	}
+	if config.Options.CiscoAutoInstall && (config.Options.TFTPDirectory == "" || config.Options.BootFilename != "") {
+		return fmt.Errorf("Cisco AutoInstall DHCP requires TFTP and must not set a PXE boot filename")
+	}
+	if config.Options.FortiManagerIP != "" || config.Options.FortiManagerDomain != "" {
+		managerIP := net.ParseIP(config.Options.FortiManagerIP).To4()
+		if managerIP == nil || managerIP.Equal(net.IPv4zero) || !validDNSDomain(config.Options.FortiManagerDomain) {
+			return fmt.Errorf("FortiManager ZTP DHCP requires a non-zero IPv4 address and valid DNS domain")
+		}
 	}
 	for _, pool := range config.Pools {
 		start := net.ParseIP(pool.Start).To4()
@@ -375,6 +387,35 @@ func (server *Server) addNetworkOptions(response *dhcpv4.DHCPv4) {
 	if server.config.Options.TFTPDirectory != "" {
 		response.UpdateOption(dhcpv4.OptTFTPServerName(nextServer.String()))
 	}
+	if server.config.Options.CiscoAutoInstall {
+		response.UpdateOption(dhcpv4.Option{Code: dhcpv4.OptionTFTPServerAddress, Value: dhcpv4.IP(nextServer)})
+	}
+	if server.config.Options.FortiManagerIP != "" {
+		response.UpdateOption(dhcpv4.Option{Code: dhcpv4.GenericOptionCode(240), Value: dhcpv4.IP(net.ParseIP(server.config.Options.FortiManagerIP).To4())})
+		response.UpdateOption(dhcpv4.Option{Code: dhcpv4.GenericOptionCode(241), Value: dhcpv4.String(server.config.Options.FortiManagerDomain)})
+	}
+}
+
+func validDNSDomain(value string) bool {
+	value = strings.TrimSuffix(strings.TrimSpace(value), ".")
+	if len(value) == 0 || len(value) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || !asciiAlphaNumeric(label[0]) || !asciiAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for _, char := range label {
+			if char > 127 || !asciiAlphaNumeric(byte(char)) && char != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func asciiAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
 func (server *Server) offer(clientID string, hardwareAddress net.HardwareAddr) (net.IP, bool) {
