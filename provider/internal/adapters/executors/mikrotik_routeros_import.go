@@ -26,7 +26,9 @@ const RouterOSImportType = "mikrotik.routeros.import"
 
 const (
 	maxRouterOSScriptBytes = 256 << 10
-	routerOSImportSuccess  = "Script file loaded and executed successfully"
+	// routerOSImportMarker is printed by a command chained after /import; RouterOS
+	// only reaches it when the import did not abort (a failing import exits 1).
+	routerOSImportMarker = "INFRAFLOW-IMPORT-COMPLETE"
 )
 
 // RouterOSImportParameters is the strict task schema.
@@ -161,15 +163,20 @@ func (e *RouterOSImportExecutor) Execute(ctx context.Context, task domain.Execut
 		cleanup := e.removeFile(client, fileName)
 		return failed(result, "script upload failed: "+sanitizeErrorWithCreds(err, creds)+"; no configuration was imported"+cleanup)
 	}
-	importOutput, importErr := client.Run(ctx, fmt.Sprintf(`/import file-name=%s verbose=no`, fileName))
-	result.ImportOutput = observability.Redact(strings.TrimSpace(importOutput))
+	// Verified on RouterOS 7.8 over an SSH exec channel: with verbose=no a
+	// failing import prints nothing and exits 0 (the error only reaches the
+	// device log); with verbose=yes it prints "#line N", the command and the
+	// error, exits 1, and never prints a success line. Success is therefore
+	// proven by a marker that only runs when the import did not abort.
+	importOutput, importErr := client.Run(ctx, fmt.Sprintf(`/import file-name=%s verbose=yes; :put "%s"`, fileName, routerOSImportMarker))
+	result.ImportOutput = observability.Redact(lastLines(strings.TrimSpace(importOutput), 40))
 	cleanup := e.removeFile(client, fileName)
 	if cleanup != "" {
 		result.Warnings = append(result.Warnings, strings.TrimPrefix(cleanup, "; "))
 	}
-	if importErr != nil || !strings.Contains(importOutput, routerOSImportSuccess) {
-		reason := "RouterOS did not report a successful import"
-		if importErr != nil {
+	if failure := routerOSImportFailure(importOutput); importErr != nil || failure != "" {
+		reason := failure
+		if importErr != nil && (failure == "" || strings.HasPrefix(failure, "RouterOS did not confirm")) {
 			reason = sanitizeErrorWithCreds(importErr, creds)
 		}
 		result.Observed, _ = readRouterOSState(ctx, client)
@@ -372,4 +379,41 @@ func sameRouterOSValue(got, want string) bool {
 	gotPrefix, err1 := netip.ParsePrefix(got)
 	wantPrefix, err2 := netip.ParsePrefix(want)
 	return err1 == nil && err2 == nil && gotPrefix == wantPrefix
+}
+
+// routerOSImportFailure returns a description of the failing command when the
+// verbose import output contains a RouterOS error, or when the success line
+// is missing. It returns "" only for a confirmed successful import.
+func routerOSImportFailure(output string) string {
+	lines := strings.Split(strings.ReplaceAll(output, "\r", ""), "\n")
+	lastLine, lastCommand := "", ""
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		switch {
+		case strings.HasPrefix(line, "#line "):
+			lastLine = strings.TrimPrefix(line, "#")
+		case strings.HasPrefix(line, "failure:"), strings.Contains(line, "syntax error"),
+			strings.HasPrefix(line, "expected "), strings.HasPrefix(line, "bad command name"),
+			strings.HasPrefix(line, "input does not match"), strings.HasPrefix(line, "no such item"):
+			context := strings.TrimSpace(strings.Join([]string{lastLine, lastCommand}, " "))
+			if context != "" {
+				return fmt.Sprintf("%s (script %s)", line, observability.Redact(context))
+			}
+			return line
+		case line != "":
+			lastCommand = line
+		}
+	}
+	if !strings.Contains(output, routerOSImportMarker) {
+		return "RouterOS did not confirm the import (completion marker missing from the output)"
+	}
+	return ""
+}
+
+func lastLines(text string, count int) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) > count {
+		lines = append([]string{fmt.Sprintf("... %d earlier lines omitted", len(lines)-count)}, lines[len(lines)-count:]...)
+	}
+	return strings.Join(lines, "\n")
 }

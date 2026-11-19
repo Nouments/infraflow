@@ -34,7 +34,8 @@ type fakeRouterOS struct {
 	commands       []string
 	outputs        map[string]string
 	importOutput   string
-	dropAfterBytes int // close the SCP channel after receiving this many content bytes
+	silentImport   bool // pre-fix device behaviour: nothing printed, marker never reached
+	dropAfterBytes int  // close the SCP channel after receiving this many content bytes
 	connections    int
 	hostKey        ssh.PublicKey
 	host           string
@@ -55,7 +56,7 @@ func newFakeRouterOS(t *testing.T) *fakeRouterOS {
 		password:     "lab-test-secret",
 		files:        map[string][]byte{},
 		hostKey:      signer.PublicKey(),
-		importOutput: "\r\nScript file loaded and executed successfully\r\n",
+		importOutput: "#line 1\r\n/system identity set name=\"mt1\"\r\n",
 		outputs: map[string]string{
 			":put [/system resource get version]": "7.8 (stable)\r\n",
 			":put [/system identity get name]":    "mt1\r\n",
@@ -141,7 +142,18 @@ func (f *fakeRouterOS) exec(channel ssh.Channel, command string) uint32 {
 			_, _ = io.WriteString(channel, "failure: no such file\r\n")
 			return 1
 		}
+		// Mirrors RouterOS 7.8: a failing verbose import exits 1 and the
+		// chained marker command never runs.
 		_, _ = io.WriteString(channel, f.importOutput)
+		if f.silentImport {
+			return 0
+		}
+		if strings.Contains(f.importOutput, "failure:") {
+			return 1
+		}
+		if marker := `:put "` + routerOSImportMarker + `"`; strings.Contains(command, marker) {
+			_, _ = io.WriteString(channel, routerOSImportMarker+"\r\n")
+		}
 		return 0
 	case strings.HasPrefix(command, "/file remove"):
 		f.mu.Lock()
@@ -278,7 +290,7 @@ func TestRouterOSImportDeliversVerifiesAndCleansUp(t *testing.T) {
 	if len(fake.files) != 0 {
 		t.Fatalf("uploaded script was left on the device: %v", fake.files)
 	}
-	if !contains(fake.commands, "/import file-name=infraflow-mt1.rsc verbose=no") || result.DeviceVersion != "7.8 (stable)" {
+	if !contains(fake.commands, `/import file-name=infraflow-mt1.rsc verbose=yes; :put "INFRAFLOW-IMPORT-COMPLETE"`) || result.DeviceVersion != "7.8 (stable)" {
 		t.Fatalf("import was not triggered explicitly: %v", fake.commands)
 	}
 	if result.Observed.Identity != "mt1" || len(result.Observed.Routes) != 2 {
@@ -315,10 +327,11 @@ func TestRouterOSImportReportsInterruptedTransferWithoutImporting(t *testing.T) 
 
 func TestRouterOSImportFailureRequiresReadBeforeRetry(t *testing.T) {
 	fake := newFakeRouterOS(t)
-	fake.importOutput = "failure: interface ether9 not found\r\n"
+	fake.importOutput = "#line 3\r\n/ip address add address=192.0.2.21/24 interface=ether1\r\nfailure: already have such address\r\n"
 	executor, _ := routerOSFixture(t, fake)
 	result, err := runRouterOSImport(t, executor)
-	if err == nil || !strings.Contains(err.Error(), "device state must be re-read before any retry") || result.ImportOutput == "" {
+	if err == nil || !strings.Contains(err.Error(), "device state must be re-read before any retry") || result.ImportOutput == "" ||
+		!strings.Contains(err.Error(), "failure: already have such address (script line 3 /ip address add") {
 		t.Fatalf("failed import not reported with device output: %v %+v", err, result)
 	}
 }
@@ -402,4 +415,16 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// Regression (GNS3 CHR 7.8): a failing import over SSH exec printed nothing
+// and exited 0. Silence must never be read as success.
+func TestRouterOSImportTreatsSilentImportAsFailure(t *testing.T) {
+	fake := newFakeRouterOS(t)
+	fake.importOutput = ""
+	fake.silentImport = true
+	executor, _ := routerOSFixture(t, fake)
+	if _, err := runRouterOSImport(t, executor); err == nil || !strings.Contains(err.Error(), "did not confirm the import") {
+		t.Fatalf("silent import accepted: %v", err)
+	}
 }
