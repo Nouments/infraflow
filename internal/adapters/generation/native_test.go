@@ -943,3 +943,38 @@ func TestMatchesReleaseTrainIsNumericAndPrefixBound(t *testing.T) {
 		}
 	}
 }
+
+// Regression (GNS3 finalization lab 2026-11-19): a Cisco router managed only
+// by the SSH executor (provisioning.method ssh) made native generation fail
+// for its whole site with "requires explicit provisioning.method
+// cisco-autoinstall", so no other device of that site could be generated.
+func TestGenerateNativeSkipsOnlineManagedDevicesWithNetworkIntent(t *testing.T) {
+	managed := domain.Device{
+		Name: "r1", Vendor: "cisco", Family: "ios", Model: "iosv", OSVersion: domain.CiscoIOSvVersion,
+		Provisioning: domain.Provisioning{Method: "ssh"},
+		Management:   domain.Management{IPv4: "192.0.2.11"},
+		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+			Name: "GigabitEthernet0/0", Role: "management", IPv4Mode: "static", IPv4Address: "192.0.2.11/24",
+		}}},
+	}
+	routerOS := domain.Device{
+		Name: "mt1", Vendor: "mikrotik", Family: "routeros", Model: "CHR", OSVersion: "7.8",
+		Provisioning: domain.Provisioning{Method: "auto-rsc", TemplateVersion: "1"},
+		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+			Name: "ether1", Role: "management", IPv4Mode: "static", IPv4Address: "192.0.2.21/24",
+		}}},
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{managed, routerOS}}}}, root); err != nil {
+		t.Fatalf("an SSH-managed device must not block its site: %v", err)
+	}
+	readNativeArtifact(t, root, "lab/native/device-mt1.auto.rsc")
+	if review := readNativeArtifact(t, root, "lab/native/device-r1.cfg"); !strings.Contains(review, "hostname r1") {
+		t.Fatalf("SSH-managed IOS device must get its render-only review configuration: %s", review)
+	}
+	routerOS.Provisioning.Method = "telnet"
+	managed.Provisioning.Method = "telnet"
+	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{managed}}}}, t.TempDir()); err == nil {
+		t.Fatal("Cisco IOS accepted an unsupported provisioning method")
+	}
+}

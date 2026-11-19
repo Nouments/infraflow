@@ -434,8 +434,13 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 		if _, ok := domain.CiscoIOSAutoInstallProfileFor(device.Model, device.OSVersion); !ok {
 			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only exact model/release profiles %s; got model %q release %q", device.Name, domain.CiscoIOSAutoInstallProfileList(), device.Model, device.OSVersion)
 		}
-		if strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method))) != string(domain.ProvisioningMethodCiscoAutoInstall) {
-			return 0, fmt.Errorf("device %s: Cisco IOS requires explicit provisioning.method cisco-autoinstall", device.Name)
+		// AutoInstall delivers the rendered file; "ssh" marks a router managed
+		// by the cisco.ios.configure executor, for which the same exact
+		// profile renders a render-only review configuration.
+		switch strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method))) {
+		case string(domain.ProvisioningMethodCiscoAutoInstall), "ssh":
+		default:
+			return 0, fmt.Errorf("device %s: Cisco IOS requires explicit provisioning.method cisco-autoinstall or ssh", device.Name)
 		}
 		return nativeCiscoIOSAutoInstall, nil
 	case vendor == "mikrotik" && family == "routeros":
