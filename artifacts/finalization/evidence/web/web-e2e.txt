@@ -1,0 +1,18 @@
+Chromium 153.0.8010.52 Arch Linux
+PASS W01 console loads and shows the sign-in form
+PASS W02 wrong password is rejected with a visible error
+PASS W03 administrator signs in
+PASS W04 page refresh keeps the tab session
+PASS W05 Provider connection indicator reports reachable
+PASS W06 create, disable and re-enable a user (no delete exists)
+PASS W07 editor: validation error is shown for invalid input
+PASS W08 editor: built-in example validates; lab input generates native artifacts
+PASS W09 editor: plan submission creates a job visible in Plans & jobs
+PASS W10 executions list, status filter and detail
+PASS W11 technical logs view loads and filters by level
+PASS W12 diagnostics form: required-field error and a Provider report
+PASS W13 server-side session revocation sends the browser back to sign-in
+PASS W14 non-admin user: admin views hidden and admin API refused
+PASS W15 sign out clears the session; refresh stays signed out
+PASS W16 Provider unavailable is shown, and recovery is detected
+PASS 16 FAIL 0

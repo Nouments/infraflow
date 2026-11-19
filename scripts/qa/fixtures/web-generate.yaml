@@ -1,0 +1,22 @@
+# Web console generation fixture: interface-only intent (the plan-and-generate
+# API refuses static routes and NAT; see 06_FAILURES_AND_BLOCKERS.md).
+sites:
+  - name: web-lab
+    devices:
+      - name: mt-web
+        role: router
+        vendor: mikrotik
+        family: routeros
+        model: CHR
+        os_version: "7.8"
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        management:
+          ipv4: 192.0.2.41
+        network:
+          interfaces:
+            - name: ether1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.41/24

@@ -1,0 +1,13 @@
+# FortiGate FGT1 (GNS3 FortiOS-VM64-KVM 7.0.8) re-verification (2026-11-19T23:52:48+03:00)
+## status: BLOCKED
+ node FGT1 started console 5008 image hda_disk.qcow2
+ boot banner lines: ['FortiOS-VM64-KVM login: ']
+ factory default (admin, empty password) response: ['Login incorrect', 'FortiOS-VM64-KVM login: ']
+ Exactly one login attempt was made with the documented factory default (admin, empty password): "Login incorrect".
+ The appliance image was installed by the user with a configured admin password that is not known to this session.
+ Not attempted, by rule: password recovery (maintainer account / bcpb), image reset, disk editing, or any other bypass.
+## What InfraFlow implements for FortiOS
+ - generation: native template vendors/fortinet/fortios/native, artifact vendor-lab/native/device-fgt1.cfg (sha256 5d02d1d1d1aa93cd2ae7f4521daf212696eb947083789bdd6f941869806d720b), published in the catalog and synchronized by agent-vendor (PASS, generation level only)
+ - delivery: no FortiOS executor exists (no SSH/API apply, no read-back). Classified UNSUPPORTED for delivery.
+## To unblock
+ Provide the FGT1 admin credentials through the lab state (never in the repository), or a fresh FortiOS VM whose first login sets a new password.

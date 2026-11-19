@@ -1,0 +1,168 @@
+{
+  "generated_at": "2026-11-19T21:02:16.063Z",
+  "chromium": "Chromium 153.0.8010.52 Arch Linux",
+  "summary": {
+    "pass": 16,
+    "fail": 0
+  },
+  "results": [
+    {
+      "id": "W01",
+      "title": "console loads and shows the sign-in form",
+      "status": "PASS",
+      "observed": {
+        "title": "InfraFlow Control"
+      },
+      "duration_ms": 41
+    },
+    {
+      "id": "W02",
+      "title": "wrong password is rejected with a visible error",
+      "status": "PASS",
+      "observed": {
+        "login_error": "invalid credentials"
+      },
+      "duration_ms": 772
+    },
+    {
+      "id": "W03",
+      "title": "administrator signs in",
+      "status": "PASS",
+      "observed": {
+        "user": "admin",
+        "role": "admin"
+      },
+      "duration_ms": 917
+    },
+    {
+      "id": "W04",
+      "title": "page refresh keeps the tab session",
+      "status": "PASS",
+      "observed": {
+        "user": "admin"
+      },
+      "duration_ms": 136
+    },
+    {
+      "id": "W05",
+      "title": "Provider connection indicator reports reachable",
+      "status": "PASS",
+      "observed": {
+        "connection": "Provider reachable · 12:01:46 AM"
+      },
+      "duration_ms": 17
+    },
+    {
+      "id": "W06",
+      "title": "create, disable and re-enable a user (no delete exists)",
+      "status": "PASS",
+      "observed": {
+        "after_disable": "qa-operatoruserdisabledNov 20, 2026, 12:01 AMEnable",
+        "after_enable": "qa-operatoruseractiveNov 20, 2026, 12:01 AMDisable"
+      },
+      "duration_ms": 1166
+    },
+    {
+      "id": "W07",
+      "title": "editor: validation error is shown for invalid input",
+      "status": "PASS",
+      "observed": {
+        "editor_error": "decode configuration: yaml: line 1: did not find expected ',' or ']'"
+      },
+      "duration_ms": 981
+    },
+    {
+      "id": "W08",
+      "title": "editor: built-in example validates; lab input generates native artifacts",
+      "status": "PASS",
+      "observed": {
+        "example_status": "Generation NOT_REQUIRED",
+        "lab_input_status": "Generation UNSUPPORTED",
+        "fixture_status": "Generation GENERATED",
+        "plan_excerpt": "PLAN PREVIEWPLANNED · 1 tasksPLANNEDGeneration GENERATED · Execution NOT_REQUESTED · Verification NOT_PERFORMEDmt-web · native_device_configweb-lab/native/device-mt-web.auto.rscSHA-256 75502ff8e9557bc9bee74b25af19617a3f69c9aa8c0f43d259ea08ec98990269template 1 · GENERATEDmt-webweb-lab · configure_int"
+      },
+      "duration_ms": 2499
+    },
+    {
+      "id": "W09",
+      "title": "editor: plan submission creates a job visible in Plans & jobs",
+      "status": "PASS",
+      "observed": {
+        "job_rows": 1
+      },
+      "duration_ms": 98
+    },
+    {
+      "id": "W10",
+      "title": "executions list, status filter and detail",
+      "status": "PASS",
+      "observed": {
+        "execution": "exec-c8f364dc806717cfdf3c5ae786351929",
+        "filter_succeeded_hides_failed": true,
+        "detail_excerpt": "exec-c8f364dc806717cfdf3c5ae786351929failedCreatedNov 20, 2026, 12:01 AMUpdatedNov 20, 2026, 12:01 AMStartedNov 20, 2026, 12:01 AMFinishedNov 20, 2026, 12:01 AMone or more tasks failed or were blockedTasks (1)failedverifyartifact.verifyarti"
+      },
+      "duration_ms": 1655
+    },
+    {
+      "id": "W11",
+      "title": "technical logs view loads and filters by level",
+      "status": "PASS",
+      "observed": {
+        "rows": 0,
+        "state": "Connected"
+      },
+      "duration_ms": 1689
+    },
+    {
+      "id": "W12",
+      "title": "diagnostics form: required-field error and a Provider report",
+      "status": "PASS",
+      "observed": {
+        "required_error": "Enter an Agent, site, run or device to diagnose.",
+        "report_excerpt": "unknownNo failure was found and no lifecycle stage is confirmed; 8 expected evidence item(s) are missing.Current stateNo confirmed failure; evidence is incompleteLast confirmed stagenoneMost likely ca"
+      },
+      "duration_ms": 416
+    },
+    {
+      "id": "W13",
+      "title": "server-side session revocation sends the browser back to sign-in",
+      "status": "PASS",
+      "observed": {
+        "revoke_http": 204,
+        "login_message": "Your session expired. Please sign in again."
+      },
+      "duration_ms": 64
+    },
+    {
+      "id": "W14",
+      "title": "non-admin user: admin views hidden and admin API refused",
+      "status": "PASS",
+      "observed": {
+        "role": "user",
+        "admin_nav_visible": false,
+        "users_api_status": 403
+      },
+      "duration_ms": 418
+    },
+    {
+      "id": "W15",
+      "title": "sign out clears the session; refresh stays signed out",
+      "status": "PASS",
+      "observed": {
+        "stored_tokens": 0
+      },
+      "duration_ms": 153
+    },
+    {
+      "id": "W16",
+      "title": "Provider unavailable is shown, and recovery is detected",
+      "status": "PASS",
+      "observed": {
+        "while_down": "Provider unreachable since 12:02:05 AM",
+        "after_restart": "Provider reachable · 12:02:15 AM",
+        "still_signed_in_after_restart": true
+      },
+      "duration_ms": 20441
+    }
+  ]
+}

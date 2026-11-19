@@ -11,7 +11,12 @@ status=0
 run() {
   local name=$1; shift
   local start=$SECONDS
-  if "$@" >"$out/$name.txt" 2>&1; then r=PASS; else r=FAIL; status=1; fi
+  "$@" >"$out/$name.txt" 2>&1
+  case $? in
+    0) r=PASS ;;
+    3) r=NOT_RUN ;; # prerequisite missing; never counted as PASS
+    *) r=FAIL; status=1 ;;
+  esac
   echo "GATE $name $r $((SECONDS-start))s" | tee -a "$out/summary.txt"
 }
 gofmt_check() { test -z "$(gofmt -l $(git ls-files '*.go'; git ls-files --others --exclude-standard '*.go'))"; }
@@ -33,6 +38,12 @@ secrets() {
   ! git grep -nIE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----|(password|secret|token)[[:space:]]*[:=][[:space:]]*"[^"$<{]{8,}"' \
       -- ':!*_test.go' ':!infraflow-network-reference' ':!docs' ':!*.md'
 }
+web_e2e() {
+  # Real browser (headless Chromium via chromedriver) against a throwaway Provider.
+  command -v chromedriver >/dev/null || { echo "chromedriver not installed: NOT_RUN"; return 3; }
+  go build -o "$out/infraflow-provider" ./provider/cmd &&
+  node scripts/qa/web_e2e.mjs "$out/infraflow-provider" artifacts/finalization/evidence/gns3/inputs/lab-all.yaml "$out/web-e2e"
+}
 perms() { ! git ls-files -s | awk '$1=="100755"{print $4}' | grep -vE '\.(sh|py)$|^scripts/|^bin/'; }
 run gofmt gofmt_check
 run vet go vet ./...
@@ -42,6 +53,7 @@ run build build
 run vuln govulncheck ./...
 run coverage coverage
 run web web
+run web-e2e web_e2e
 run shell bash scripts/cisco-ios-preflight_test.sh
 run secrets secrets
 run perms perms
