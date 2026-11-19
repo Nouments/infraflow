@@ -1,0 +1,123 @@
+name: Go CI
+
+on:
+  push:
+    branches: [develop, main, 'feature/**']
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+env:
+  # Go 1.26.11 is the oldest release without reachable standard-library
+  # vulnerabilities for this module (GO-2026-6859 is fixed in 1.26.11).
+  # GOTOOLCHAIN=local forbids silent toolchain switching: the job runs exactly
+  # the toolchain installed below or fails.
+  GO_VERSION: '1.26.11'
+  GOTOOLCHAIN: local
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Assert patched Go toolchain
+        run: |
+          go version
+          actual="$(go env GOVERSION)"; actual="${actual#go}"
+          if [ "$(printf '%s\n%s\n' "$GO_VERSION" "$actual" | sort -V | head -n1)" != "$GO_VERSION" ]; then
+            echo "Go $actual is older than the required patched $GO_VERSION" >&2
+            exit 1
+          fi
+      - name: Check reachable vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./...
+      - run: go vet ./...
+      - run: go build ./provider/cmd ./agent/cmd
+      - name: Enforce Agent package coverage
+        run: |
+          go test -count=1 -coverprofile=agent-processor.cover ./agent/internal/adapters/processor
+          go test -count=1 -coverprofile=agent-cli.cover ./agent/internal/delivery/cli
+          processor_coverage=$(go tool cover -func=agent-processor.cover | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          cli_coverage=$(go tool cover -func=agent-cli.cover | awk '/^total:/ {gsub(/%/, "", $3); print $3}')
+          awk -v processor="$processor_coverage" -v cli="$cli_coverage" 'BEGIN {
+            if (processor < 90 || cli < 65) {
+              printf "Agent coverage below threshold: processor=%s%% (need 90%%), cli=%s%% (need 65%%)\n", processor, cli
+              exit 1
+            }
+            printf "Agent coverage thresholds met: processor=%s%%, cli=%s%%\n", processor, cli
+          }'
+      - name: Admin Web script checks
+        run: |
+          node --check provider/internal/delivery/web/assets/app.js
+          node --check provider/internal/delivery/web/assets/log-stream.js
+          node --test provider/internal/delivery/web/assets/log-stream.test.cjs
+      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - run: git diff --check
+
+  presentation-demo:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Launch presentation demo
+        id: demo
+        run: bash scripts/presentation-demo-launch.sh
+      - name: Verify generated presentation artifacts
+        env:
+          DEMO_ROOT: ${{ steps.demo.outputs.root }}
+        run: python3 scripts/presentation-demo-verify.py "$DEMO_ROOT"
+      - name: Verify real Agent multisite synchronization
+        run: go test -count=1 ./agent/internal/application -run '^TestMultiSiteAgentCLITransfersOnlyAuthorizedArtifacts$'
+
+  windows:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+      CC: gcc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Assert patched Go toolchain
+        run: |
+          go version
+          $actual = [version]((go env GOVERSION) -replace '^go', '')
+          if ($actual -lt [version]$env:GO_VERSION) { Write-Error "Go $actual is older than $env:GO_VERSION"; exit 1 }
+        shell: pwsh
+      - run: go test -count=1 ./...
+        shell: pwsh
+      - run: go vet ./...
+        shell: pwsh
+      - run: go build ./provider/cmd ./agent/cmd
+        shell: pwsh
+      - run: |
+          $goFiles = git ls-files '*.go'
+          $unformatted = gofmt -l $goFiles
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($unformatted) {
+            Write-Error "gofmt required for: $($unformatted -join ', ')"
+            exit 1
+          }
+        shell: pwsh
+      - run: git diff --check
+        shell: pwsh
