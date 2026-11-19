@@ -2,6 +2,8 @@
 agent:
   id: site-agent-01
   site_id: site-a
+  # Keep well below the Provider's agent_heartbeat_timeout_seconds (default 90).
+  heartbeat_interval_seconds: 30
   capabilities:
     - inventory
     - topology

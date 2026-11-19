@@ -40,6 +40,10 @@ type AgentHeartbeat struct {
 	Version      string
 	Capabilities []string
 	QueueDepth   int
+	// Problem is an optional, bounded operational problem reported by the
+	// Agent (for example "artifact run failed"). A non-empty value makes a
+	// fresh Agent DEGRADED instead of ONLINE.
+	Problem string
 }
 
 type TemplateInspection struct {
@@ -96,22 +100,23 @@ type Service struct {
 	parser            ports.InfrastructureParser
 	planBuilder       ports.PlanBuilder
 	artifactDirectory string
+	agentClock        agentClock
 }
 
 func NewService(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs, agentClock: newAgentClock()}
 }
 
 func NewServiceWithJobs(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs, agentClock: newAgentClock()}
 }
 
 func NewServiceWithJobsAndAgents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs, agentClock: newAgentClock()}
 }
 
 func NewServiceWithJobsAgentsEvents(artifacts ports.ArtifactRepository, reports ports.ReportRepository, generator ports.ArtifactGenerator, jobs ports.JobRepository, agents ports.AgentRepository, events ports.EventRepository, dependencies Dependencies) *Service {
-	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs}
+	return &Service{artifacts: artifacts, reports: reports, generator: generator, jobs: jobs, agents: agents, events: events, parser: dependencies.Parser, planBuilder: dependencies.PlanBuilder, artifactDirectory: dependencies.ArtifactDirectory, logs: dependencies.Logs, agentClock: newAgentClock()}
 }
 
 func (service *Service) IngestAgentLogs(agentID string, input []observability.Event) (observability.AppendResult, error) {
@@ -550,114 +555,6 @@ func (service *Service) Reports() []protocol.AgentReport {
 	return service.reports.List()
 }
 
-func (service *Service) RegisterAgent(input AgentRegistration) (domain.Agent, error) {
-	return service.RegisterAgentContext(context.Background(), input)
-}
-
-func (service *Service) RegisterAgentContext(ctx context.Context, input AgentRegistration) (domain.Agent, error) {
-	if service.agents == nil {
-		return domain.Agent{}, fmt.Errorf("agent repository is not configured")
-	}
-	if err := validateAgentRegistration(input); err != nil {
-		return domain.Agent{}, fmt.Errorf("%w: %v", ErrInvalidAgent, err)
-	}
-	now := time.Now().UTC()
-	agent := domain.Agent{
-		ID: input.ID, SiteID: input.SiteID, Version: input.Version,
-		Capabilities: append([]string(nil), input.Capabilities...),
-		Status:       domain.AgentStatusOnline, RegisteredAt: now, LastSeenAt: now, UpdatedAt: now,
-	}
-	existing, err := service.agents.Get(input.ID)
-	if err == nil {
-		if existing.SiteID != input.SiteID {
-			return domain.Agent{}, ErrAgentConflict
-		}
-		agent.RegisteredAt = existing.RegisteredAt
-		if err := service.agents.Update(agent); err != nil {
-			return domain.Agent{}, fmt.Errorf("update agent: %w", err)
-		}
-		if err := service.recordEvent(ctx, "agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
-			return domain.Agent{}, fmt.Errorf("record agent event: %w", err)
-		}
-		return agent, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return domain.Agent{}, fmt.Errorf("inspect agent: %w", err)
-	}
-	created, err := service.agents.Register(agent)
-	if err != nil {
-		return domain.Agent{}, fmt.Errorf("register agent: %w", err)
-	}
-	if !created {
-		existing, err := service.agents.Get(input.ID)
-		if err != nil {
-			return domain.Agent{}, fmt.Errorf("reload registered agent: %w", err)
-		}
-		if existing.SiteID != input.SiteID {
-			return domain.Agent{}, ErrAgentConflict
-		}
-		agent.RegisteredAt = existing.RegisteredAt
-		if err := service.agents.Update(agent); err != nil {
-			return domain.Agent{}, fmt.Errorf("update concurrently registered agent: %w", err)
-		}
-	}
-	if err := service.recordEvent(ctx, "agent.registered", agent.SiteID, agent.ID, "", map[string]any{"version": agent.Version, "capabilities": agent.Capabilities}); err != nil {
-		return domain.Agent{}, fmt.Errorf("record agent event: %w", err)
-	}
-	return agent, nil
-}
-
-func (service *Service) Agents() ([]domain.Agent, error) {
-	if service.agents == nil {
-		return nil, ErrAgentRepositoryNotConfigured
-	}
-	return service.agents.List()
-}
-
-func (service *Service) Agent(id string) (domain.Agent, error) {
-	if service.agents == nil {
-		return domain.Agent{}, fmt.Errorf("agent repository is not configured")
-	}
-	if !protocol.ValidSiteName(id) || len(id) > 128 {
-		return domain.Agent{}, ErrAgentNotFound
-	}
-	agent, err := service.agents.Get(id)
-	if errors.Is(err, os.ErrNotExist) {
-		return domain.Agent{}, ErrAgentNotFound
-	}
-	return agent, err
-}
-
-func (service *Service) HeartbeatAgent(id string, input AgentHeartbeat) (domain.Agent, error) {
-	return service.HeartbeatAgentContext(context.Background(), id, input)
-}
-
-func (service *Service) HeartbeatAgentContext(ctx context.Context, id string, input AgentHeartbeat) (domain.Agent, error) {
-	agent, err := service.Agent(id)
-	if err != nil {
-		return domain.Agent{}, err
-	}
-	if input.SiteID != agent.SiteID {
-		return domain.Agent{}, ErrAgentConflict
-	}
-	if err := validateAgentHeartbeat(input); err != nil {
-		return domain.Agent{}, fmt.Errorf("%w: %v", ErrInvalidAgent, err)
-	}
-	agent.Version = input.Version
-	agent.Capabilities = append([]string(nil), input.Capabilities...)
-	agent.QueueDepth = input.QueueDepth
-	agent.Status = domain.AgentStatusOnline
-	agent.LastSeenAt = time.Now().UTC()
-	agent.UpdatedAt = agent.LastSeenAt
-	if err := service.agents.Update(agent); err != nil {
-		return domain.Agent{}, fmt.Errorf("update agent heartbeat: %w", err)
-	}
-	if err := service.recordEvent(ctx, "agent.heartbeat", agent.SiteID, agent.ID, "", map[string]any{"queue_depth": agent.QueueDepth, "version": agent.Version}); err != nil {
-		return domain.Agent{}, fmt.Errorf("record heartbeat event: %w", err)
-	}
-	return agent, nil
-}
-
 func (service *Service) Events() []domain.Event {
 	if service.events == nil {
 		return nil
@@ -698,6 +595,9 @@ func validateAgentRegistration(input AgentRegistration) error {
 func validateAgentHeartbeat(input AgentHeartbeat) error {
 	if !protocol.ValidSiteName(input.SiteID) || len(input.SiteID) > 128 {
 		return fmt.Errorf("site id is invalid")
+	}
+	if err := validateAgentProblem(input.Problem); err != nil {
+		return err
 	}
 	return validateAgentDetails(input.Version, input.Capabilities, input.QueueDepth)
 }

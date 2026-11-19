@@ -45,11 +45,13 @@
           <button class="nav-item active" data-view="overview"><span class="nav-symbol">01</span>Overview</button>
           <button class="nav-item" data-view="editor"><span class="nav-symbol">02</span>Infrastructure editor</button>
           <button class="nav-item" data-view="jobs"><span class="nav-symbol">03</span>Plans &amp; jobs</button>
-          <button class="nav-item admin-only" data-view="agents"><span class="nav-symbol">04</span>Agents</button>
-          <button class="nav-item admin-only" data-view="activity"><span class="nav-symbol">05</span>Audit trail</button>
-          <button class="nav-item admin-only" data-view="logs"><span class="nav-symbol">06</span>Technical logs</button>
-          <button class="nav-item admin-only" data-view="executions"><span class="nav-symbol">07</span>Executions</button>
-          <button class="nav-item admin-only" data-view="users"><span class="nav-symbol">08</span>Access</button>
+          <button class="nav-item admin-only" data-view="sites"><span class="nav-symbol">04</span>Sites &amp; devices</button>
+          <button class="nav-item admin-only" data-view="agents"><span class="nav-symbol">05</span>Agents</button>
+          <button class="nav-item admin-only" data-view="diagnostics"><span class="nav-symbol">06</span>Diagnostics</button>
+          <button class="nav-item admin-only" data-view="activity"><span class="nav-symbol">07</span>Audit trail</button>
+          <button class="nav-item admin-only" data-view="logs"><span class="nav-symbol">08</span>Technical logs</button>
+          <button class="nav-item admin-only" data-view="executions"><span class="nav-symbol">09</span>Executions</button>
+          <button class="nav-item admin-only" data-view="users"><span class="nav-symbol">10</span>Access</button>
         </nav>
         <div class="sidebar-bottom"><button id="logout" class="text-button">Sign out</button></div>
       </aside>
@@ -57,6 +59,7 @@
       <section class="workspace">
         <header class="topbar">
           <div><p class="eyebrow">CONTROL PLANE <span class="crumb">/</span> <span id="view-label">OVERVIEW</span></p><h1 id="page-title">Infrastructure overview</h1></div>
+          <div id="connection" class="connection-chip connection-unknown" role="status" aria-live="polite"><span class="connection-dot" aria-hidden="true"></span><span id="connection-text">Checking Provider…</span></div>
           <div class="user-chip"><span id="user-initial" class="avatar">?</span><span><b id="user-name">User</b><small id="user-role">role</small></span></div>
         </header>
         <div id="notice" class="notice hidden" role="status"></div>
@@ -65,7 +68,7 @@
           <div class="summary-strip">
             <article class="summary-item"><span class="summary-label">PLANNING JOBS</span><strong id="stat-jobs">—</strong><small>persisted plans</small></article>
             <article class="summary-item"><span class="summary-label">BLOCKED TASKS</span><strong id="stat-blocked">—</strong><small>awaiting verified adapters</small></article>
-            <article class="summary-item"><span class="summary-label">REGISTERED AGENTS</span><strong id="stat-agents">—</strong><small id="stat-agent-detail">admin view</small></article>
+            <article class="summary-item"><span class="summary-label">AGENTS ONLINE</span><strong id="stat-agents">—</strong><small id="stat-agent-detail">admin view</small></article>
             <article class="summary-item"><span class="summary-label">LATEST ACTIVITY</span><strong id="stat-activity">—</strong><small>append-only audit events</small></article>
           </div>
           <div class="section-heading"><div><p class="eyebrow">OPERATIONS</p><h2>Recent plans</h2></div><button id="new-plan" class="button button-primary">Create plan <span aria-hidden="true">+</span></button></div>
@@ -106,7 +109,15 @@
         </section>
 
         <section id="jobs-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">DESIRED STATE</p><h2>Plans &amp; jobs</h2></div><button class="button button-primary" data-action="new-plan">Create plan <span aria-hidden="true">+</span></button></div><div class="table-frame"><table><thead><tr><th>JOB</th><th>STATUS</th><th>SITE</th><th>TASKS</th><th>CREATED</th><th></th></tr></thead><tbody id="jobs-table"></tbody></table><div id="jobs-empty" class="empty-state hidden">No planning jobs have been submitted.</div></div></section>
-        <section id="agents-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">EDGE RUNTIME</p><h2>Registered agents</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div class="table-frame"><table><thead><tr><th>AGENT</th><th>SITE</th><th>STATUS</th><th>VERSION</th><th>QUEUE</th><th>LAST SEEN</th></tr></thead><tbody id="agents-table"></tbody></table><div id="agents-empty" class="empty-state hidden">No agents registered.</div></div></section>
+        <section id="agents-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">EDGE RUNTIME</p><h2>Registered agents</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div class="table-frame"><table><thead><tr><th>AGENT</th><th>SITE</th><th>PROVIDER-OBSERVED STATUS</th><th>LAST HEARTBEAT</th><th>VERSION</th><th>QUEUE</th><th></th></tr></thead><tbody id="agents-table"></tbody></table><div id="agents-empty" class="empty-state hidden">No agents registered.</div></div><p id="agents-note" class="table-note">Status is computed by the Provider from authenticated heartbeats. ONLINE requires a heartbeat newer than the configured timeout; it says nothing about device reachability.</p></section>
+        <section id="sites-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">PUBLISHED CATALOG</p><h2>Sites &amp; devices</h2></div><button class="button button-quiet" data-action="refresh-sites">Refresh</button></div><p class="table-note">Devices are desired state from the published site inventory. A listed device has not necessarily been configured; compatibility shows the recorded evidence.</p><p id="sites-error" class="form-error" role="alert"></p><div id="sites-list" class="site-list"></div><div id="sites-empty" class="empty-state hidden">No sites are published and no Agent is registered. Generate and publish a catalog with <code>infraflow-provider generate-all</code>.</div><div id="sites-loading" class="empty-state hidden">Loading sites from the Provider…</div></section>
+        <section id="diagnostics-view" class="view hidden">
+          <div class="section-heading"><div><p class="eyebrow">EVIDENCE-BASED</p><h2>Diagnostics</h2></div></div>
+          <div class="editor-safety" role="note"><span class="safety-mark" aria-hidden="true">i</span><span>Read-only correlation of Provider, Agent, DHCP/TFTP and device events. No command is sent to any device.</span></div>
+          <form id="diagnostics-form" class="log-controls diag-controls"><label>Agent ID<input name="agent_id" autocomplete="off" placeholder="site-agent-01"></label><label>Site ID<input name="site_id" autocomplete="off" placeholder="site-a"></label><label>Run ID<input name="run_id" autocomplete="off"></label><label>Device ID<input name="device_id" autocomplete="off" placeholder="edge1"></label><label>Expected hostname<input name="expected_hostname" autocomplete="off"></label><label>Expected IPv4<input name="expected_ipv4" autocomplete="off"></label><button class="button button-primary" type="submit">Run diagnostic</button></form>
+          <p id="diagnostics-error" class="form-error" role="alert"></p>
+          <div id="diagnostics-result" class="diag-result hidden" aria-live="polite"></div>
+        </section>
         <section id="activity-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">APPEND-ONLY</p><h2>Audit trail</h2></div><button class="button button-quiet" data-action="refresh">Refresh</button></div><div id="events-list" class="event-list"></div><div id="events-empty" class="empty-state hidden">No events recorded.</div></section>
         <section id="logs-view" class="view hidden"><div class="section-heading"><div><p class="eyebrow">OBSERVABILITY</p><h2>Technical logs</h2></div><div class="logs-heading-actions"><span id="logs-stream-status" class="stream-status" role="status" aria-live="polite">Disconnected</span><button class="button button-quiet" data-action="refresh-logs">Refresh</button></div></div><div class="log-controls"><label>Filter<input id="logs-query" type="search" placeholder="message, error, event..." autocomplete="off"></label><label>Run ID<input id="logs-run-id" type="text" placeholder="run-01" autocomplete="off"></label><label>Level<select id="logs-level"><option value="">Any level</option><option value="DEBUG">DEBUG</option><option value="INFO">INFO</option><option value="WARN">WARN</option><option value="ERROR">ERROR</option></select></label><button id="logs-apply" class="button button-primary" type="button">Apply</button></div><p id="logs-error" class="form-error" role="alert"></p><div class="table-frame"><table><thead><tr><th>ID</th><th>TIME</th><th>LEVEL</th><th>SERVICE</th><th>RUN</th><th>MESSAGE</th></tr></thead><tbody id="logs-table"></tbody></table><div id="logs-empty" class="empty-state hidden">No technical logs matched the current filter.</div></div><div class="log-pagination"><span id="logs-page-state" class="stream-status">Latest page</span><div><button id="logs-older" class="button button-quiet" type="button" disabled>Older</button><button id="logs-newer" class="button button-quiet" type="button" disabled>Newer</button></div></div></section>
         <section id="executions-view" class="view hidden">

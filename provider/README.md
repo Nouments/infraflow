@@ -38,7 +38,25 @@ Agents register with `POST /api/v1/agents/register` and send heartbeats to
 `POST /api/v1/agents/{agent_id}/heartbeat`. Agent identity is bound to its
 first site, persisted under the private artifact workspace, and cannot be
 silently rebound by a later request. Requests are bounded, reject unknown JSON
-fields, and use the same bearer token as the gRPC service.
+fields, and use the same bearer token as the gRPC service. When
+`agent_credentials` are configured, these operations (and `/api/v1/agent/logs`)
+require the Agent's own site-scoped token; a scoped Agent may read only its own
+record.
+
+Agent status is computed by the Provider on every read and is never taken from
+storage: `online` (authenticated heartbeat newer than
+`agent_heartbeat_timeout_seconds`, default 90), `degraded` (fresh heartbeat that
+reports a problem, such as a failed run), `offline` (heartbeat expired, or the
+Agent announced shutdown with `POST /api/v1/agents/{agent_id}/disconnect`), and
+`unknown` (no heartbeat yet, or the last heartbeat predates a Provider restart).
+Responses include `status_reason`, `last_heartbeat_at`, and
+`heartbeat_age_seconds`.
+
+Operations endpoints: `GET /api/v1/health` (unauthenticated liveness only),
+and admin-only `GET /api/v1/status`, `GET /api/v1/sites[/{id}]` (published
+catalog, site inventory, capability evidence, Agents, last report), and
+`GET /api/v1/diagnostics?agent_id=&site_id=&run_id=&device_id=` (read-only,
+evidence-based correlation of Provider, Agent, DHCP/TFTP and device events).
 
 `GET /api/v1/events?limit=100` returns the newest supported-operation events.
 Events are append-only, sequence-numbered, hash-chained, and do not contain the

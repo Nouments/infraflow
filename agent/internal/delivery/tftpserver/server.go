@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"infraflow/pkg/observability"
 	"io"
 	"net"
 	"os"
@@ -41,6 +42,24 @@ type Server struct {
 	config Config
 	root   string
 	files  map[string]struct{}
+	events EventFunc
+}
+
+// EventFunc receives one structured TFTP lifecycle event. It must not block.
+type EventFunc func(observability.Event)
+
+// SetEventSink installs a structured receiver for RRQ, transfer completion,
+// denial, missing-file, and transfer-failure evidence.
+func (server *Server) SetEventSink(events EventFunc) { server.events = events }
+
+func (server *Server) emit(level, name, message, status, filename, detail string) {
+	if server.events == nil {
+		return
+	}
+	server.events(observability.Event{
+		Level: level, Event: name, Message: message, Service: "agent", Source: "tftp-server",
+		SiteID: server.config.Site, Operation: "tftp", Status: status, Line: "file " + filename, Error: detail,
+	})
 }
 
 func LoadConfig(filename string) (Config, error) {
@@ -185,14 +204,31 @@ func (server *Server) Serve(ctx context.Context, interfaceName, listenAddress st
 }
 
 func (server *Server) readFile(filename string, transfer io.ReaderFrom) error {
+	safeName := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, filename)
+	if len(safeName) > 256 {
+		safeName = safeName[:256]
+	}
+	if peer, ok := transfer.(interface{ RemoteAddr() net.UDPAddr }); ok {
+		remote := peer.RemoteAddr()
+		safeName += " from " + remote.IP.String()
+	}
+	server.emit("INFO", "tftp.rrq", "TFTP read request received", "RECEIVED", safeName, "")
 	if filename == "" || path.Clean(filename) != filename || path.IsAbs(filename) || strings.Contains(filename, `\`) {
+		server.emit("WARN", "tftp.denied", "TFTP request denied: invalid path", "DENIED", safeName, "invalid path")
 		return fmt.Errorf("TFTP request path is invalid")
 	}
 	if _, exists := server.files[filename]; !exists {
+		server.emit("ERROR", "tftp.file_missing", "TFTP file not found: not in the generated allowlist", "FAILED", safeName, "file not found")
 		return fmt.Errorf("TFTP file is not in the generated allowlist")
 	}
 	file, err := safefs.OpenReadOnly(server.root, filename)
 	if err != nil {
+		server.emit("ERROR", "tftp.file_missing", "TFTP file not found: allowlisted file is not staged", "FAILED", safeName, "no such file")
 		return fmt.Errorf("open TFTP file: %w", err)
 	}
 	defer file.Close()
@@ -201,8 +237,14 @@ func (server *Server) readFile(filename string, transfer io.ReaderFrom) error {
 		return fmt.Errorf("stat TFTP file: %w", err)
 	}
 	if info.Size() > maxTFTPFileBytes {
+		server.emit("ERROR", "tftp.transfer.failed", "TFTP transfer refused: file too large", "FAILED", safeName, "file too large")
 		return fmt.Errorf("TFTP file exceeds %d bytes", maxTFTPFileBytes)
 	}
-	_, err = transfer.ReadFrom(file)
-	return err
+	sent, err := transfer.ReadFrom(file)
+	if err != nil {
+		server.emit("ERROR", "tftp.transfer.failed", "TFTP transfer failed or timed out", "FAILED", safeName, err.Error())
+		return err
+	}
+	server.emit("INFO", "tftp.transfer.completed", fmt.Sprintf("TFTP transfer complete (%d bytes)", sent), "COMPLETED", safeName, "")
+	return nil
 }

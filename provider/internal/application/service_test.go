@@ -799,11 +799,12 @@ func TestServiceBindsAgentIdentityAndUpdatesHeartbeats(t *testing.T) {
 	agents := &memoryAgents{}
 	service := NewServiceWithJobsAndAgents(nil, nil, nil, nil, agents, testDependencies())
 	agent, err := service.RegisterAgent(AgentRegistration{ID: "agent-01", SiteID: "site-01", Version: "0.1.0", Capabilities: []string{"inventory"}})
-	if err != nil || agent.Status != domain.AgentStatusOnline {
-		t.Fatalf("agent was not registered: %#v, %v", agent, err)
+	// Registration is identity evidence only; liveness needs a heartbeat.
+	if err != nil || agent.Status != domain.AgentStatusUnknown {
+		t.Fatalf("agent was not registered as unknown: %#v, %v", agent, err)
 	}
 	updated, err := service.HeartbeatAgent(agent.ID, AgentHeartbeat{SiteID: agent.SiteID, Version: agent.Version, QueueDepth: 2})
-	if err != nil || updated.QueueDepth != 2 {
+	if err != nil || updated.QueueDepth != 2 || updated.Status != domain.AgentStatusOnline {
 		t.Fatalf("heartbeat was not persisted: %#v, %v", updated, err)
 	}
 	if _, err := service.HeartbeatAgent(agent.ID, AgentHeartbeat{SiteID: "other-site"}); !errors.Is(err, ErrAgentConflict) {

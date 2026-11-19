@@ -40,6 +40,14 @@ type Heartbeat struct {
 	Version      string   `json:"version,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
 	QueueDepth   int      `json:"queue_depth"`
+	// Problem is an optional single-line operational problem (for example a
+	// failed artifact run). The Provider reports the Agent as DEGRADED while
+	// it is set.
+	Problem string `json:"problem,omitempty"`
+}
+
+type disconnect struct {
+	SiteID string `json:"site_id"`
 }
 
 func New(address, token string, caFiles ...string) (*Client, error) {
@@ -84,6 +92,15 @@ func (client *Client) Heartbeat(ctx context.Context, heartbeat Heartbeat) error 
 		return fmt.Errorf("agent and site IDs must be valid")
 	}
 	return client.post(ctx, "/api/v1/agents/"+heartbeat.AgentID+"/heartbeat", heartbeat)
+}
+
+// Disconnect announces a graceful process shutdown so that the Provider marks
+// the Agent OFFLINE immediately instead of waiting for heartbeat expiry.
+func (client *Client) Disconnect(ctx context.Context, agentID, siteID string) error {
+	if !protocol.ValidSiteName(agentID) || !protocol.ValidSiteName(siteID) {
+		return fmt.Errorf("agent and site IDs must be valid")
+	}
+	return client.post(ctx, "/api/v1/agents/"+agentID+"/disconnect", disconnect{SiteID: siteID})
 }
 
 func (client *Client) post(ctx context.Context, endpoint string, payload any) error {

@@ -4,6 +4,7 @@ manufacturer: cisco
 model: "7200"
 os_family: ios
 os_versions:
+  - "12.4(24)T5"
   - "15.3(3)XB12"
 provisioning_method: native-config
 template_file: native.cfg.tmpl
@@ -27,6 +28,6 @@ variables:
 required_variables:
   - device.name
 status: render-only
-source: "Exact Cisco 7200 IOS 15.3(3)XB12 AutoInstall profile; syntax and execution must be verified against the running appliance"
+source: "Cisco 7200 IOS AutoInstall profile. 12.4(24)T5 was lab-verified on 2026-11-19 (GNS3 Dynamips; see docs/DELIVERY/GNS3_ZTP_AUTOINSTALL.md). 15.3(3)XB12 is accepted but has not been observed on a running device."
 source_references:
   - https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/syst-mgmt/b-system-management/m_cf-autoinstall-0.html

@@ -1,5 +1,27 @@
 (() => {
-  const token = { value: "" };
+  // The session token lives only in this tab (sessionStorage): it survives a
+  // page reload but is never shared with other tabs or persisted to disk by
+  // localStorage. Storage failures fall back to memory only.
+  const SESSION_KEY = "infraflow.session";
+  let tokenValue = "";
+  try { tokenValue = window.sessionStorage.getItem(SESSION_KEY) || ""; } catch (_) { tokenValue = ""; }
+  const token = {
+    get value() { return tokenValue; },
+    set value(next) {
+      tokenValue = next || "";
+      try {
+        if (tokenValue) window.sessionStorage.setItem(SESSION_KEY, tokenValue);
+        else window.sessionStorage.removeItem(SESSION_KEY);
+      } catch (_) { /* memory-only session */ }
+    },
+  };
+  let sites = [];
+  let providerStatus = null;
+  let agentsError = "";
+  let agentsObservedAt = null;
+  const connection = { reachable: null, lastOk: null, since: null };
+  let pollTimer = null;
+  let pollTick = 0;
   let currentUser = null;
   let jobs = [];
   let agents = [];
@@ -83,6 +105,7 @@
   }
 
   function showLogin(message = "") {
+    stopPolling();
     $("#console").classList.add("hidden");
     $("#login").classList.remove("hidden");
     $("#login-error").textContent = message;
@@ -99,6 +122,7 @@
     document.querySelectorAll(".admin-only").forEach((item) => item.classList.toggle("hidden", user.role !== "admin"));
     selectView("overview");
     refreshData();
+    startPolling();
   }
 
   let executions = [];
@@ -121,6 +145,8 @@
       executions: "Execution records",
       "execution-detail": "Execution detail",
       users: "Access management",
+      sites: "Sites & devices",
+      diagnostics: "Diagnostics",
     };
     stopTechnicalLogsStream();
     document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
@@ -140,6 +166,7 @@
     if (name === "logs") loadTechnicalLogs();
     if (name === "executions") loadExecutions();
     if (name === "users") loadUsers();
+    if (name === "sites") loadSites();
   }
 
   function stopTechnicalLogsStream() {
@@ -742,7 +769,7 @@
     panel.replaceChildren();
     const heading = node("div", "editor-panel-heading");
     const title = node("div");
-    title.append(node("p", "eyebrow", "PLAN PREVIEW"), node("h3", "", `${result.plan.status} · ${result.plan.tasks.length} tasks`));
+    title.append(node("p", "eyebrow", "PLAN PREVIEW"), node("h3", "", `${result.plan.status} · ${(result.plan.tasks || []).length} tasks`));
     heading.append(title, statusTag(result.plan.status));
     panel.append(heading);
     if (result.generation_status) {
@@ -767,7 +794,7 @@
       if (task.reason) row.append(node("p", "preview-reason", task.reason));
       list.append(row);
     });
-    if (!result.plan.tasks.length) list.append(node("p", "muted", "No tasks were produced for this configuration."));
+    if (!(result.plan.tasks || []).length) list.append(node("p", "muted", "No tasks were produced for this configuration."));
     panel.append(list);
     panel.classList.remove("hidden");
   }
@@ -790,7 +817,7 @@
       selectedSiteIndex = Math.min(selectedSiteIndex, Math.max(0, editorConfig.sites.length - 1));
       selectedResource = null;
       previewSource = source;
-      $("#editor-status").textContent = `Valid · ${result.plan.tasks.length} tasks`;
+      $("#editor-status").textContent = `Valid · ${(result.plan.tasks || []).length} tasks`;
       $("#editor-source-state").textContent = "VALIDATED BY PROVIDER";
       $("#editor-submit").disabled = false;
       $("#editor-generate").disabled = false;
@@ -919,7 +946,7 @@
     const id = node("td", "mono", job.id);
     const status = node("td");
     status.append(statusTag(job.status));
-    const site = node("td", "mono", [...new Set((job.plan?.tasks || []).map((task) => task.site).filter(Boolean))].join(", ") || "—");
+    const site = node("td", "mono", [...new Set((job.plan?.tasks || []).map((task) => task.site).filter(Boolean))].join(", ") || job.plan?.site || "—");
     const tasks = node("td");
     tasks.append(expanded ? taskDetails(job.plan) : node("span", "mono", String((job.plan?.tasks || []).length)));
     const updated = node("td", "", formatDate(job.updated_at || job.created_at));
@@ -977,38 +1004,79 @@
     });
   }
 
+  function formatAge(seconds) {
+    if (seconds === null || seconds === undefined) return "never";
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ago`;
+  }
+
+  // displayedAgentStatus never shows a cached ONLINE: when the Provider cannot
+  // currently be reached, the observed state is unavailable, not online.
+  function displayedAgentStatus(agent) {
+    if (connection.reachable === false || agentsError) {
+      return { status: "unavailable", reason: `Provider not reachable from this browser; last observed ${String(agent.status || "unknown").toUpperCase()} at ${formatDate(agentsObservedAt)}.` };
+    }
+    return { status: agent.status || "unknown", reason: agent.status_reason || "" };
+  }
+
   function renderAgents() {
     const body = $("#agents-table");
     const map = $("#agent-map");
     body.replaceChildren();
     map.replaceChildren();
-    $("#agents-empty").classList.toggle("hidden", agents.length > 0);
-    $("#stat-agents").textContent = currentUser.role === "admin" ? String(agents.length) : "—";
-    $("#stat-agent-detail").textContent = currentUser.role === "admin" ? "registered site agents" : "administrator access required";
-    $("#map-count").textContent = currentUser.role === "admin" ? `${agents.length} REGISTERED` : "ADMIN VIEW";
+    const isAdmin = currentUser?.role === "admin";
+    const counts = { online: 0, degraded: 0, offline: 0, unknown: 0 };
+    agents.forEach((agent) => { counts[agent.status] = (counts[agent.status] || 0) + 1; });
+    const stale = connection.reachable === false || Boolean(agentsError);
+    $("#agents-empty").classList.toggle("hidden", agents.length > 0 || Boolean(agentsError));
+    $("#agents-empty").textContent = "No agents registered.";
+    if (agentsError) {
+      $("#agents-empty").textContent = `Agent status unavailable: ${agentsError}`;
+      $("#agents-empty").classList.remove("hidden");
+    }
+    $("#stat-agents").textContent = !isAdmin ? "—" : stale ? "?" : `${counts.online}/${agents.length}`;
+    $("#stat-agent-detail").textContent = !isAdmin ? "administrator access required"
+      : stale ? "status unavailable: Provider unreachable"
+        : `${counts.degraded} degraded · ${counts.offline} offline · ${counts.unknown} unknown`;
+    $("#map-count").textContent = isAdmin ? `${agents.length} REGISTERED` : "ADMIN VIEW";
     const controller = node("div", "map-controller");
     controller.append(node("span", "map-core", "IF"), node("span", "", "PROVIDER"));
     map.append(controller, node("div", "map-links"));
     const agentList = node("div", "map-agents");
-    if (currentUser.role !== "admin") {
+    if (!isAdmin) {
       agentList.append(node("span", "map-empty", "Administrator role required to view agents."));
+    } else if (agentsError) {
+      agentList.append(node("span", "map-empty", `Agent status unavailable: ${agentsError}`));
     } else if (!agents.length) {
       agentList.append(node("span", "map-empty", "No agents registered."));
     }
     agents.forEach((agent) => {
-      const row = node("div", `map-agent ${agent.status === "online" ? "" : "offline"}`);
-      row.append(node("b"), node("span", "", `${agent.site_id} · ${agent.id}`));
+      const shown = displayedAgentStatus(agent);
+      const row = node("div", `map-agent map-agent-${shown.status}`);
+      row.title = shown.reason;
+      row.append(node("b"), node("span", "", `${agent.site_id} · ${agent.id} · ${shown.status.toUpperCase()}`));
       agentList.append(row);
       const tableRow = node("tr");
+      const statusCell = node("td", "status-cell");
+      statusCell.append(statusTag(shown.status));
+      if (shown.reason) statusCell.append(node("small", "status-reason", shown.reason));
+      if (agent.reported_problem && !stale) statusCell.append(node("small", "status-problem", `Reported: ${agent.reported_problem}`));
+      const heartbeat = node("td", "mono");
+      heartbeat.textContent = agent.last_heartbeat_at ? `${formatDate(agent.last_heartbeat_at)} (${formatAge(agent.heartbeat_age_seconds)})` : "never";
+      if (agent.heartbeat_timeout_seconds) heartbeat.title = `Timeout ${agent.heartbeat_timeout_seconds}s`;
+      const actions = node("td");
+      const diagnose = actionButton("Diagnose", "diagnose-agent", agent.id);
+      actions.append(diagnose);
       tableRow.append(
         node("td", "mono", agent.id),
         node("td", "mono", agent.site_id),
-        Object.assign(node("td"), { innerText: "" }),
+        statusCell,
+        heartbeat,
         node("td", "mono", agent.version || "—"),
-        node("td", "mono", String(agent.queue_depth)),
-        node("td", "", formatDate(agent.last_seen_at)),
+        node("td", "mono", String(agent.queue_depth ?? "—")),
+        actions,
       );
-      tableRow.children[2].append(statusTag(agent.status));
       body.append(tableRow);
     });
     map.append(agentList);
@@ -1052,11 +1120,15 @@
   }
 
   async function loadAgents() {
-    if (currentUser.role !== "admin") return;
+    if (currentUser?.role !== "admin") return;
     try {
       agents = await request("/agents");
-      renderAgents();
-    } catch (error) { showNotice(error.message, true); }
+      agentsError = "";
+      agentsObservedAt = new Date().toISOString();
+    } catch (error) {
+      agentsError = error.message || "request failed";
+    }
+    renderAgents();
   }
 
   async function loadEvents() {
@@ -1078,7 +1150,14 @@
       await loadJobs();
       if (currentUser.role === "admin") {
         const [agentResult, eventResult] = await Promise.allSettled([request("/agents"), request("/events?limit=100")]);
-        if (agentResult.status === "fulfilled") agents = agentResult.value;
+        if (agentResult.status === "fulfilled") {
+          agents = agentResult.value;
+          agentsError = "";
+          agentsObservedAt = new Date().toISOString();
+        } else {
+          // Never keep displaying a previous ONLINE when the refresh failed.
+          agentsError = agentResult.reason?.message || "request failed";
+        }
         if (eventResult.status === "fulfilled") events = eventResult.value;
         renderAgents();
         renderEvents();
@@ -1096,6 +1175,274 @@
       showNotice(error.message, true);
     }
   }
+
+  // ---- Provider connectivity --------------------------------------------
+  // The browser can only observe its own path to the Provider. It reports
+  // "Provider unreachable" (browser/API connection lost) separately from the
+  // Agent states, which only the Provider can observe.
+  function renderConnection() {
+    const chip = $("#connection");
+    const text = $("#connection-text");
+    if (!chip || !text) return;
+    chip.classList.remove("connection-ok", "connection-down", "connection-unknown");
+    if (connection.reachable === true) {
+      chip.classList.add("connection-ok");
+      text.textContent = `Provider reachable · ${new Date(connection.lastOk).toLocaleTimeString()}`;
+      chip.title = providerStatus ? `Provider up since ${formatDate(providerStatus.started_at)}; agent heartbeat timeout ${providerStatus.agent_heartbeat_timeout_seconds}s` : "";
+    } else if (connection.reachable === false) {
+      chip.classList.add("connection-down");
+      text.textContent = `Provider unreachable since ${new Date(connection.since).toLocaleTimeString()}`;
+      chip.title = "The browser cannot reach the Provider API. This is a browser-to-Provider connection problem; Agent states shown are not current.";
+    } else {
+      chip.classList.add("connection-unknown");
+      text.textContent = "Checking Provider…";
+    }
+  }
+
+  async function probeProvider() {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch("/api/v1/health", { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`health ${response.status}`);
+      if (connection.reachable !== true) connection.since = Date.now();
+      connection.reachable = true;
+      connection.lastOk = Date.now();
+    } catch (_) {
+      if (connection.reachable !== false) connection.since = Date.now();
+      connection.reachable = false;
+    } finally {
+      window.clearTimeout(timer);
+    }
+    renderConnection();
+    return connection.reachable;
+  }
+
+  async function loadProviderStatus() {
+    if (currentUser?.role !== "admin") return;
+    try { providerStatus = await request("/status"); } catch (_) { providerStatus = null; }
+    renderConnection();
+  }
+
+  async function poll() {
+    if (!currentUser || document.hidden) return;
+    pollTick += 1;
+    const reachable = await probeProvider();
+    if (!reachable) {
+      renderAgents();
+      return;
+    }
+    if (currentUser.role === "admin") {
+      await Promise.allSettled([loadAgents(), loadProviderStatus()]);
+      const active = document.querySelector(".nav-item.active")?.dataset.view;
+      if (active === "sites") loadSites(true);
+    }
+    if (pollTick % 3 === 0) {
+      try { await loadJobs(); } catch (_) { /* surfaced on next manual refresh */ }
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTick = 0;
+    poll();
+    pollTimer = window.setInterval(poll, 10000);
+  }
+
+  function stopPolling() {
+    if (pollTimer) window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && currentUser) poll(); });
+
+  // ---- Sites & devices ----------------------------------------------------
+  async function loadSites(quiet = false) {
+    if (currentUser?.role !== "admin") return;
+    if (!quiet) $("#sites-loading").classList.remove("hidden");
+    $("#sites-error").textContent = "";
+    try {
+      sites = await request("/sites");
+      renderSites();
+    } catch (error) {
+      $("#sites-error").textContent = `Sites unavailable: ${error.message}`;
+      if (!quiet) { sites = []; renderSites(); }
+    } finally {
+      $("#sites-loading").classList.add("hidden");
+    }
+  }
+
+  function renderSites() {
+    const list = $("#sites-list");
+    list.replaceChildren();
+    $("#sites-empty").classList.toggle("hidden", sites.length > 0);
+    sites.forEach((site) => {
+      const card = node("article", "site-card");
+      const heading = node("div", "site-card-heading");
+      const title = node("div");
+      title.append(node("p", "eyebrow", `SITE · ${site.manifest_status ? `MANIFEST ${site.manifest_status.toUpperCase()}` : "NO SITE MANIFEST"}`), node("h3", "", site.name && site.name !== site.id ? `${site.id} (${site.name})` : site.id));
+      const tools = node("div", "site-card-tools");
+      tools.append(actionButton("Diagnose site", "diagnose-site", site.id));
+      heading.append(title, tools);
+      card.append(heading);
+
+      const agentLine = node("div", "site-agents");
+      if (!site.agents.length) agentLine.append(node("span", "muted", "No Agent registered for this site."));
+      site.agents.forEach((agent) => {
+        const shown = displayedAgentStatus(agent);
+        const chip = node("span", "site-agent");
+        chip.append(statusTag(shown.status), node("span", "mono", agent.id));
+        chip.title = shown.reason;
+        agentLine.append(chip);
+      });
+      card.append(agentLine);
+
+      const deviceTable = node("table", "compact-table");
+      const head = node("thead");
+      const headRow = node("tr");
+      ["DEVICE", "ROLE", "VENDOR / FAMILY / MODEL", "OS", "MGMT IPv4", "METHOD", "COMPATIBILITY"].forEach((label) => headRow.append(node("th", "", label)));
+      head.append(headRow);
+      const body = node("tbody");
+      site.devices.forEach((device) => {
+        const row = node("tr");
+        const compatibility = node("td");
+        compatibility.append(statusTag((device.compatibility || "not recorded").toLowerCase()));
+        if (device.compatibility_evidence) compatibility.append(node("small", "status-reason", device.compatibility_evidence));
+        row.append(
+          node("td", "mono", device.name),
+          node("td", "", device.role || "—"),
+          node("td", "mono", [device.vendor, device.family, device.model].filter(Boolean).join(" / ") || "—"),
+          node("td", "mono", device.os_version || "—"),
+          node("td", "mono", device.management_ipv4 || "—"),
+          node("td", "mono", device.provisioning_method || "default"),
+          compatibility,
+        );
+        body.append(row);
+      });
+      deviceTable.append(head, body);
+      const frame = node("div", "table-frame");
+      frame.append(deviceTable);
+      if (!site.devices.length) frame.append(node("div", "empty-state", "No devices in the published inventory for this site."));
+      card.append(frame);
+
+      const report = node("p", "site-report");
+      report.textContent = site.last_report
+        ? `Last Agent report ${site.last_report.report_id} from ${site.last_report.agent_id} at ${formatDate(site.last_report.reported_at)}: ${site.last_report.completed} completed, ${site.last_report.failed} failed, ${site.last_report.blocked} blocked of ${site.last_report.total}. Transfer and verification only; not device deployment.`
+        : "No Agent execution report has been persisted for this site.";
+      card.append(report);
+
+      const artifacts = node("details", "site-artifacts");
+      artifacts.append(node("summary", "row-action", `Artifact catalog · ${site.artifact_count} published file(s)`));
+      const artifactList = node("ul", "artifact-list");
+      site.artifacts.forEach((artifact) => {
+        const item = node("li");
+        item.append(node("span", "mono artifact-type", artifact.type), node("span", "mono", artifact.path), node("span", "mono artifact-hash", `sha256 ${String(artifact.output_hash || "").slice(0, 16)}…`));
+        item.title = artifact.output_hash || "";
+        artifactList.append(item);
+      });
+      artifacts.append(artifactList);
+      card.append(artifacts);
+
+      if (site.capabilities.length) {
+        const capabilities = node("details", "site-artifacts");
+        capabilities.append(node("summary", "row-action", `Capability evidence · ${site.capabilities.length}`));
+        const capabilityList = node("ul", "artifact-list");
+        site.capabilities.forEach((capability) => {
+          const item = node("li");
+          item.append(statusTag(String(capability.status || "unknown").toLowerCase()), node("span", "mono", capability.feature), node("span", "muted", capability.evidence || ""));
+          capabilityList.append(item);
+        });
+        capabilities.append(capabilityList);
+        card.append(capabilities);
+      }
+      (site.problems || []).forEach((problem) => card.append(node("p", "form-error", problem)));
+      list.append(card);
+    });
+  }
+
+  // ---- Diagnostics --------------------------------------------------------
+  function openDiagnostics(values) {
+    selectView("diagnostics");
+    const form = $("#diagnostics-form");
+    ["agent_id", "site_id", "run_id", "device_id", "expected_hostname", "expected_ipv4"].forEach((name) => { form.elements[name].value = values[name] || ""; });
+    runDiagnostics();
+  }
+
+  async function runDiagnostics() {
+    const form = $("#diagnostics-form");
+    const params = new URLSearchParams();
+    ["agent_id", "site_id", "run_id", "device_id", "expected_hostname", "expected_ipv4"].forEach((name) => {
+      const value = form.elements[name].value.trim();
+      if (value) params.set(name, value);
+    });
+    const result = $("#diagnostics-result");
+    $("#diagnostics-error").textContent = "";
+    if (![...params.keys()].some((key) => ["agent_id", "site_id", "run_id", "device_id"].includes(key))) {
+      $("#diagnostics-error").textContent = "Enter an Agent, site, run or device to diagnose.";
+      return;
+    }
+    result.classList.remove("hidden");
+    result.replaceChildren(node("div", "empty-state", "Correlating evidence from the Provider…"));
+    try {
+      renderDiagnostics(await request(`/diagnostics?${params.toString()}`));
+    } catch (error) {
+      result.classList.add("hidden");
+      $("#diagnostics-error").textContent = `Diagnostic failed: ${error.message}`;
+    }
+  }
+
+  function renderDiagnostics(report) {
+    const result = $("#diagnostics-result");
+    result.replaceChildren();
+    const header = node("div", `diag-header diag-${report.observed_status.replace(/\s+/g, "-")}`);
+    header.append(statusTag(report.observed_status === "incomplete evidence" ? "unknown" : report.observed_status === "success" ? "succeeded" : "failed"), node("h3", "", report.summary));
+    result.append(header);
+    const facts = node("dl", "diag-facts");
+    const add = (label, value) => { if (!value) return; facts.append(node("dt", "", label), node("dd", "", value)); };
+    add("Current state", report.current_state);
+    add("Last confirmed stage", report.last_confirmed_successful_stage || "none");
+    add("Stopped at", report.failure_stage ? `${report.failure_stage} (${report.failure_code})` : "");
+    add("Most likely cause", report.likely_cause);
+    add("Confidence", report.confidence);
+    add("Recommended next action", report.recommended_next_action);
+    add("Events considered", String(report.events_considered));
+    result.append(facts);
+    if ((report.missing_evidence || []).length) {
+      const missing = node("div", "diag-missing");
+      missing.append(node("p", "eyebrow", "MISSING EVIDENCE"));
+      const list = node("ul");
+      report.missing_evidence.forEach((item) => list.append(node("li", "", item)));
+      missing.append(list);
+      result.append(missing);
+    }
+    const timeline = node("ol", "diag-timeline");
+    (report.timeline || []).forEach((entry) => {
+      const item = node("li", `diag-stage diag-stage-${entry.state.replace(/\s+/g, "-")}`);
+      item.append(node("b", "", entry.stage), node("span", "", entry.state + (entry.code ? ` · ${entry.code}` : "")));
+      timeline.append(item);
+    });
+    result.append(node("p", "eyebrow", "LIFECYCLE"), timeline);
+    const evidence = node("table", "compact-table");
+    const head = node("thead");
+    const headRow = node("tr");
+    ["TIME", "SOURCE", "STAGE", "CODE", "OUTCOME", "MESSAGE", "EVENT"].forEach((label) => headRow.append(node("th", "", label)));
+    head.append(headRow);
+    const body = node("tbody");
+    (report.evidence || []).forEach((item) => {
+      const row = node("tr");
+      const outcome = node("td");
+      outcome.append(statusTag(item.outcome === "success" ? "completed" : item.outcome === "failure" ? "failed" : "unknown"));
+      row.append(node("td", "mono", item.timestamp ? formatDate(item.timestamp) : "—"), node("td", "mono", item.source || "—"), node("td", "", item.stage || "—"), node("td", "mono", item.code || "—"), outcome, node("td", "", item.message || ""), node("td", "mono", item.event_id || "—"));
+      body.append(row);
+    });
+    evidence.append(head, body);
+    const frame = node("div", "table-frame");
+    frame.append(evidence);
+    if (!(report.evidence || []).length) frame.append(node("div", "empty-state", "No correlated log entry matched this selection."));
+    result.append(node("p", "eyebrow", "SUPPORTING LOG EVIDENCE"), frame);
+  }
+
+  $("#diagnostics-form").addEventListener("submit", (event) => { event.preventDefault(); runDiagnostics(); });
 
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1120,6 +1467,9 @@
     jobs = [];
     agents = [];
     events = [];
+    sites = [];
+    providerStatus = null;
+    agentsError = "";
     showLogin();
   });
 
@@ -1134,6 +1484,9 @@
     if (action === "refresh") refreshData();
     if (action === "refresh-logs") loadTechnicalLogs();
     if (action === "refresh-executions") loadExecutions();
+    if (action === "refresh-sites") loadSites();
+    if (action === "diagnose-agent") openDiagnostics({ agent_id: control.dataset.id });
+    if (action === "diagnose-site") openDiagnostics({ site_id: control.dataset.id });
     if (action === "cancel-job" || action === "retry-job") changeJob(control.dataset.id, action === "cancel-job" ? "cancel" : "retry");
     if (action === "toggle-user") toggleUser(control.dataset.id, control.dataset.disabled === "true");
     const execFilter = event.target.closest("[data-exec-filter]");
@@ -1481,4 +1834,17 @@
       renderExecutionDetail();
     }
   }
+
+  // Restore a tab-scoped session after a reload; the Provider validates it.
+  (async () => {
+    renderConnection();
+    if (!token.value) { probeProvider(); return; }
+    try {
+      showConsole(await request("/auth/me"));
+    } catch (_) {
+      token.value = "";
+      showLogin();
+      probeProvider();
+    }
+  })();
 })();

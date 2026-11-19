@@ -435,8 +435,8 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 		if model != "7200" && model != "cisco 7200" {
 			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only model 7200; got %q", device.Name, device.Model)
 		}
-		if strings.TrimSpace(device.OSVersion) != "15.3(3)XB12" {
-			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only version 15.3(3)XB12; got %q", device.Name, device.OSVersion)
+		if !domain.CiscoIOS7200AutoInstallVersion(device.OSVersion) {
+			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only versions %s (lab-verified) and %s; got %q", device.Name, domain.CiscoIOS7200LabVerifiedVersion, domain.CiscoIOS7200DeclaredVersion, device.OSVersion)
 		}
 		if strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method))) != string(domain.ProvisioningMethodCiscoAutoInstall) {
 			return 0, fmt.Errorf("device %s: Cisco IOS 7200 requires explicit provisioning.method cisco-autoinstall", device.Name)
@@ -497,7 +497,7 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 		if err := candidate.Parsed.Execute(&output, data); err != nil {
 			return nativeRenderedArtifact{}, fmt.Errorf("execute native template %q: %w", candidate.Metadata.ID, err)
 		}
-	contents := strings.TrimSuffix(strings.ReplaceAll(output.String(), "\r\n", "\n"), "\n")
+		contents := strings.TrimSuffix(strings.ReplaceAll(output.String(), "\r\n", "\n"), "\n")
 		provisioningMethod := method
 		if provisioningMethod == "" {
 			provisioningMethod = string(domain.ProvisioningMethodNativeConfig)
@@ -570,7 +570,7 @@ func validateNativeMethodForProfile(method string, profile nativeProfile) error 
 		}
 	case string(domain.ProvisioningMethodCiscoAutoInstall):
 		if profile != nativeCiscoIOSAutoInstall {
-			return fmt.Errorf("method %q requires the exact Cisco IOS 7200 15.3(3)XB12 profile", method)
+			return fmt.Errorf("method %q requires an exact Cisco IOS 7200 AutoInstall profile (%s or %s)", method, domain.CiscoIOS7200LabVerifiedVersion, domain.CiscoIOS7200DeclaredVersion)
 		}
 	case string(domain.ProvisioningMethodCiscoIOSXEAutoInstall):
 		if profile != nativeCiscoIOSXE {

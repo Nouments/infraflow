@@ -15,11 +15,9 @@ import (
 	"infraflow/provider/internal/adapters/sqlite"
 	"infraflow/provider/internal/application"
 	"infraflow/provider/internal/delivery/httpapi"
-
-	"github.com/gofiber/fiber/v2"
 )
 
-func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
+func TestConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	root := t.TempDir()
 	jobs, err := filesystem.NewJobStore(root)
 	if err != nil {
@@ -42,7 +40,7 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewApp(apiHandler, true)
+	app := NewHandler(apiHandler, true)
 
 	page := fiberRequest(t, app, http.MethodGet, "/", nil, "")
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "InfraFlow Control") || page.Header().Get("Content-Security-Policy") == "" {
@@ -113,11 +111,11 @@ func TestFiberConsoleUsesExistingAuthenticatedAPI(t *testing.T) {
 	}
 }
 
-func TestFiberCanDisableConsoleWithoutDisablingAPI(t *testing.T) {
+func TestCanDisableConsoleWithoutDisablingAPI(t *testing.T) {
 	apiHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
 	})
-	app := NewApp(apiHandler, false)
+	app := NewHandler(apiHandler, false)
 	page := fiberRequest(t, app, http.MethodGet, "/", nil, "")
 	if page.Code != http.StatusNotFound {
 		t.Fatalf("disabled web UI returned %d", page.Code)
@@ -128,24 +126,13 @@ func TestFiberCanDisableConsoleWithoutDisablingAPI(t *testing.T) {
 	}
 }
 
-func fiberRequest(t *testing.T, app *fiber.App, method, path string, body io.Reader, token string) *httptest.ResponseRecorder {
+func fiberRequest(t *testing.T, app http.Handler, method, path string, body io.Reader, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(method, path, body)
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
-	response, err := app.Test(request, -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	data, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
 	recorder := httptest.NewRecorder()
-	recorder.Code = response.StatusCode
-	recorder.HeaderMap = response.Header
-	_, _ = recorder.Body.Write(data)
+	app.ServeHTTP(recorder, request)
 	return recorder
 }

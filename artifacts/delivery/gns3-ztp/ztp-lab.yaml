@@ -1,0 +1,30 @@
+# Isolated GNS3 AutoInstall validation. TEST-NET-1 addressing only.
+sites:
+  - name: ztp-lab
+    id: ztp-lab
+    bootstrap:
+      network: 192.0.2.0/24
+      service_address: 192.0.2.2
+    services:
+      dhcp: true
+      tftp: true
+    devices:
+      - name: edge1
+        role: router
+        vendor: cisco
+        family: ios
+        model: "7200"
+        os_version: "15.3(3)XB12"
+        provisioning:
+          method: cisco-autoinstall
+        identity:
+          macs: ["ca:01:00:00:00:01"]
+        management:
+          ipv4: 192.0.2.10
+        network:
+          interfaces:
+            - name: FastEthernet0/0
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.10/24
+              enabled: true

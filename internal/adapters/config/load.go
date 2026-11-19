@@ -211,9 +211,17 @@ func Validate(infrastructure domain.Infrastructure) ValidationErrors {
 						problems = append(problems, prefix+": bootstrap gateway must be a valid address inside the bootstrap network")
 					}
 				}
+				if site.Bootstrap.ServiceAddress != "" {
+					service := net.ParseIP(site.Bootstrap.ServiceAddress)
+					if service == nil || service.To4() == nil || !bootstrapNetwork.Contains(service) {
+						problems = append(problems, prefix+": bootstrap service_address must be a valid IPv4 address inside the bootstrap network")
+					} else if site.Bootstrap.Gateway != "" && service.Equal(net.ParseIP(site.Bootstrap.Gateway)) {
+						problems = append(problems, prefix+": bootstrap service_address must differ from the gateway")
+					}
+				}
 			}
-		} else if site.Bootstrap.Gateway != "" {
-			problems = append(problems, prefix+": bootstrap gateway requires a bootstrap network")
+		} else if site.Bootstrap.Gateway != "" || site.Bootstrap.ServiceAddress != "" {
+			problems = append(problems, prefix+": bootstrap gateway and service_address require a bootstrap network")
 		}
 		if manager := site.Bootstrap.FortiManager; manager != nil {
 			if !validIPv4Address(manager.IP) || net.ParseIP(manager.IP).To4().Equal(net.IPv4zero) {

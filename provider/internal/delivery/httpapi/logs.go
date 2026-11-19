@@ -12,9 +12,13 @@ import (
 	"infraflow/pkg/observability"
 )
 
-func (handler *Handler) ingestAgentLogs(writer http.ResponseWriter, request *http.Request) {
+func (handler *Handler) ingestAgentLogs(writer http.ResponseWriter, request *http.Request, identity principal) {
 	var input agentLogRequest
 	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	if !handler.authorizeAgentIdentity(identity, input.AgentID, "") {
+		writeError(writer, http.StatusForbidden, "credential is not authorized for this agent identity")
 		return
 	}
 	result, err := handler.service.IngestAgentLogsContext(request.Context(), input.AgentID, input.Events)
@@ -60,6 +64,9 @@ func (handler *Handler) streamTechnicalLogs(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusInternalServerError, "streaming is unavailable")
 		return
 	}
+	// A live stream outlives the server-wide write timeout; lift it for this
+	// response only. The stream still ends on client disconnect or shutdown.
+	_ = http.NewResponseController(writer).SetWriteDeadline(time.Time{})
 	writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	writer.Header().Set("Cache-Control", "no-cache, no-transform")
 	writer.Header().Set("X-Accel-Buffering", "no")
@@ -110,7 +117,8 @@ func parseLogQuery(request *http.Request) (observability.Query, error) {
 		After: values.Get("after"), Before: values.Get("before"),
 		Level: values.Get("level"), Service: values.Get("service"),
 		Hostname: values.Get("hostname"), SiteID: values.Get("site_id"), AgentID: values.Get("agent_id"),
-		RunID: values.Get("run_id"), JobID: values.Get("job_id"), TaskID: values.Get("task_id"),
+		DeviceID: values.Get("device_id"),
+		RunID:    values.Get("run_id"), JobID: values.Get("job_id"), TaskID: values.Get("task_id"),
 		Text: values.Get("q"), Limit: 100,
 	}
 	if rawLimit := values.Get("limit"); rawLimit != "" {

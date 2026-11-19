@@ -40,12 +40,20 @@ func BootstrapProfileFor(device Device) (BootstrapProfile, bool) {
 		profile.RequiredArtifacts = []string{"network-confg", "<hostname>-confg"}
 		profile.Verification = []string{"show version", "show running-config", "show ip interface brief"}
 		profile.Evidence = []string{"Cisco IOS 15.x AutoInstall guide", "Cisco IOS 7200 GNS3 appliance profile"}
-		if vendor == "cisco" && family == "ios" && (model == "7200" || model == "cisco 7200") && version == "15.3(3)XB12" {
-			profile.State = CapabilityImplemented
-			profile.Reason = "Exact Cisco IOS 7200 version profile selected; runtime verification is required before claiming device support."
-			return profile, true
+		if vendor == "cisco" && family == "ios" && (model == "7200" || model == "cisco 7200") {
+			switch version {
+			case CiscoIOS7200LabVerifiedVersion:
+				profile.State = CapabilityLabVerified
+				profile.Reason = "AutoInstall over InfraFlow DHCP/TFTP applied hostname and FastEthernet0/0 addressing on a GNS3 Dynamips 7200 reporting IOS 12.4(24)T5; the configuration is applied to running-config and is not saved to NVRAM by AutoInstall."
+				profile.Evidence = append(profile.Evidence, "docs/DELIVERY/GNS3_ZTP_AUTOINSTALL.md (2026-11-19 lab run)")
+				return profile, true
+			case CiscoIOS7200DeclaredVersion:
+				profile.State = CapabilityImplemented
+				profile.Reason = "Exact Cisco IOS 7200 version profile selected; this version has not been observed on a running device, so runtime verification is required before claiming device support."
+				return profile, true
+			}
 		}
-		profile.Reason = "Cisco AutoInstall is implemented only for exact cisco/ios/7200/15.3(3)XB12; no fallback mechanism is selected."
+		profile.Reason = "Cisco AutoInstall is implemented only for exact cisco/ios/7200 with IOS " + CiscoIOS7200LabVerifiedVersion + " (lab-verified) or " + CiscoIOS7200DeclaredVersion + " (unverified); no fallback mechanism is selected."
 		return profile, true
 
 	case ProvisioningMethodCiscoZTP, ProvisioningMethodCiscoIOSXEZTP:
@@ -154,4 +162,19 @@ func OSPFProfileFor(device Device) (BootstrapProfile, bool) {
 		return profile, true
 	}
 	return profile, true
+}
+
+// Cisco 7200 IOS versions accepted for AutoInstall. The lab-verified version is
+// the one the GNS3 Dynamips 7200 appliance reports in "show version"; its image
+// file is named after 15.3(3)XB12, which remains accepted but unverified.
+const (
+	CiscoIOS7200LabVerifiedVersion = "12.4(24)T5"
+	CiscoIOS7200DeclaredVersion    = "15.3(3)XB12"
+)
+
+// CiscoIOS7200AutoInstallVersion reports whether version is an accepted Cisco
+// 7200 AutoInstall version.
+func CiscoIOS7200AutoInstallVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	return version == CiscoIOS7200LabVerifiedVersion || version == CiscoIOS7200DeclaredVersion
 }

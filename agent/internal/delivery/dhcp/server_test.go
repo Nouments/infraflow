@@ -445,3 +445,23 @@ func decodeResponse(t *testing.T, data []byte) *dhcpv4.DHCPv4 {
 	}
 	return packet
 }
+
+func TestReplyDestinationFollowsRFC2131(t *testing.T) {
+	mac := net.HardwareAddr{0xca, 0x01, 0, 0, 0, 1}
+	peer := &net.UDPAddr{IP: net.IPv4zero, Port: dhcpv4.ClientPort}
+	discover, err := dhcpv4.NewDiscovery(mac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := replyDestination(discover, peer).String(); got != "255.255.255.255:68" {
+		t.Fatalf("reply to an unaddressed client = %s, want broadcast", got)
+	}
+	renew, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest), dhcpv4.WithClientIP(net.ParseIP("192.0.2.10")))
+	if got := replyDestination(renew, &net.UDPAddr{IP: net.ParseIP("192.0.2.10"), Port: 68}).String(); got != "192.0.2.10:68" {
+		t.Fatalf("reply to an addressed client = %s, want unicast ciaddr", got)
+	}
+	relayed, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithGatewayIP(net.ParseIP("198.51.100.1")))
+	if got := replyDestination(relayed, &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 67}).String(); got != "198.51.100.1:67" {
+		t.Fatalf("reply to a relayed request = %s, want relay agent", got)
+	}
+}

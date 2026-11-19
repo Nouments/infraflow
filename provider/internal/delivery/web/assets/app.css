@@ -789,7 +789,8 @@ tr:hover td {
   height: 6px;
   flex: 0 0 6px;
   border-radius: 50%;
-  background-color: var(--green);
+  /* Neutral unless the Provider observed a fresh heartbeat. */
+  background-color: var(--quiet);
 }
 
 .map-agent.offline b {
@@ -871,13 +872,13 @@ tr:hover td {
   border-color: var(--green-border);
 }
 
-.status-blocked, .status-offline, .status-queued, .status-retrying {
+.status-blocked, .status-degraded, .status-queued, .status-retrying {
   color: var(--orange);
   background-color: var(--orange-bg);
   border-color: var(--orange-border);
 }
 
-.status-failed, .status-error {
+.status-failed, .status-error, .status-offline {
   color: var(--red);
   background-color: var(--red-bg);
   border-color: var(--red-border);
@@ -1904,4 +1905,136 @@ tr:hover td {
   .exec-detail-meta {
     grid-template-columns: 1fr;
   }
+}
+/* ---- Provider-observed status states ---------------------------------- */
+.status-unknown, .status-unavailable, .status-unverified, .status-not, .status-not_configured {
+  color: var(--quiet);
+  background-color: var(--wash);
+  border-color: var(--line-strong);
+}
+
+.status-generated, .status-verified {
+  color: var(--green);
+  background-color: var(--green-bg);
+  border-color: var(--green-border);
+}
+
+.map-agent-online b { background-color: var(--green); }
+.map-agent-degraded b { background-color: var(--orange); }
+.map-agent-offline b { background-color: var(--red); }
+.map-agent-unknown b, .map-agent-unavailable b { background-color: var(--quiet); }
+
+.status-cell { min-width: 220px; }
+.status-reason, .status-problem {
+  display: block;
+  margin-top: 4px;
+  color: var(--quiet);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+}
+.status-problem { color: var(--orange); }
+
+.table-note {
+  margin: 10px 0 0;
+  color: var(--quiet);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---- Connectivity chip -------------------------------------------------- */
+.connection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--quiet);
+}
+.connection-ok .connection-dot { background-color: var(--green); }
+.connection-down { border-color: var(--red-border); color: var(--red); background-color: var(--red-bg); }
+.connection-down .connection-dot { background-color: var(--red); }
+
+/* ---- Sites & devices ---------------------------------------------------- */
+.site-list { display: grid; gap: 16px; margin-top: 14px; }
+.site-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 8px);
+  background-color: var(--paper);
+}
+.site-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.site-card-heading h3 { margin: 2px 0 0; font-size: 16px; }
+.site-agents { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.site-agent { display: inline-flex; align-items: center; gap: 6px; }
+.site-report { margin: 12px 0 6px; color: var(--ink-soft); font-size: 12px; }
+.site-artifacts { margin-top: 8px; }
+.artifact-list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.artifact-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.artifact-type { min-width: 190px; color: var(--quiet); }
+.artifact-hash { color: var(--muted-text); }
+.compact-table td, .compact-table th { padding: 7px 10px; font-size: 12px; }
+
+/* ---- Diagnostics -------------------------------------------------------- */
+.diag-controls { flex-wrap: wrap; }
+.diag-result { display: grid; gap: 12px; margin-top: 14px; }
+.diag-header { display: flex; align-items: center; gap: 10px; }
+.diag-header h3 { margin: 0; font-size: 15px; }
+.diag-facts {
+  display: grid;
+  grid-template-columns: minmax(150px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 8px);
+  background-color: var(--paper);
+  font-size: 13px;
+}
+.diag-facts dt { color: var(--quiet); }
+.diag-facts dd { margin: 0; color: var(--ink); }
+.diag-missing ul { margin: 6px 0 0; padding-left: 18px; color: var(--orange); font-size: 13px; }
+.diag-timeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.diag-stage {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.diag-stage b { font-size: 12px; }
+.diag-stage-confirmed { border-color: var(--green-border); background-color: var(--green-bg); }
+.diag-stage-failed { border-color: var(--red-border); background-color: var(--red-bg); }
+.diag-stage-observed { border-color: var(--blue-border); }
+.diag-stage-not-observed { color: var(--muted-text); }
+
+@media (max-width: 640px) {
+  .connection-chip { display: none; }
+  .diag-facts { grid-template-columns: 1fr; }
+  .artifact-type { min-width: 0; }
 }

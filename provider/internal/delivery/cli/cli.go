@@ -344,12 +344,24 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize runtime directories: %v\n", err)
 		return 2
 	}
+	// The central store is created first so that the Provider's own events
+	// are queryable through the Technical Logs API and diagnostics, not only
+	// written to the rotating local file.
+	logStore, err := observability.NewStoreWithRetention(
+		settings.Logging.Directory, observability.DefaultCentralLogLimit,
+		time.Duration(settings.Logging.RetentionDays)*24*time.Hour,
+	)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
+		return 2
+	}
 	logger, err := observability.New(observability.Config{
 		Service: "provider", Directory: settings.Logging.Directory,
 		Level: settings.Logging.Level, Format: settings.Logging.Format,
 		MaxBytes: settings.Logging.MaxBytes, MaxFiles: settings.Logging.MaxFiles,
 		MaxAge:  time.Duration(settings.Logging.RetentionDays) * 24 * time.Hour,
 		Console: true,
+		Sink:    observability.StoreSink{Store: logStore},
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize configured logger: %v\n", err)
@@ -449,14 +461,6 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "infraflow-provider: stop executions: %v\n", err)
 		}
 	}()
-	logStore, err := observability.NewStoreWithRetention(
-		settings.Logging.Directory, observability.DefaultCentralLogLimit,
-		time.Duration(settings.Logging.RetentionDays)*24*time.Hour,
-	)
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-provider: initialize technical log store: %v\n", err)
-		return 2
-	}
 	retentionContext, stopRetention := context.WithCancel(context.Background())
 	defer stopRetention()
 	go purgeExpiredLogs(retentionContext, logStore, logger, stderr)
@@ -470,6 +474,10 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		Logs:              logStore,
 	}
 	service := application.NewServiceWithJobsAgentsEvents(artifactRepo, reportStore, generation.Generator{}, jobStore, agentStore, eventStore, dependencies)
+	if err := service.SetAgentHeartbeatTimeout(time.Duration(settings.AgentHeartbeatTimeoutSeconds) * time.Second); err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
 	var transportCredentials credentials.TransportCredentials
 	if settings.TLS.CertificateFile != "" {
 		transportCredentials, err = grpcTransportCredentials(settings.TLS)
@@ -537,12 +545,20 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		}
 		handler.SetLogger(logger)
 		handler.SetExecutionService(executionService)
+		httpCredentials := make([]httpapi.AgentCredential, 0, len(agentCredentials))
+		for _, credential := range agentCredentials {
+			httpCredentials = append(httpCredentials, httpapi.AgentCredential{AgentID: credential.AgentID, SiteID: credential.SiteID, Token: credential.Token, ExpiresAt: credential.ExpiresAt})
+		}
+		if err := handler.SetAgentCredentials(httpCredentials); err != nil {
+			fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+			return 2
+		}
 		apiListener, err = net.Listen("tcp", settings.APIListenAddress)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-provider: API listen: %v\n", err)
 			return 1
 		}
-		webApp = web.NewApp(handler, settings.WebUIEnabled)
+		webApp = web.NewServer(handler, settings.WebUIEnabled)
 		if settings.TLS.CertificateFile != "" {
 			certificate, err := tls.LoadX509KeyPair(settings.TLS.CertificateFile, settings.TLS.KeyFile)
 			if err != nil {

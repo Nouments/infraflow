@@ -117,6 +117,9 @@ func TestGenericStagesToolAndBootstrapArtifactsWithoutExecutingThem(t *testing.T
 		{Type: "terraform_main", Path: "lab/terraform/main.tf"},
 		{Type: "bootstrap_dhcp", Path: "lab/bootstrap/dhcp/config.json"},
 		{Type: "bootstrap_tftp", Path: "lab/bootstrap/tftp/config.json"},
+		// Cisco AutoInstall files are storable and must not fail the run.
+		{Type: "bootstrap_cisco_autoinstall_network", Path: "lab/bootstrap/tftp/network-confg"},
+		{Type: "bootstrap_cisco_autoinstall_config", Path: "lab/bootstrap/tftp/edge1-confg"},
 	} {
 		result := processor.Process(artifact, strings.NewReader("verified bytes"))
 		if result.Status != protocol.StatusCompleted || !strings.Contains(result.Message, "remains explicit") {

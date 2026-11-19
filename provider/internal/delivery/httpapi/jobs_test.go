@@ -376,6 +376,10 @@ func TestMetricsCorrelationAndAuditAreAdminOnlyAndRedacted(t *testing.T) {
 	if _, err := service.RegisterAgent(application.AgentRegistration{ID: "agent-metrics", SiteID: "site-metrics"}); err != nil {
 		t.Fatal(err)
 	}
+	// Only a fresh heartbeat counts the Agent as synchronized.
+	if _, err := service.HeartbeatAgent("agent-metrics", application.AgentHeartbeat{SiteID: "site-metrics"}); err != nil {
+		t.Fatal(err)
+	}
 	agentToken := strings.Repeat("m", security.MinAgentTokenBytes)
 	handler, userToken := newUserSessionHandler(t, root, agentToken, service)
 	providerHandler := handler.(*Handler)
@@ -413,7 +417,7 @@ func TestMetricsCorrelationAndAuditAreAdminOnlyAndRedacted(t *testing.T) {
 		t.Fatalf("generation or correlation response failed: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}
 	audits := service.Events()
-	if len(audits) != 2 || audits[1].Type != "plan.generation.result" || audits[1].CorrelationID != "corr-generation-001" {
+	if len(audits) != 3 || audits[2].Type != "plan.generation.result" || audits[2].CorrelationID != "corr-generation-001" {
 		t.Fatalf("generation audit did not retain its request correlation id: %#v", audits)
 	}
 

@@ -1,0 +1,15 @@
+04:38:56  network: lo               UNKNOWN        127.0.0.1/8 ::1/128   routes: []
+04:38:56  internet unreachable as required (curl exit 6)
+04:38:57  provider health (offline): {"service":"infraflow-provider","status":"ok","time":"2026-11-19T04:38:57.222846037Z"}
+04:38:57  agent one-shot sync exit=0 ; 11 artifacts completed; reported execution 6f77a9ddf807e73e80cadf34cbfb4b90f8f1e977c
+assert            after reload: login visible=false console visible=true
+04:39:23  == Provider stops while the console is open: must show Provider unreachable, never a cached ONLINE
+step              open
+step              login
+assert            console visible after login: true
+step              view:agents
+step              SIGTERM provider pid 291625
+step              wait 12000ms (polling)
+assert            connection chip: Provider unreachable since 7:39:37 AM
+assert            agents view: EDGE RUNTIME Registered agents Refresh AGENT SITE PROVIDER-OBSERVED STATUS LAST HEARTBEAT VERSION QUEUE agent-site-a site-a Unavailable Provider not reachable from this browser; last observed ONLINE at Nov 19, 2026, 7:39 AM. Nov 19, 2026, 7:39 AM (0s ago) 0.1.0 0 Diagnose Agent status unavailable: Failed to fetch Status is computed by the Provider from authenticated 
+04:39:43  agent while Provider down (last lines): infraflow-agent: heartbeat: provider API request: Post "http://127.0.0.1:18080/api/v1/agents/agent-site-a/heartbeat": dial tcp 127.0.0.1:18080: connect: connection refused infraflow-agent: disconnect notice: provider API request: Post "http

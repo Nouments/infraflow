@@ -184,11 +184,22 @@ func validateAgent(agent domain.Agent) error {
 	if len(agent.Version) > 128 || len(agent.Capabilities) > 64 || agent.QueueDepth < 0 || agent.QueueDepth > 100000 {
 		return fmt.Errorf("invalid agent details")
 	}
-	if agent.Status != domain.AgentStatusOnline {
+	// The persisted status is informational only; the Provider recomputes the
+	// observed status from heartbeat evidence on every read.
+	if !domain.ValidAgentStatus(agent.Status) {
 		return fmt.Errorf("invalid agent status")
 	}
 	if agent.RegisteredAt.IsZero() || agent.LastSeenAt.IsZero() || agent.UpdatedAt.IsZero() || agent.LastSeenAt.Before(agent.RegisteredAt) || agent.UpdatedAt.Before(agent.LastSeenAt) {
 		return fmt.Errorf("invalid agent timestamps")
+	}
+	if agent.LastHeartbeatAt != nil && (agent.LastHeartbeatAt.Before(agent.RegisteredAt) || agent.LastHeartbeatAt.After(agent.LastSeenAt)) {
+		return fmt.Errorf("invalid agent heartbeat timestamp")
+	}
+	if agent.DisconnectedAt != nil && (agent.DisconnectedAt.Before(agent.RegisteredAt) || agent.DisconnectedAt.After(agent.LastSeenAt)) {
+		return fmt.Errorf("invalid agent disconnect timestamp")
+	}
+	if len(agent.ReportedProblem) > 512 {
+		return fmt.Errorf("invalid agent reported problem")
 	}
 	seen := make(map[string]struct{}, len(agent.Capabilities))
 	for _, capability := range agent.Capabilities {

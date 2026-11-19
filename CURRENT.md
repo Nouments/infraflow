@@ -1,6 +1,37 @@
 # InfraFlow — Delivery and engineering status
 
-## Current status — 2026-11-18
+## Current status — 2026-11-19
+
+- Base `279f1da` (`stabilization11`, clean, equal to `origin/develop`). All
+  changes below are local and uncommitted.
+- **Agent status is now truthful.** Root cause of the false ONLINE: the
+  Provider stored `online` on registration/heartbeat, returned it verbatim, and
+  the store rejected any other value. Status is now derived on every read from
+  authenticated heartbeat evidence with a configurable timeout, a
+  Provider-start watermark, graceful disconnects, and reported problems.
+  Verified with deterministic tests and real process kills/restarts.
+- **Admin Web repaired** (browser-tested with headless Chromium): Provider logs
+  never reached the Technical Logs store; the log stream was buffered by the
+  Fiber bridge and leaked a slot per visit until a permanent 503; the editor
+  crashed on `tasks: null`; sessions were lost on reload; Agent status was never
+  polled and stale ONLINE survived failed refreshes. Added Sites & devices,
+  Diagnostics, and a Provider connectivity indicator over real APIs.
+- **Offline**: verified in a loopback-only network namespace (no route, no DNS).
+- **Diagnostics**: shared evidence-based engine (`internal/diagnostics`) over
+  real Provider/Agent/DHCP/TFTP/device events, exposed at
+  `/api/v1/diagnostics`, the Admin Web, and `infraflow-agent diagnose`.
+- **Real AutoInstall PASS** on a GNS3 Cisco 7200 (device reports IOS
+  12.4(24)T5): configuration applied and post-checked. The run found and fixed
+  DHCP bind/reply defects that prevented serving any client. See
+  [GNS3_ZTP_AUTOINSTALL.md](docs/DELIVERY/GNS3_ZTP_AUTOINSTALL.md).
+- **CI**: the workflow had been deleted in `279f1da`; restored with an asserted
+  Go 1.26.11. Go 1.26.0 has reachable standard-library vulnerabilities (fixed
+  by 1.26.11). HEAD also failed gofmt. The full gate passes locally under Go
+  1.26.11; no hosted run covers this revision.
+- Score: **86/100** (84 until hosted CI runs); see
+  [RELEASE_READINESS.md](docs/DELIVERY/RELEASE_READINESS.md).
+
+## Previous status — 2026-11-18
 
 - Repository `Nouments/infraflow`, branch `develop`, source base
   `9707df0f009662c2dbd39d63fc138389bb884675` (`stabilization9`). The starting

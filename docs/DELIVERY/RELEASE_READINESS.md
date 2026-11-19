@@ -1,34 +1,32 @@
 # Release readiness
 
-## Delivery evidence score: 74/100
+## Delivery evidence score: 86/100 (84/100 until hosted CI confirms)
 
 This score summarizes tested delivery evidence; it is not a security
-certification or permission to release.
+certification or a release approval. Previous score: 74/100.
 
-| Area | Score | Reason |
-|---|---:|---|
-| Provider–Agent appliance flow | 19/20 | Real isolated GNS3 run, TLS API access, registration, 13/13 artifact staging, and persisted report. |
-| Artifact integrity and Agent state | 18/20 | Hash verification and byte comparison passed; native artifact allowlist defect fixed with tests. |
-| Vendor/device compatibility | 5/15 | IOS-XE artifact generated and transferred, but no parser or Cisco device validation. |
-| Security and operational safety | 9/15 | Test was isolated and credentials removed; local GNS3 uses default credentials, HTTP, wildcard bind, and a supplied log exposed a JWT. |
-| QA and platform coverage | 14/20 | Full Go suite and real integration passed; race/static checks are being finalized; this revision has no Windows CI run. |
-| Delivery documentation and evidence | 9/10 | Required reviews and sanitized machine-readable evidence are present. |
-| **Total** | **74/100** | Evidence gaps above remain release gates. |
+| Area | Before | Now | Reason |
+|---|---:|---:|---|
+| Provider–Agent flow | 19/20 | 19/20 | Real appliance runs over TLS; Agent now heartbeats during runs, announces shutdown, and authenticates over HTTP with its site-scoped credential. No persistent session channel exists, so liveness is heartbeat-based only. |
+| Agent state and integrity | 18/20 | 19/20 | Agent status is evidence-based (online/degraded/offline/unknown), survives Provider restarts truthfully, and was verified with real process kills and restarts. Hash mismatches are no longer collapsed into "download failed". AutoInstall artifact types are no longer blocked. |
+| Vendor/device compatibility | 5/15 | 11/15 | One complete AutoInstall workflow applied and verified on a virtual Cisco 7200 (IOS 12.4(24)T5): DHCP, TFTP, applied hostname/addressing, read-only post-check, Provider-correlated diagnosis. MikroTik and FortiOS remain unverified on devices; no SSH in the template; config not saved to NVRAM. |
+| Security/operations | 9/15 | 12/15 | Scoped HTTP Agent credentials stop cross-site heartbeat/disconnect/log spoofing; bare bearer tokens are now redacted; leaked SSE goroutines (permanent 503) fixed; central log store compacts instead of blocking Provider startup; diagnostics never act on devices. GNS3 host settings (default credentials, wildcard console bind) are unchanged. |
+| QA/platforms | 14/20 | 16/20 | CI workflow restored with an asserted Go 1.26.11 toolchain; the full Linux gate (govulncheck, test, race, vet, build, coverage, gofmt, diff) passes locally under exactly Go 1.26.11. Real browser, offline (no-route namespace), lifecycle, and GNS3 acceptance runs were executed. No hosted GitHub Actions run covers this revision, and Windows is unverified (counted as 14/20 → 84/100 until it runs). |
+| Delivery evidence | 9/10 | 9/10 | Sanitized evidence for lifecycle, offline, and AutoInstall runs. |
+| **Total** | **74** | **86** | |
 
 ## Gates before broader use
 
-- Rotate the GNS3 session token exposed in the supplied log, replace default
-  GNS3 credentials, and restrict controller access or configure a protected
-  endpoint. Those host changes are outside this repository pass.
-- Obtain Linux and Windows CI results on the final committed source revision.
-- If claiming Cisco support, run a separately authorized IOS/IOS-XE parser or
-  device test and verify the resulting state. The GNS3 run documented here
-  proves artifact transfer only.
-- Validate Terraform, bootstrap services, and device-specific provisioning
-  independently before describing them as operational.
+- Push the revision and obtain hosted Linux and Windows CI results.
+- Rotate the GNS3 session token exposed earlier, replace default GNS3
+  credentials, and restrict console binding (host settings, outside this repo).
+- Validate MikroTik RouterOS and FortiOS bootstrap on real or virtual devices
+  before claiming support; add SSH/management hardening to rendered configs.
+- Deployments that still use only the shared Agent token should move to
+  `agent_credentials` so every Agent identity operation is site-scoped.
 
-## Source state
+## Evidence
 
-The Agent change consists of three Go files. No commit or push was made. GNS3
-was used as external test tooling; no GNS3 client, API wrapper, or product
-integration was added.
+- Agent status lifecycle: [agent-status-lifecycle.txt](../../artifacts/delivery/agent-status-lifecycle.txt)
+- Offline acceptance: [offline-acceptance.txt](../../artifacts/delivery/offline-acceptance.txt)
+- AutoInstall: [GNS3_ZTP_AUTOINSTALL.md](GNS3_ZTP_AUTOINSTALL.md)

@@ -33,6 +33,7 @@ type Query struct {
 	Hostname string
 	SiteID   string
 	AgentID  string
+	DeviceID string
 	RunID    string
 	JobID    string
 	TaskID   string
@@ -166,7 +167,12 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 			return result, fmt.Errorf("central log event exceeds %d bytes", MaxEventBytes)
 		}
 		if store.fileSize+int64(len(data)+1) > store.maxBytes {
-			return result, fmt.Errorf("central log store reached its %d-byte limit", store.maxBytes)
+			if _, err := store.compactLocked(store.maxBytes * 3 / 4); err != nil {
+				return result, fmt.Errorf("compact central log store: %w", err)
+			}
+			if store.fileSize+int64(len(data)+1) > store.maxBytes {
+				return result, fmt.Errorf("central log store reached its %d-byte limit", store.maxBytes)
+			}
 		}
 		file, err := os.OpenFile(store.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -224,20 +230,56 @@ func (store *Store) purgeLocked(now time.Time) (int, error) {
 	if removed == 0 {
 		return 0, nil
 	}
+	if err := store.rewriteLocked(retained); err != nil {
+		return 0, err
+	}
+	return removed, nil
+}
+
+// compactLocked drops the oldest events until the encoded store fits in
+// target bytes. It keeps the central store bounded and writable instead of
+// failing every later append once the size limit is reached.
+func (store *Store) compactLocked(target int64) (int, error) {
+	sizes := make([]int64, len(store.events))
+	var total int64
+	for index, event := range store.events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return 0, fmt.Errorf("encode stored log event: %w", err)
+		}
+		sizes[index] = int64(len(encoded) + 1)
+		total += sizes[index]
+	}
+	drop := 0
+	for drop < len(store.events) && total > target {
+		total -= sizes[drop]
+		drop++
+	}
+	if drop == 0 {
+		return 0, nil
+	}
+	retained := append([]Event(nil), store.events[drop:]...)
+	if err := store.rewriteLocked(retained); err != nil {
+		return 0, err
+	}
+	return drop, nil
+}
+
+func (store *Store) rewriteLocked(retained []Event) error {
 	var data strings.Builder
 	for _, event := range retained {
 		encoded, err := json.Marshal(event)
 		if err != nil {
-			return 0, fmt.Errorf("encode retained log event: %w", err)
+			return fmt.Errorf("encode retained log event: %w", err)
 		}
 		data.Write(encoded)
 		data.WriteByte('\n')
 	}
 	if int64(data.Len()) > store.maxBytes {
-		return 0, fmt.Errorf("retained log data exceeds %d-byte limit", store.maxBytes)
+		return fmt.Errorf("retained log data exceeds %d-byte limit", store.maxBytes)
 	}
 	if err := safefs.AtomicWrite(filepath.Dir(store.path), filepath.Base(store.path), []byte(data.String()), 0o600); err != nil {
-		return 0, fmt.Errorf("publish retained central logs: %w", err)
+		return fmt.Errorf("publish retained central logs: %w", err)
 	}
 	store.events = retained
 	store.byID = make(map[string]Event, len(retained))
@@ -245,7 +287,7 @@ func (store *Store) purgeLocked(now time.Time) (int, error) {
 		store.byID[event.ID] = event
 	}
 	store.fileSize = int64(data.Len())
-	return removed, nil
+	return nil
 }
 
 func (store *Store) List(query Query) (Page, error) {
@@ -317,6 +359,7 @@ func matches(event Event, query Query) bool {
 		query.Hostname != "" && event.Hostname != query.Hostname ||
 		query.SiteID != "" && event.SiteID != query.SiteID ||
 		query.AgentID != "" && event.AgentID != query.AgentID ||
+		query.DeviceID != "" && event.DeviceID != query.DeviceID ||
 		query.RunID != "" && event.RunID != query.RunID ||
 		query.JobID != "" && event.JobID != query.JobID ||
 		query.TaskID != "" && event.TaskID != query.TaskID {
@@ -330,4 +373,17 @@ func matches(event Event, query Query) bool {
 		return false
 	}
 	return true
+}
+
+// StoreSink adapts a central Store to the logger Sink interface so that a
+// process's own log events are queryable through the same store that holds
+// ingested Agent events.
+type StoreSink struct{ Store *Store }
+
+func (sink StoreSink) Append(event Event) error {
+	if sink.Store == nil {
+		return fmt.Errorf("central log store is not configured")
+	}
+	_, err := sink.Store.Append([]Event{event})
+	return err
 }

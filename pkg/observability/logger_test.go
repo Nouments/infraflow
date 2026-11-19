@@ -171,3 +171,10 @@ func testConfig(directory string) Config {
 		Level: "DEBUG", Format: "text", MaxBytes: DefaultMaxBytes, MaxFiles: DefaultMaxFiles,
 	}
 }
+
+func TestRedactBareBearerToken(t *testing.T) {
+	got := Redact(`provider API request failed: invalid Bearer abcdefghijklmnopqrstuvwxyz0123456789 for agent`)
+	if strings.Contains(got, "abcdefghijklmnopqrstuvwxyz0123456789") || !strings.Contains(got, "Bearer [REDACTED]") {
+		t.Fatalf("bare bearer token was not redacted: %q", got)
+	}
+}

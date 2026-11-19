@@ -317,8 +317,13 @@ func (logger *Logger) Purge(now time.Time) (int, error) {
 	return logger.file.PurgeExpired(now)
 }
 
+// bearerPattern catches bare "Bearer <token>" fragments that appear in client
+// error strings without an Authorization header prefix.
+var bearerPattern = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
+
 func Redact(value string) string {
-	return secretPattern.ReplaceAllString(value, "[REDACTED]")
+	value = secretPattern.ReplaceAllString(value, "[REDACTED]")
+	return bearerPattern.ReplaceAllString(value, "Bearer [REDACTED]")
 }
 
 func NormalizeEvent(event Event) (Event, error) {

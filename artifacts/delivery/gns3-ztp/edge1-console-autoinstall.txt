@@ -1,0 +1,90 @@
+         --- System Configuration Dialog ---
+Would you like to enter the initial configuration dialog? [yes/no]: 
+Loading network-confg from 192.0.2.2 (via FastEthernet0/0): !
+[OK - 25 bytes]
+Configuration mapped ip address 192.0.2.10 to edge1
+Loading edge1-confg from 192.0.2.2 (via FastEthernet0/0): !
+[OK - 93 bytes]
+% Crashinfo may not be recovered at bootflash:crashinfo
+% This file system device reports an error
+Press RETURN to get started!
+*Nov 19 05:01:38.039: % Error opening nvram:/ifIndex-table No such file or directory
+*Nov 19 05:01:50.383: %LINEPROTO-5-UPDOWN: Line protocol on Interface VoIP-Null0, changed state to up
+*Nov 19 05:01:50.391: %LINK-3-UPDOWN: Interface FastEthernet0/0, changed state to up
+*Nov 19 05:01:50.395: %LINK-3-UPDOWN: Interface FastEthernet1/0, changed state to up
+*Nov 19 05:01:50.399: %LINK-3-UPDOWN: Interface FastEthernet1/1, changed state to up
+*Nov 19 05:01:50.403: %LINK-3-UPDOWN: Interface FastEthernet2/0, changed state to up
+*Nov 19 05:01:50.411: %LINK-3-UPDOWN: Interface FastEthernet2/1, changed state to up
+*Nov 19 05:01:50.415: %LINK-3-UPDOWN: Interface Ethernet3/0, changed state to up
+*Nov 19 05:01:50.419: %LINK-3-UPDOWN: Interface Ethernet3/1, changed state to up
+*Nov 19 05:01:50.423: %LINK-3-UPDOWN: Interface Ethernet3/2, changed state to up
+*Nov 19 05:01:50.423: %LINK-3-UPDOWN: Interface Ethernet3/3, changed state to up
+*Nov 19 05:01:51.391: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet0/0, changed state to up
+*Nov 19 05:01:51.395: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/0, changed state to up
+*Nov 19 05:01:51.399: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/1, changed state to up
+*Nov 19 05:01:51.403: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/0, changed state to up
+*Nov 19 05:01:51.411: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/1, changed state to up
+*Nov 19 05:01:51.415: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/0, changed state to up
+*Nov 19 05:01:51.419: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/1, changed state to up
+*Nov 19 05:01:51.423: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/2, changed state to up
+*Nov 19 05:01:51.423: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/3, changed state to up
+*Nov 19 05:09:11.999: AUTOINSTALL: FastEthernet0/0 is assigned 192.0.2.10
+*Nov 19 05:09:11.999: AUTOINSTALL: Obtain tftp server name 192.0.2.2resolved to 192.0.2.2
+*Nov 19 05:09:25.055: %PARSER-4-BADCFG: Unexpected end of configuration file.
+*Nov 19 05:09:25.059: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/network-confg by console
+*Nov 19 05:09:40.719: %PARSER-4-BADCFG: Unexpected end of configuration file.
+*Nov 19 05:09:40.719: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/edge1-confg by console
+*Nov 19 05:09:42.727: %LINK-5-CHANGED: Interface FastEthernet1/0, changed state to administratively down
+*Nov 19 05:09:42.731: %LINK-5-CHANGED: Interface FastEthernet1/1, changed state to administratively down
+*Nov 19 05:09:42.735: %LINK-5-CHANGED: Interface FastEthernet2/0, changed state to administratively down
+*Nov 19 05:09:42.739: %LINK-5-CHANGED: Interface FastEthernet2/1, changed state to administratively down
+*Nov 19 05:09:42.739: %LINK-5-CHANGED: Interface Ethernet3/0, changed state to administratively down
+*Nov 19 05:09:42.739: %LINK-5-CHANGED: Inter
+edge1>terminal length 0
+edge1>face Ethernet3/1, changed state to administratively down
+*Nov 19 05:09:42.743: %LINK-5-CHANGED: Interface Ethernet3/2, changed state to administratively down
+*Nov 19 05:09:42.747: %LINK-5-CHANGED: Interface Ethernet3/3, changed state to administratively down
+*Nov 19 05:09:43.727: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/0, changed state to down
+*Nov 19 05:09:43.731: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/1, changed state to down
+*Nov 19 05:09:43.735: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/0, changed state to down
+*Nov 19 05:09:43.739: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/1, changed state to down
+*Nov 19 05:09:43.739: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/0, changed state to down
+*Nov 19 05:09:43.743: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/1, changed state to down
+*Nov 19 05:09:43.743: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/2, chshow running-config | include ^hostname
+            ^
+% Invalid input detected at '^' marker.
+edge1>anged state to down
+*Nov 19 05:09:43.747: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/3, changed state to down
+*Nov 19 05:09:49.347: %SYS-5-RESTART: System restarted --
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2011 by Cisco Systems, Inc.
+Compiled Fri 04-Mar-11 06:49 by prod_rel_team
+*Nov 19 05:09:49.363: %SNMP-5-COLDSTART: SNMP agent on host edge1 is undergoing a cold start
+*Nov 19 05:09:49.451: %CRYPTO-6-ISAKMP_ON_OFF: ISAKMP is OFF
+*Nov 19 05:09:49.451: %CRYPTO-6-GDOI_ON_OFF: GDOI is OFFshow running-config interface FastEthernet0/0
+            ^
+% Invalid input detected at '^' marker.
+edge1>show ip interface brief | include FastEthernet0/0
+FastEthernet0/0            192.0.2.10      YES TFTP   up                    up      
+edge1>show startup-config
+              ^
+% Invalid input detected at '^' marker.
+edge1>enable
+edge1#terminal length 0
+edge1#show version | include IOS Software|uptime|image file|cisco 7206
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+edge1 uptime is 8 minutes
+System image file is "tftp://255.255.255.255/unknown"
+edge1#show running-config | include ^hostname
+hostname edge1
+edge1#show running-config interface FastEthernet0/0
+Building configuration...
+Current configuration : 83 bytes
+!
+interface FastEthernet0/0
+ ip address 192.0.2.10 255.255.255.0
+ duplex half
+end
+edge1#show startup-config | include hostname
+edge1#

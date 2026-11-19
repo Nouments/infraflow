@@ -28,8 +28,15 @@ func TestAnalyzeCorrelatesSuccessThroughDevicePostCheck(t *testing.T) {
 
 func TestAnalyzeDoesNotCallConsoleOnlyEvidenceEndToEndSuccess(t *testing.T) {
 	report := Analyze([]Event{{Source: "device-console:console.log", Raw: "hostname edge1\nGigabitEthernet0/0 192.0.2.10"}}, Filter{DeviceID: "edge1", ExpectedHostname: "edge1", ExpectedIPv4: "192.0.2.10"})
-	if report.ObservedStatus != "incomplete evidence" || report.LastConfirmedSuccessfulStage != "" || len(report.MissingEvidence) != 8 {
+	// The console proves the device post-check, so exactly the seven earlier
+	// lifecycle stages must be reported missing (and the post-check must not).
+	if report.ObservedStatus != "incomplete evidence" || report.LastConfirmedSuccessfulStage != "" || len(report.MissingEvidence) != 7 {
 		t.Fatalf("console state was treated as full workflow proof or missing evidence was incomplete: %#v", report)
+	}
+	for _, missing := range report.MissingEvidence {
+		if strings.Contains(missing, "post-configuration") {
+			t.Fatalf("observed device post-check was reported missing: %#v", report.MissingEvidence)
+		}
 	}
 }
 

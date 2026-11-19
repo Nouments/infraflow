@@ -122,7 +122,8 @@ func (Generic) Process(artifact protocol.Artifact, data io.Reader) protocol.Arti
 		"terraform_versions", "terraform_providers", "terraform_variables", "terraform_locals",
 		"terraform_main", "terraform_outputs", "terraform_tfvars_example",
 		"bootstrap_dhcp", "bootstrap_dns", "bootstrap_tftp", "bootstrap_pxe",
-		"bootstrap_ipxe_script", "bootstrap_ipxe_menu":
+		"bootstrap_ipxe_script", "bootstrap_ipxe_menu",
+		"bootstrap_cisco_autoinstall_network", "bootstrap_cisco_autoinstall_config":
 		result.Status = protocol.StatusCompleted
 		result.Message = "verified artifact staged; tool execution or bootstrap service startup remains explicit"
 	default:

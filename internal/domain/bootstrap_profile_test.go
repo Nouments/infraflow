@@ -66,3 +66,32 @@ func TestBootstrapProfileRejectsWrongCiscoAutoInstallIdentity(t *testing.T) {
 		t.Fatalf("wrong Cisco IOS version selected an AutoInstall profile: %#v, known=%t", profile, ok)
 	}
 }
+
+func TestCisco7200AutoInstallVersionStates(t *testing.T) {
+	base := Device{Vendor: "cisco", Family: "ios", Model: "7200", Provisioning: Provisioning{Method: ProvisioningMethodCiscoAutoInstall}}
+	cases := []struct {
+		version string
+		state   CapabilityState
+	}{
+		{"12.4(24)T5", CapabilityLabVerified},
+		{"15.3(3)XB12", CapabilityImplemented},
+		{"15.2(4)M11", CapabilityUnsupported},
+		{"", CapabilityUnsupported},
+	}
+	for _, test := range cases {
+		device := base
+		device.OSVersion = test.version
+		profile, known := BootstrapProfileFor(device)
+		if !known || profile.State != test.state {
+			t.Fatalf("version %q: state %q known=%v, want %q", test.version, profile.State, known, test.state)
+		}
+		if test.state == CapabilityUnsupported && (profile.Reason == "" || !strings.Contains(profile.Reason, "no fallback")) {
+			t.Fatalf("version %q rejected without a precise reason: %q", test.version, profile.Reason)
+		}
+	}
+	other := base
+	other.Model, other.OSVersion = "7500", "12.4(24)T5"
+	if profile, _ := BootstrapProfileFor(other); profile.State != CapabilityUnsupported {
+		t.Fatalf("a different model inherited the lab-verified state: %q", profile.State)
+	}
+}

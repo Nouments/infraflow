@@ -16,6 +16,7 @@ import (
 	"infraflow/internal/infrastructure/security"
 	"infraflow/internal/ports"
 	"infraflow/pkg/observability"
+	"infraflow/pkg/protocol"
 	"infraflow/provider/internal/application"
 	userdomain "infraflow/provider/internal/domain"
 )
@@ -32,6 +33,17 @@ type Handler struct {
 	logger              *observability.Logger
 	metrics             *observability.Metrics
 	streamSlots         chan struct{}
+	agentCredentials    []AgentCredential
+}
+
+// AgentCredential is a site-scoped Agent token. When any are configured, Agent
+// identity operations (register, heartbeat, disconnect, log ingestion) require
+// the matching scoped token, mirroring the gRPC authorization model.
+type AgentCredential struct {
+	AgentID   string
+	SiteID    string
+	Token     string
+	ExpiresAt time.Time
 }
 
 type responseStatusWriter struct {
@@ -63,8 +75,11 @@ func (writer *responseStatusWriter) Flush() {
 }
 
 type principal struct {
-	agent bool
-	user  userdomain.User
+	agent   bool
+	scoped  bool
+	agentID string
+	siteID  string
+	user    userdomain.User
 }
 
 type loginRequest struct {
@@ -116,6 +131,11 @@ type heartbeatRequest struct {
 	Version      string   `json:"version,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
 	QueueDepth   int      `json:"queue_depth"`
+	Problem      string   `json:"problem,omitempty"`
+}
+
+type disconnectRequest struct {
+	SiteID string `json:"site_id"`
 }
 
 type agentLogRequest struct {
@@ -152,6 +172,26 @@ func NewHandlerWithTokenExpiry(service *application.Service, token string, token
 }
 
 func (handler *Handler) SetLogger(logger *observability.Logger) { handler.logger = logger }
+
+// SetAgentCredentials installs site-scoped Agent tokens.
+func (handler *Handler) SetAgentCredentials(credentials []AgentCredential) error {
+	for _, credential := range credentials {
+		if len([]byte(credential.Token)) < security.MinAgentTokenBytes || credential.AgentID == "" || credential.SiteID == "" {
+			return fmt.Errorf("scoped agent credential for %q is invalid", credential.AgentID)
+		}
+	}
+	handler.agentCredentials = append([]AgentCredential(nil), credentials...)
+	return nil
+}
+
+// authorizeAgentIdentity enforces that a scoped Agent acts only as itself.
+// With scoped credentials configured, the shared token cannot act as an Agent.
+func (handler *Handler) authorizeAgentIdentity(identity principal, agentID, siteID string) bool {
+	if len(handler.agentCredentials) == 0 {
+		return true
+	}
+	return identity.scoped && identity.agentID == agentID && (siteID == "" || identity.siteID == siteID)
+}
 
 func (handler *Handler) SetExecutionService(executions *application.ExecutionService) {
 	handler.executions = executions
@@ -201,6 +241,17 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}()
 	if request.URL.Path == "/metrics" {
 		handler.serveMetrics(writer, request)
+		return
+	}
+	if request.URL.Path == "/api/v1/health" {
+		// Unauthenticated liveness probe for the console's connectivity
+		// indicator. It discloses no inventory, agent, or configuration data.
+		if request.Method != http.MethodGet {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "service": "infraflow-provider", "time": time.Now().UTC()})
 		return
 	}
 	if request.URL.Path == "/api/v1/auth/login" {
@@ -279,6 +330,33 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.handleExecutions(writer, request, identity.user.ID)
 		return
 	}
+	if request.URL.Path == "/api/v1/status" || request.URL.Path == "/api/v1/sites" || strings.HasPrefix(request.URL.Path, "/api/v1/sites/") || request.URL.Path == "/api/v1/diagnostics" {
+		if identity.agent || identity.user.Role != userdomain.UserRoleAdmin {
+			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
+		if request.Method != http.MethodGet {
+			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		switch {
+		case request.URL.Path == "/api/v1/status":
+			handler.providerStatus(writer)
+		case request.URL.Path == "/api/v1/sites":
+			handler.listSites(writer)
+		case request.URL.Path == "/api/v1/diagnostics":
+			handler.diagnose(writer, request)
+		default:
+			id := strings.TrimPrefix(request.URL.Path, "/api/v1/sites/")
+			if !protocol.ValidSiteName(id) || len(id) > 128 {
+				writeError(writer, http.StatusNotFound, "site not found")
+				return
+			}
+			handler.getSite(writer, id)
+		}
+		return
+	}
 	if request.URL.Path == "/api/v1/agent/logs" {
 		if !identity.agent {
 			writeError(writer, http.StatusForbidden, "agent authentication required")
@@ -288,7 +366,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		handler.ingestAgentLogs(writer, request)
+		handler.ingestAgentLogs(writer, request, identity)
 		return
 	}
 	if request.URL.Path == "/api/v1/logs" || request.URL.Path == "/api/v1/logs/stream" || strings.HasPrefix(request.URL.Path, "/api/v1/logs/runs/") {
@@ -328,7 +406,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 
-	if strings.HasPrefix(request.URL.Path, "/api/v1/agents/register") || strings.Contains(request.URL.Path, "/heartbeat") {
+	if strings.HasPrefix(request.URL.Path, "/api/v1/agents/register") || strings.HasSuffix(request.URL.Path, "/heartbeat") || strings.HasSuffix(request.URL.Path, "/disconnect") {
 		if !identity.agent {
 			writeError(writer, http.StatusForbidden, "agent authentication required")
 			return
@@ -337,6 +415,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	if request.URL.Path == "/api/v1/agents" || request.URL.Path == "/api/v1/events" || strings.HasPrefix(request.URL.Path, "/api/v1/agents/") {
 		if !identity.agent && identity.user.Role != userdomain.UserRoleAdmin {
 			writeError(writer, http.StatusForbidden, "administrator role required")
+			return
+		}
+		// A site-scoped Agent may read only its own record, never the
+		// registry or audit trail of other sites.
+		if identity.scoped && request.Method == http.MethodGet && request.URL.Path != "/api/v1/agents/"+identity.agentID {
+			writeError(writer, http.StatusForbidden, "site-scoped agent may read only its own record")
 			return
 		}
 	}
@@ -363,7 +447,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		case http.MethodGet:
 			handler.listAgents(writer)
 		case http.MethodPost:
-			handler.registerAgent(writer, request)
+			handler.registerAgent(writer, request, identity)
 		default:
 			writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 		}
@@ -382,7 +466,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	if strings.HasPrefix(request.URL.Path, agentsPrefix) {
 		parts := strings.Split(strings.TrimPrefix(request.URL.Path, agentsPrefix), "/")
 		if len(parts) == 1 && parts[0] == "register" && request.Method == http.MethodPost {
-			handler.registerAgent(writer, request)
+			handler.registerAgent(writer, request, identity)
 			return
 		}
 		if len(parts) == 1 && request.Method == http.MethodGet {
@@ -390,7 +474,11 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		if len(parts) == 2 && request.Method == http.MethodPost && parts[1] == "heartbeat" {
-			handler.heartbeatAgent(writer, request, parts[0])
+			handler.heartbeatAgent(writer, request, parts[0], identity)
+			return
+		}
+		if len(parts) == 2 && request.Method == http.MethodPost && parts[1] == "disconnect" {
+			handler.disconnectAgent(writer, request, parts[0], identity)
 			return
 		}
 		writeError(writer, http.StatusNotFound, "route not found")
@@ -467,6 +555,14 @@ func (handler *Handler) authenticate(request *http.Request) (principal, bool) {
 	authorizations := request.Header.Values("Authorization")
 	if len(authorizations) != 1 {
 		return principal{}, false
+	}
+	for _, credential := range handler.agentCredentials {
+		if security.BearerTokenMatches(authorizations[0], []byte(credential.Token)) {
+			if !credential.ExpiresAt.IsZero() && !time.Now().Before(credential.ExpiresAt) {
+				return principal{}, false
+			}
+			return principal{agent: true, scoped: true, agentID: credential.AgentID, siteID: credential.SiteID}, true
+		}
 	}
 	if security.BearerTokenMatches(authorizations[0], handler.agentToken) {
 		if !handler.agentTokenExpiresAt.IsZero() && !time.Now().Before(handler.agentTokenExpiresAt) {
@@ -648,9 +744,13 @@ func (handler *Handler) listEvents(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, events)
 }
 
-func (handler *Handler) registerAgent(writer http.ResponseWriter, request *http.Request) {
+func (handler *Handler) registerAgent(writer http.ResponseWriter, request *http.Request, identity principal) {
 	var input registerAgentRequest
 	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	if !handler.authorizeAgentIdentity(identity, input.AgentID, input.SiteID) {
+		writeError(writer, http.StatusForbidden, "credential is not authorized for this agent identity")
 		return
 	}
 	agent, err := handler.service.RegisterAgentContext(request.Context(), application.AgentRegistration{
@@ -672,14 +772,36 @@ func (handler *Handler) getAgent(writer http.ResponseWriter, id string) {
 	writeJSON(writer, http.StatusOK, agent)
 }
 
-func (handler *Handler) heartbeatAgent(writer http.ResponseWriter, request *http.Request, id string) {
+func (handler *Handler) heartbeatAgent(writer http.ResponseWriter, request *http.Request, id string, identity principal) {
 	var input heartbeatRequest
 	if err := decodeRequest(writer, request, &input); err != nil {
 		return
 	}
+	if !handler.authorizeAgentIdentity(identity, id, input.SiteID) {
+		writeError(writer, http.StatusForbidden, "credential is not authorized for this agent identity")
+		return
+	}
 	agent, err := handler.service.HeartbeatAgentContext(request.Context(), id, application.AgentHeartbeat{
 		SiteID: input.SiteID, Version: input.Version, Capabilities: input.Capabilities, QueueDepth: input.QueueDepth,
+		Problem: input.Problem,
 	})
+	if err != nil {
+		handler.writeAgentError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, agent)
+}
+
+func (handler *Handler) disconnectAgent(writer http.ResponseWriter, request *http.Request, id string, identity principal) {
+	var input disconnectRequest
+	if err := decodeRequest(writer, request, &input); err != nil {
+		return
+	}
+	if !handler.authorizeAgentIdentity(identity, id, input.SiteID) {
+		writeError(writer, http.StatusForbidden, "credential is not authorized for this agent identity")
+		return
+	}
+	agent, err := handler.service.DisconnectAgentContext(request.Context(), id, input.SiteID)
 	if err != nil {
 		handler.writeAgentError(writer, err)
 		return

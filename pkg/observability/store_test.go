@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -161,5 +162,35 @@ func storeEvent(id, level, agentID, runID, message string) Event {
 		Level: level, Event: "agent.test", Message: message,
 		Service: "agent", Source: "agent-runner", AgentID: agentID,
 		SiteID: "site-1", RunID: runID,
+	}
+}
+
+func TestStoreCompactsOldestEventsInsteadOfFailingWhenFull(t *testing.T) {
+	directory := t.TempDir()
+	store, err := NewStore(directory, 8<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+	for index := 0; index < 200; index++ {
+		event := Event{ID: fmt.Sprintf("evt-%04d", index), Timestamp: base.Add(time.Duration(index) * time.Second).Format(time.RFC3339Nano), Level: "INFO", Event: "provider.http.request", Message: "HTTP request completed", Service: "provider", Source: "httpapi"}
+		if _, err := store.Append([]Event{event}); err != nil {
+			t.Fatalf("append %d failed after the size limit: %v", index, err)
+		}
+	}
+	page, err := store.List(Query{Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) == 0 || len(page.Events) >= 200 || page.Events[len(page.Events)-1].ID != "evt-0199" {
+		t.Fatalf("compaction did not keep the newest events: %d events, last %q", len(page.Events), page.Events[len(page.Events)-1].ID)
+	}
+	reopened, err := NewStore(directory, 8<<10)
+	if err != nil {
+		t.Fatalf("compacted store could not be reopened: %v", err)
+	}
+	reloaded, _ := reopened.List(Query{Limit: 1000})
+	if len(reloaded.Events) != len(page.Events) {
+		t.Fatalf("reopened store has %d events, want %d", len(reloaded.Events), len(page.Events))
 	}
 }

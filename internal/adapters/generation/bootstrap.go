@@ -321,6 +321,15 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 		}
 		reserved[ipToUint32(gateway)] = struct{}{}
 	}
+	var serviceValue uint32
+	if site.Bootstrap.ServiceAddress != "" {
+		service := net.ParseIP(site.Bootstrap.ServiceAddress).To4()
+		if service == nil || ipToUint32(service) < first || ipToUint32(service) > last {
+			return bootstrapDHCP{}, fmt.Errorf("site %q: bootstrap service_address %s is not a usable host address in the bootstrap network", site.Name, site.Bootstrap.ServiceAddress)
+		}
+		serviceValue = ipToUint32(service)
+		reserved[serviceValue] = struct{}{}
+	}
 	reservations := make([]bootstrapReservation, 0)
 	seenDeviceIPs := make(map[uint32]string)
 	for _, device := range site.Devices {
@@ -337,6 +346,9 @@ func buildBootstrapDHCP(site domain.Site) (bootstrapDHCP, error) {
 		}
 		if site.Bootstrap.Gateway != "" && ipToUint32(net.ParseIP(site.Bootstrap.Gateway).To4()) == value {
 			return bootstrapDHCP{}, fmt.Errorf("site %q, device %q: management address %s conflicts with the bootstrap gateway", site.Name, device.Name, device.Management.IPv4)
+		}
+		if serviceValue != 0 && serviceValue == value {
+			return bootstrapDHCP{}, fmt.Errorf("site %q, device %q: management address %s conflicts with the bootstrap service_address", site.Name, device.Name, device.Management.IPv4)
 		}
 		if previous, exists := seenDeviceIPs[value]; exists && previous != device.Name {
 			return bootstrapDHCP{}, fmt.Errorf("site %q: devices %q and %q share management address %s", site.Name, previous, device.Name, device.Management.IPv4)

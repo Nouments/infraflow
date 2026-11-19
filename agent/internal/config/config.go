@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"infraflow/pkg/observability"
 	"infraflow/pkg/protocol"
@@ -38,6 +39,10 @@ type AgentConfig struct {
 	SiteID         string   `yaml:"site_id,omitempty"`
 	Capabilities   []string `yaml:"capabilities,omitempty"`
 	StateDirectory string   `yaml:"state_directory"`
+	// HeartbeatIntervalSeconds controls how often a running Agent sends an
+	// authenticated heartbeat. Defaults to 30 seconds; it must stay well below
+	// the Provider's agent_heartbeat_timeout_seconds (default 90).
+	HeartbeatIntervalSeconds int `yaml:"heartbeat_interval_seconds,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -141,6 +146,14 @@ func applyEnvironment(config *Config) error {
 	return nil
 }
 
+// HeartbeatInterval returns the configured heartbeat interval (default 30s).
+func (agent AgentConfig) HeartbeatInterval() time.Duration {
+	if agent.HeartbeatIntervalSeconds <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(agent.HeartbeatIntervalSeconds) * time.Second
+}
+
 func setIfPresent(name string, destination *string) {
 	if value, exists := os.LookupEnv(name); exists && strings.TrimSpace(value) != "" {
 		*destination = value
@@ -153,6 +166,9 @@ func (config Config) Validate() error {
 	}
 	if config.Agent.SiteID != "" && (!protocol.ValidSiteName(config.Agent.SiteID) || len(config.Agent.SiteID) > 128) {
 		return fmt.Errorf("agent.site_id must be a valid identifier no longer than 128 characters")
+	}
+	if config.Agent.HeartbeatIntervalSeconds < 0 || config.Agent.HeartbeatIntervalSeconds > 3600 {
+		return fmt.Errorf("agent.heartbeat_interval_seconds must be between 1 and 3600")
 	}
 	if len(config.Agent.Capabilities) > 64 {
 		return fmt.Errorf("agent.capabilities must contain at most 64 values")

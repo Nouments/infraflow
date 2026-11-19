@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"infraflow/pkg/observability"
 	"io"
 	"net"
 	"os"
@@ -78,6 +79,41 @@ type Server struct {
 	leaseOwners  map[string]string
 	declined     map[string]time.Time
 	mu           sync.Mutex
+	events       EventFunc
+}
+
+// EventFunc receives one structured bootstrap-service event. It must not
+// block; implementations typically persist the event to the Agent log.
+type EventFunc func(observability.Event)
+
+// SetEventSink installs a structured event receiver for DHCP lifecycle
+// evidence (DISCOVER/OFFER/REQUEST/ACK/NAK and pool exhaustion).
+func (server *Server) SetEventSink(events EventFunc) { server.events = events }
+
+func (server *Server) emit(level, name, message, status string, request *dhcpv4.DHCPv4, address net.IP, detail string) {
+	if server.events == nil {
+		return
+	}
+	event := observability.Event{
+		Level: level, Event: name, Message: message, Service: "agent", Source: "dhcp-server",
+		Operation: "dhcp", Status: status, Error: detail,
+	}
+	if request != nil {
+		mac := strings.ToLower(request.ClientHWAddr.String())
+		line := "client " + mac
+		if reservation, ok := server.reservations[mac]; ok && reservation.Hostname != "" {
+			event.DeviceID = reservation.Hostname
+			line += " reservation " + reservation.Hostname
+		}
+		if address != nil {
+			line += " ip " + address.String()
+		}
+		if server.config.Options.BootFilename != "" && (name == "dhcp.offer" || name == "dhcp.ack") {
+			line += " bootfile " + server.config.Options.BootFilename
+		}
+		event.Line = line
+	}
+	server.events(event)
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -271,7 +307,10 @@ func (server *Server) Serve(ctx context.Context, interfaceName string, port int)
 	if !found {
 		return fmt.Errorf("DHCP listen address %s is not assigned to interface %s", server.serverIP, interfaceName)
 	}
-	listener, err := server4.NewServer(interfaceName, &net.UDPAddr{IP: server.serverIP, Port: port}, server.Handle)
+	// Bind to the wildcard address on the selected interface only: clients
+	// without an address send DISCOVER/REQUEST to 255.255.255.255, which a
+	// socket bound to the unicast service address never receives.
+	listener, err := server4.NewServer(interfaceName, &net.UDPAddr{IP: net.IPv4zero, Port: port}, server.Handle)
 	if err != nil {
 		return fmt.Errorf("listen for DHCP on %s/%s:%d: %w", interfaceName, server.serverIP, port, err)
 	}
@@ -304,14 +343,17 @@ func (server *Server) Handle(conn net.PacketConn, peer net.Addr, request *dhcpv4
 	var response *dhcpv4.DHCPv4
 	switch request.MessageType() {
 	case dhcpv4.MessageTypeDiscover:
+		server.emit("INFO", "dhcp.discover", "DHCP Discover received", "RECEIVED", request, nil, "")
 		address, ok := server.offer(clientID, request.ClientHWAddr)
 		if !ok {
+			server.emit("ERROR", "dhcp.no_offer", "DHCP Discover without offer: no free address or reservation", "FAILED", request, nil, "dhcp pool exhausted or client not eligible")
 			return
 		}
 		response, _ = dhcpv4.NewReplyFromRequest(request,
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
 			dhcpv4.WithYourIP(address),
 		)
+		server.emit("INFO", "dhcp.offer", "DHCP Offer sent", "OFFERED", request, address, "")
 	case dhcpv4.MessageTypeRequest:
 		if request.ServerIdentifier() != nil && !request.ServerIdentifier().Equal(server.serverIP) {
 			return
@@ -327,6 +369,9 @@ func (server *Server) Handle(conn net.PacketConn, peer net.Addr, request *dhcpv4
 		messageType := dhcpv4.MessageTypeNak
 		if accepted {
 			messageType = dhcpv4.MessageTypeAck
+			server.emit("INFO", "dhcp.ack", "DHCP ACK: lease assigned", "COMPLETED", request, requestedIP, "")
+		} else {
+			server.emit("WARN", "dhcp.nak", "DHCP NAK: requested address refused", "FAILED", request, requestedIP, "requested address is not leasable for this client")
 		}
 		modifiers := []dhcpv4.Modifier{
 			dhcpv4.WithMessageType(messageType),
@@ -355,9 +400,27 @@ func (server *Server) Handle(conn net.PacketConn, peer net.Addr, request *dhcpv4
 			response.UpdateOption(dhcpv4.OptHostName(reservation.Hostname))
 		}
 	}
-	if _, err := conn.WriteTo(response.ToBytes(), peer); err != nil {
+	if _, err := conn.WriteTo(response.ToBytes(), replyDestination(request, peer)); err != nil {
+		server.emit("ERROR", "dhcp.reply_failed", "DHCP reply could not be sent", "FAILED", request, response.YourIPAddr, err.Error())
 		return
 	}
+}
+
+// replyDestination selects where a server reply is sent (RFC 2131 4.1): to the
+// relay agent when giaddr is set, unicast to ciaddr when the client already has
+// an address, otherwise broadcast, because a client without an address cannot
+// receive a unicast reply to the 0.0.0.0 source of its request.
+func replyDestination(request *dhcpv4.DHCPv4, peer net.Addr) net.Addr {
+	if _, ok := peer.(*net.UDPAddr); !ok {
+		return peer
+	}
+	if gateway := request.GatewayIPAddr.To4(); gateway != nil && !gateway.IsUnspecified() {
+		return &net.UDPAddr{IP: gateway, Port: dhcpv4.ServerPort}
+	}
+	if client := request.ClientIPAddr.To4(); client != nil && !client.IsUnspecified() && request.MessageType() != dhcpv4.MessageTypeDiscover {
+		return &net.UDPAddr{IP: client, Port: dhcpv4.ClientPort}
+	}
+	return &net.UDPAddr{IP: net.IPv4bcast, Port: dhcpv4.ClientPort}
 }
 
 func (server *Server) addNetworkOptions(response *dhcpv4.DHCPv4) {

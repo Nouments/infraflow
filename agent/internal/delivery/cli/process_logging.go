@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,4 +231,45 @@ func (session *processLogSession) recordError(err error) {
 	if session.firstErr == nil {
 		session.firstErr = err
 	}
+}
+
+// EmitServiceEvent persists one bootstrap-service event (DHCP/TFTP) with this
+// session's Agent, site, and run correlation fields.
+func (session *processLogSession) EmitServiceEvent(event observability.Event) {
+	if session == nil {
+		return
+	}
+	event.AgentID = session.agentID
+	if event.SiteID == "" {
+		event.SiteID = session.siteID
+	}
+	event.RunID = session.runID
+	if err := session.logger.Emit(context.Background(), event); err != nil {
+		session.recordError(err)
+	}
+}
+
+// bootstrapEventSink returns the structured event receiver for a bootstrap
+// service. With an agent configuration, events are persisted locally and
+// synchronized to the Provider; otherwise they are written to stdout as text so
+// that the operator still sees DHCP/TFTP evidence.
+func bootstrapEventSink(ctx context.Context, agentConfigPath string, stdout, stderr io.Writer) (func(observability.Event), func(), error) {
+	if agentConfigPath == "" {
+		var mu sync.Mutex
+		return func(event observability.Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			fmt.Fprintf(stdout, "%s %s %s %s %s\n", time.Now().UTC().Format(time.RFC3339), event.Level, event.Event, observability.Redact(event.Line), observability.Redact(event.Error))
+		}, func() {}, nil
+	}
+	session, err := newProcessLogSession(agentConfigPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	session.Start(ctx)
+	return session.EmitServiceEvent, func() {
+		if err := session.Close(); err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		}
+	}, nil
 }

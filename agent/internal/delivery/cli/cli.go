@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,15 +21,16 @@ import (
 	"infraflow/agent/internal/adapters/providergrpc"
 	"infraflow/agent/internal/adapters/providerhttp"
 	"infraflow/agent/internal/application"
-	"infraflow/agent/internal/application/diagnostics"
 	"infraflow/agent/internal/application/toolrunner"
 	"infraflow/agent/internal/config"
 	artifacthttp "infraflow/agent/internal/delivery/artifacts"
 	dhcpserver "infraflow/agent/internal/delivery/dhcp"
 	tftpserver "infraflow/agent/internal/delivery/tftpserver"
 	"infraflow/agent/internal/delivery/tui"
+	"infraflow/internal/diagnostics"
 	"infraflow/internal/infrastructure/security"
 	"infraflow/pkg/observability"
+	"infraflow/pkg/protocol"
 )
 
 func Run(arguments []string, stdout, stderr io.Writer) int {
@@ -51,6 +53,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if arguments[0] == "serve-tftp" {
 		return runTFTPServer(arguments[1:], stdout, stderr)
 	}
+	if arguments[0] == "verify-device" {
+		return runVerifyDevice(arguments[1:], stdout, stderr)
+	}
 	if arguments[0] == "diagnose" {
 		return runDiagnose(arguments[1:], stdout, stderr)
 	}
@@ -65,6 +70,7 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "path to the agent YAML configuration")
+	interval := flags.Duration("interval", 0, "repeat synchronization at this interval and keep heartbeating until stopped (0 runs once)")
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return 2
 	}
@@ -153,7 +159,13 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	defer providerClient.Close()
 	var registry *providerhttp.Client
 	if settings.Provider.APIAddress != "" {
-		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(settings.Provider.TokenEnv), settings.Provider.TLS.CAFile)
+		// A site-scoped credential (artifact_token_env) binds registration,
+		// heartbeats, and disconnect notices to this Agent's identity.
+		registryTokenEnv := settings.Provider.TokenEnv
+		if settings.Provider.ArtifactTokenEnv != "" {
+			registryTokenEnv = settings.Provider.ArtifactTokenEnv
+		}
+		registry, err = providerhttp.New(settings.Provider.APIAddress, os.Getenv(registryTokenEnv), settings.Provider.TLS.CAFile)
 		if err != nil {
 			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
 			return 2
@@ -183,25 +195,147 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	runner.SetObservability(logger, outbox, siteID)
 	runContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	report, err := runner.Run(runContext)
-	for _, artifact := range report.Artifacts {
-		fmt.Fprintf(stdout, "%s %s\n", artifact.Status, artifact.Path)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
-		if registry != nil {
-			_ = registry.Heartbeat(context.Background(), providerhttp.Heartbeat{AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion, Capabilities: settings.Agent.Capabilities})
+	presence := newPresence(registry, providerhttp.Heartbeat{AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion, Capabilities: settings.Agent.Capabilities}, logger, stderr)
+	// Fresh liveness evidence right after registration, then periodically
+	// while this process is running. Announce shutdown on every exit path.
+	presence.beat(runContext)
+	go presence.loop(runContext, settings.Agent.HeartbeatInterval())
+	defer presence.disconnect()
+	exitCode := 0
+	for {
+		report, err := runner.Run(runContext)
+		for _, artifact := range report.Artifacts {
+			fmt.Fprintf(stdout, "%s %s\n", artifact.Status, artifact.Path)
 		}
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+			presence.setProblem(runProblem(report, err))
+			exitCode = 1
+		} else {
+			presence.setProblem("")
+			fmt.Fprintf(stdout, "reported execution %s\n", report.ReportID)
+			exitCode = 0
+		}
+		presence.beat(runContext)
+		if *interval <= 0 || runContext.Err() != nil {
+			break
+		}
+		select {
+		case <-runContext.Done():
+		case <-time.After(*interval):
+		}
+		if runContext.Err() != nil {
+			break
+		}
+	}
+	if *interval > 0 && runContext.Err() != nil {
+		return 0
+	}
+	if registry != nil && presence.failed() && exitCode == 0 {
 		return 1
 	}
-	if registry != nil {
-		if heartbeatErr := registry.Heartbeat(context.Background(), providerhttp.Heartbeat{AgentID: settings.Agent.ID, SiteID: siteID, Version: agentVersion, Capabilities: settings.Agent.Capabilities}); heartbeatErr != nil {
-			fmt.Fprintf(stderr, "infraflow-agent: heartbeat: %v\n", heartbeatErr)
-			return 1
+	return exitCode
+}
+
+// runProblem summarizes a failed run as a single bounded line for the
+// Provider's DEGRADED status. It never includes artifact content.
+func runProblem(report protocol.AgentReport, err error) string {
+	failed, blocked := 0, 0
+	for _, artifact := range report.Artifacts {
+		switch artifact.Status {
+		case protocol.StatusFailed:
+			failed++
+		case protocol.StatusBlocked:
+			blocked++
 		}
 	}
-	fmt.Fprintf(stdout, "reported execution %s\n", report.ReportID)
-	return 0
+	message := fmt.Sprintf("artifact run failed (%d failed, %d blocked): %v", failed, blocked, err)
+	message = strings.Join(strings.Fields(message), " ")
+	if len(message) > 240 {
+		message = message[:240]
+	}
+	return message
+}
+
+// presence owns the Agent's authenticated heartbeat/disconnect lifecycle.
+type presence struct {
+	registry *providerhttp.Client
+	base     providerhttp.Heartbeat
+	logger   *observability.Logger
+	stderr   io.Writer
+	mu       sync.Mutex
+	problem  string
+	lastErr  error
+}
+
+func newPresence(registry *providerhttp.Client, base providerhttp.Heartbeat, logger *observability.Logger, stderr io.Writer) *presence {
+	return &presence{registry: registry, base: base, logger: logger, stderr: stderr}
+}
+
+func (p *presence) setProblem(problem string) {
+	p.mu.Lock()
+	p.problem = problem
+	p.mu.Unlock()
+}
+
+func (p *presence) failed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastErr != nil
+}
+
+func (p *presence) beat(ctx context.Context) {
+	if p.registry == nil {
+		return
+	}
+	p.mu.Lock()
+	heartbeat := p.base
+	heartbeat.Problem = p.problem
+	p.mu.Unlock()
+	callContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	err := p.registry.Heartbeat(callContext, heartbeat)
+	p.mu.Lock()
+	changed := (err == nil) != (p.lastErr == nil)
+	p.lastErr = err
+	p.mu.Unlock()
+	if err != nil {
+		fmt.Fprintf(p.stderr, "infraflow-agent: heartbeat: %v\n", err)
+	}
+	if changed && p.logger != nil {
+		event := observability.Event{Level: "INFO", Event: "agent.heartbeat.restored", Message: "provider accepted agent heartbeat", AgentID: heartbeat.AgentID, SiteID: heartbeat.SiteID, Operation: "heartbeat", Status: "COMPLETED"}
+		if err != nil {
+			event = observability.Event{Level: "ERROR", Event: "agent.heartbeat.failed", Message: "provider did not accept agent heartbeat", AgentID: heartbeat.AgentID, SiteID: heartbeat.SiteID, Operation: "heartbeat", Status: "FAILED", Error: err.Error()}
+		}
+		_ = p.logger.Emit(context.Background(), event)
+	}
+}
+
+func (p *presence) loop(ctx context.Context, interval time.Duration) {
+	if p.registry == nil {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			p.beat(ctx)
+		}
+	}
+}
+
+func (p *presence) disconnect() {
+	if p.registry == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.registry.Disconnect(ctx, p.base.AgentID, p.base.SiteID); err != nil {
+		fmt.Fprintf(p.stderr, "infraflow-agent: disconnect notice: %v\n", err)
+	}
 }
 
 func runArtifactServer(arguments []string, stdout, stderr io.Writer) int {
@@ -342,6 +476,7 @@ func runDHCPServer(arguments []string, stdout, stderr io.Writer) int {
 	interfaceName := flags.String("interface", "", "network interface to bind DHCP traffic to")
 	listenAddress := flags.String("listen", "", "IPv4 address assigned to the selected interface")
 	port := flags.Int("port", 67, "DHCPv4 UDP server port")
+	agentConfig := flags.String("agent-config", "", "optional agent configuration used to persist DHCP events and synchronize them to the Provider")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -366,6 +501,13 @@ func runDHCPServer(arguments []string, stdout, stderr io.Writer) int {
 	}
 	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	sink, closeSink, err := bootstrapEventSink(signalContext, *agentConfig, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	defer closeSink()
+	server.SetEventSink(sink)
 	fmt.Fprintf(stdout, "InfraFlow DHCP server listening on %s/%s:%d for %s\n", *interfaceName, listenIP, *port, config.Network)
 	if err := server.Serve(signalContext, *interfaceName, *port); err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: DHCP server: %v\n", err)
@@ -382,6 +524,7 @@ func runTFTPServer(arguments []string, stdout, stderr io.Writer) int {
 	interfaceName := flags.String("interface", "", "network interface to bind TFTP traffic to")
 	listenAddress := flags.String("listen", "", "IPv4 address assigned to the selected interface")
 	port := flags.Int("port", 69, "TFTP UDP server port")
+	agentConfig := flags.String("agent-config", "", "optional agent configuration used to persist TFTP events and synchronize them to the Provider")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -401,6 +544,13 @@ func runTFTPServer(arguments []string, stdout, stderr io.Writer) int {
 	}
 	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	sink, closeSink, err := bootstrapEventSink(signalContext, *agentConfig, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-agent: %v\n", err)
+		return 2
+	}
+	defer closeSink()
+	server.SetEventSink(sink)
 	fmt.Fprintf(stdout, "InfraFlow TFTP server listening on %s/%s:%d for site %s (read-only)\n", *interfaceName, *listenAddress, *port, config.Site)
 	if err := server.Serve(signalContext, *interfaceName, *listenAddress, *port); err != nil {
 		fmt.Fprintf(stderr, "infraflow-agent: TFTP server: %v\n", err)
@@ -573,6 +723,7 @@ Usage:
 	infraflow-agent serve-dhcp -config <dhcp-config.json> -interface <name> -listen <ipv4> [-port 67]
 	infraflow-agent serve-tftp -config <tftp-config.json> -root <bootstrap-dir> -interface <name> -listen <ipv4> [-port 69]
 	infraflow-agent diagnose (-run-id <id>|-device-id <id>) [-provider-log <jsonl>] [-agent-log <jsonl>] [-bootstrap-log <file>] [-device-console <file>] [-expected-hostname <name>] [-expected-ipv4 <address>] [-json]
+	infraflow-agent verify-device -console <capture> -device-id <id> (-expected-hostname <name>|-expected-ipv4 <address>) [-agent-config <yaml>] [-json]
 	infraflow-agent validate-terraform -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
 
@@ -623,9 +774,10 @@ func runDiagnose(arguments []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	fmt.Fprintf(stdout, "Summary: %s\n", report.Summary)
 	fmt.Fprintf(stdout, "Observed status: %s\n", report.ObservedStatus)
 	fmt.Fprintf(stdout, "Last confirmed successful stage: %s\n", valueOrUnknown(report.LastConfirmedSuccessfulStage))
-	fmt.Fprintf(stdout, "Failure stage: %s\n", valueOrUnknown(report.FailureStage))
+	fmt.Fprintf(stdout, "Failure stage: %s %s\n", valueOrUnknown(report.FailureStage), report.FailureCode)
 	fmt.Fprintf(stdout, "Likely cause: %s\n", report.LikelyCause)
 	fmt.Fprintf(stdout, "Confidence: %s\n", report.Confidence)
 	fmt.Fprintf(stdout, "Recommended next action: %s\n", report.RecommendedNextAction)

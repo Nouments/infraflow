@@ -1,0 +1,20 @@
+04:36:00  == step 1: start Agent (register + immediate heartbeat + 5s interval)
+04:36:01  observed after 1s: online | Fresh authenticated heartbeat | hb_age= 0
+04:36:01  == step 2: kill -9 Agent (silent loss, no disconnect notice); Provider timeout is 20s
+04:36:03  agent killed
+04:36:03  immediately after kill: online | Fresh authenticated heartbeat | hb_age= 3
+04:36:21  observed after 18s: offline | No heartbeat for 20s (timeout 20s) | hb_age= 20
+04:36:21  == step 3: restart Agent
+04:36:22  observed after 1s: online | Fresh authenticated heartbeat | hb_age= 0
+04:36:22  == step 4: SIGTERM Agent (graceful shutdown -> disconnect notice)
+04:36:22  observed after 0s: offline | Agent announced process shutdown at 2026-11-19T04:36:22Z | hb_age= 1
+04:36:22  == step 5: start Agent, then kill -9 it and restart the Provider inside the 20s window
+04:36:23  observed after 1s: online | Fresh authenticated heartbeat | hb_age= 0
+04:36:23  agent killed; status before Provider restart: online | Fresh authenticated heartbeat | hb_age= 1
+04:36:23  provider stopped (persisted heartbeat is still < 20s old)
+04:36:23  after Provider restart: unknown | Last heartbeat predates the Provider restart; awaiting a fresh heartbeat | hb_age= 1
+04:36:42  observed after 19s: offline | No heartbeat for 20s (timeout 20s) | hb_age= 20
+04:36:42  == step 6: Agent returns after Provider restart
+04:36:43  observed after 1s: online | Fresh authenticated heartbeat | hb_age= 0
+04:36:43  final: offline | Agent announced process shutdown at 2026-11-19T04:36:43Z | hb_age= 0
+PROVIDER_PID=288580

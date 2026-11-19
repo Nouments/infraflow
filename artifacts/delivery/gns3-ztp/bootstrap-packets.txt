@@ -1,0 +1,25 @@
+05:09:13.783099 IP (tos 0x0, ttl 64, id 20322, offset 0, flags [DF], proto UDP (17), length 343)
+	  Your-IP 192.0.2.10
+	  Server-IP 192.0.2.2
+	    DHCP-Message (53), length 1: Offer
+05:09:13.793984 IP (tos 0x0, ttl 255, id 678, offset 0, flags [none], proto UDP (17), length 604)
+	    DHCP-Message (53), length 1: Request
+05:09:13.796405 IP (tos 0x0, ttl 64, id 20332, offset 0, flags [DF], proto UDP (17), length 343)
+	  Your-IP 192.0.2.10
+	  Server-IP 192.0.2.2
+	    DHCP-Message (53), length 1: ACK
+05:09:25.382093 IP (tos 0x0, ttl 255, id 9, offset 0, flags [none], proto UDP (17), length 50)
+    192.0.2.10.59001 > 192.0.2.2.69: TFTP, length 22, RRQ "network-confg" octet
+05:09:25.613566 IP (tos 0x0, ttl 255, id 0, offset 0, flags [none], proto UDP (17), length 50)
+    192.0.2.10.58164 > 192.0.2.2.69: TFTP, length 22, RRQ "network-confg" octet
+05:09:36.440955 IP (tos 0x0, ttl 255, id 0, offset 0, flags [none], proto UDP (17), length 48)
+    192.0.2.10.54046 > 192.0.2.2.69: TFTP, length 20, RRQ "edge1-confg" octet
+05:09:36.451038 IP (tos 0x0, ttl 255, id 0, offset 0, flags [none], proto UDP (17), length 48)
+    192.0.2.10.55742 > 192.0.2.2.69: TFTP, length 20, RRQ "edge1-confg" octet
+05:09:38.826165 IP (tos 0x0, ttl 255, id 717, offset 0, flags [none], proto UDP (17), length 604)
+	    DHCP-Message (53), length 1: Request
+05:09:42.499581 IP (tos 0x0, ttl 64, id 50187, offset 0, flags [DF], proto UDP (17), length 343)
+	  Your-IP 192.0.2.10
+	  Server-IP 192.0.2.2
+	    DHCP-Message (53), length 1: ACK
+total DISCOVER packets captured (including those before the bind fix): 73

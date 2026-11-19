@@ -106,6 +106,10 @@ func (runner *Runner) Run(ctx context.Context) (protocol.AgentReport, error) {
 		logErr := runner.emit(ctx, runID, "agent.report.submit_failed", "agent report could not be submitted", "report", "FAILED", "", operationErr, nil)
 		return report, errors.Join(operationErr, logErr, runner.syncLogs(ctx), syncErr)
 	}
+	// Agent-side evidence that the Provider accepted this run's report.
+	if err := runner.emit(ctx, runID, "agent.report.submitted", "execution report accepted by provider", "report", "COMPLETED", report.ReportID, nil, nil); err != nil {
+		return report, errors.Join(err, runner.syncLogs(ctx), syncErr)
+	}
 	if failed {
 		operationErr := errors.New("one or more artifacts were not completed")
 		logErr := runner.emit(ctx, runID, "agent.run.failed", "one or more artifacts were not completed", "download", "FAILED", "", operationErr, &started)
@@ -194,7 +198,18 @@ func (runner *Runner) execute(ctx context.Context, artifact protocol.Artifact, e
 	_ = pipeReader.Close()
 	downloadErr := <-downloadDone
 	if storeErr != nil || downloadErr != nil {
-		result.Message = "artifact download failed"
+		// Keep the failure class so operators and diagnostics can tell an
+		// integrity rejection apart from a transport failure.
+		switch {
+		case storeErr != nil && strings.Contains(storeErr.Error(), "SHA-256 does not match"):
+			result.Message = "artifact SHA-256 integrity check failed: hash mismatch against the published catalog"
+		case storeErr != nil && strings.Contains(storeErr.Error(), "manifest size"):
+			result.Message = "artifact download failed: size does not match the site manifest"
+		case downloadErr != nil:
+			result.Message = "artifact download failed: " + truncateMessage(observability.Redact(downloadErr.Error()), 300)
+		default:
+			result.Message = "artifact download failed: " + truncateMessage(observability.Redact(storeErr.Error()), 300)
+		}
 		return result
 	}
 	artifactReader, err := runner.state.OpenArtifact(artifact.Path)
@@ -338,4 +353,12 @@ func validateCatalog(artifacts []protocol.Artifact) error {
 		seen[artifact.Path] = struct{}{}
 	}
 	return nil
+}
+
+func truncateMessage(value string, limit int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) > limit {
+		return value[:limit]
+	}
+	return value
 }

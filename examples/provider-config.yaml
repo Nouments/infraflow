@@ -13,6 +13,8 @@ admin_credential_file: /var/lib/infraflow-provider/.infraflow-admin-password
 admin_credential_script: /var/lib/infraflow-provider/get-admin-password.sh
 
 session_ttl_minutes: 480
+# An Agent is ONLINE only while its last authenticated heartbeat is newer than this.
+agent_heartbeat_timeout_seconds: 90
 chunk_size: 65536
 
 logging:

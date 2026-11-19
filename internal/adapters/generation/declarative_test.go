@@ -305,7 +305,10 @@ func TestGenerateNativeRendersOSPFForCiscoRouterOSAndFortiOS(t *testing.T) {
 	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: devices}}}, root); err != nil {
 		t.Fatal(err)
 	}
-	checks := []struct{ path string; lines []string }{
+	checks := []struct {
+		path  string
+		lines []string
+	}{
 		{"lab/native/device-R1.cfg", []string{"router ospf 10", "network 192.168.10.0 0.0.0.255 area 0"}},
 		{"lab/native/device-R2.cfg", []string{"/routing ospf instance add", "/routing ospf area add name=area-0-0-0-0", "networks=192.168.10.0/24 area=area-0-0-0-0"}},
 		{"lab/native/device-FW1.cfg", []string{"config router ospf", "set router-id 10.255.0.1", "set area 0.0.0.0"}},

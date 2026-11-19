@@ -36,10 +36,13 @@ type Config struct {
 	AdminCredentialFile   string            `yaml:"admin_credential_file,omitempty"`
 	AdminCredentialScript string            `yaml:"admin_credential_script,omitempty"`
 	SessionTTLMinutes     int               `yaml:"session_ttl_minutes,omitempty"`
-	ChunkSize             int               `yaml:"chunk_size"`
-	Logging               LoggingConfig     `yaml:"logging,omitempty"`
-	TLS                   TLSConfig         `yaml:"tls"`
-	KnownHostsFile        string            `yaml:"known_hosts_file,omitempty"`
+	// AgentHeartbeatTimeoutSeconds is how long an Agent heartbeat counts as
+	// fresh evidence of connectivity. Defaults to 90 seconds.
+	AgentHeartbeatTimeoutSeconds int           `yaml:"agent_heartbeat_timeout_seconds,omitempty"`
+	ChunkSize                    int           `yaml:"chunk_size"`
+	Logging                      LoggingConfig `yaml:"logging,omitempty"`
+	TLS                          TLSConfig     `yaml:"tls"`
+	KnownHostsFile               string        `yaml:"known_hosts_file,omitempty"`
 }
 
 type AgentCredential struct {
@@ -102,6 +105,9 @@ func Load(path string) (Config, error) {
 	}
 	if config.AdminCredentialScript == "" {
 		config.AdminCredentialScript = filepath.Join(config.ArtifactDirectory, "get-admin-password.sh")
+	}
+	if config.AgentHeartbeatTimeoutSeconds == 0 {
+		config.AgentHeartbeatTimeoutSeconds = 90
 	}
 	if config.SessionTTLMinutes == 0 {
 		config.SessionTTLMinutes = 480
@@ -202,6 +208,9 @@ func (config Config) Validate() error {
 	}
 	if strings.TrimSpace(config.AdminCredentialFile) == "" || strings.TrimSpace(config.AdminCredentialScript) == "" {
 		return fmt.Errorf("admin credential file and script paths must be set")
+	}
+	if config.AgentHeartbeatTimeoutSeconds < 5 || config.AgentHeartbeatTimeoutSeconds > 86400 {
+		return fmt.Errorf("agent_heartbeat_timeout_seconds must be between 5 and 86400")
 	}
 	if config.SessionTTLMinutes < 5 || config.SessionTTLMinutes > 1440 {
 		return fmt.Errorf("session_ttl_minutes must be between 5 and 1440")

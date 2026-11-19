@@ -288,9 +288,13 @@ type Site struct {
 }
 
 type Bootstrap struct {
-	Network      string                 `yaml:"network,omitempty" json:"network,omitempty"`
-	Gateway      string                 `yaml:"gateway,omitempty" json:"gateway,omitempty"`
-	FortiManager *FortiManagerBootstrap `yaml:"fortimanager,omitempty" json:"fortimanager,omitempty"`
+	Network string `yaml:"network,omitempty" json:"network,omitempty"`
+	Gateway string `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	// ServiceAddress is the Agent's own IPv4 address on the bootstrap
+	// segment (where its DHCP/TFTP services listen). It is excluded from the
+	// DHCP pools so that a generated configuration is always servable.
+	ServiceAddress string                 `yaml:"service_address,omitempty" json:"service_address,omitempty"`
+	FortiManager   *FortiManagerBootstrap `yaml:"fortimanager,omitempty" json:"fortimanager,omitempty"`
 }
 
 type FortiManagerBootstrap struct {
