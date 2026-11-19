@@ -1,0 +1,28 @@
+# Generation pipeline checks with the Provider binary (605a09b+worktree, 2026-11-20T00:04:38+03:00)
+## G1 determinism: two independent runs of generate-all on the lab input
+ run a exit 0
+ run b exit 0
+ files: 36; identical bytes: yes
+## G2 input-order independence: device order reversed inside each site
+ exit 0
+ device artifacts identical to run a: yes
+## G3 traceability: every native artifact has catalog provenance
+  iosv-lab/native/native-manifest.json keys: ['config_syntax_validation', 'devices', 'execution_mode', 'input_hash', 'status', 'template_version', 'warnings']
+    iosv-lab/native/device-r2.cfg | template infraflow.cisco.ios.7200.native 1 | input_hash 360f1bbdc7de | output hash matches file: True
+  vendor-lab/native/native-manifest.json keys: ['config_syntax_validation', 'devices', 'execution_mode', 'input_hash', 'status', 'template_version', 'warnings']
+    vendor-lab/native/device-fgt1.cfg | template infraflow.fortinet.fortios.native 1 | input_hash 79a223e22d2d | output hash matches file: True
+    vendor-lab/native/device-mt1.auto.rsc | template infraflow.mikrotik.routeros7.chr.auto-rsc 1 | input_hash 79a223e22d2d | output hash matches file: True
+    vendor-lab/native/device-r1.cfg | template infraflow.cisco.ios.iosv.native 1 | input_hash 79a223e22d2d | output hash matches file: True
+## G4 invalid inputs are rejected with exit != 0 and nothing published
+ unknown field: exit 1, files written 0, message: infraflow-provider: decode configuration: yaml: unmarshal errors:   line 6: field colour not found in type domain.Device 
+ duplicate device: exit 1, files written 0, message: infraflow-provider: site s, device r1: duplicate device name 
+ bad CIDR: exit 1, files written 0, message: infraflow-provider: site s, device r1: interface ether1 static ipv4_address must be an IPv4 CIDR 
+ path traversal site name: exit 1, files written 0, message: infraflow-provider: site ../../etc: id must be a valid identifier no longer than 128 characters site ../../etc: name must contain only letters, digits, '.', '_' or '-', s
+ RouterOS 6 auto-rsc: exit 1, files written 4, message: infraflow-provider: site "s": native configuration: device r1: native MikroTik renderer requires an explicit RouterOS 7 version 
+ Cisco IOS unknown release: exit 1, files written 4, message: infraflow-provider: site "s": native configuration: device r1: Cisco IOS AutoInstall supports only exact model/release profiles 7200 12.4(24)T5 (LAB-VERIFIED), 7200 15.3(
+ script injection in hostname: exit 1, files written 0, message: infraflow-provider: site s, device r1"];/system reset-configuration: device name must be a valid identifier no longer than 128 characters 
+ empty file: exit 1, files written 0, message: infraflow-provider: decode configuration: EOF 
+  note: the 4 files written for "RouterOS 6 auto-rsc" and "Cisco IOS unknown release" are failure reports only
+  (manifest.json status partial_failure, site status failed, artifact_count 0, error text); no device artifact
+  or site catalog entry was produced. This is the designed per-site failure isolation.
+Result: G1 PASS, G2 PASS, G3 PASS, G4 PASS (8/8 rejected, no device artifact written)
