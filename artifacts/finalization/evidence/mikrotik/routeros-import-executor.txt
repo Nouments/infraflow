@@ -1,0 +1,124 @@
+# mikrotik.routeros.import against a fresh GNS3 MikroTik CHR 7.8 (node MT2, inventory device mt1, 192.0.2.21) (2026-11-19T23:35:33+03:00)
+## day-0 on the console: admin password set, user 'infraflow' (group full), 192.0.2.21/24 on ether1 WITHOUT the InfraFlow owner comment
+## console-derived host key: 2048 SHA256:WfzS3RAuIbUz6X88m8BxyeEpXqut7OJ3Ob6KLmO1iLQ no comment (RSA)
+
+## M1 (INVALID RUN: the lab host still had MT1's ARP entry for 192.0.2.21, so the connect timed out; repeated as M1b) known_hosts has no entry for 192.0.2.21 (default, SHA-1-free algorithm policy)
+ submit HTTP 202 | id exec-5173a65e8202978814aa3af220ea5f1a | final failed
+ error: SSH connection to mt1 (192.0.2.21) failed: connect to 192.0.2.21:22: dial tcp 192.0.2.21:22: i/o timeout; no configuration was imported
+ attempt: 2026-11-19T20:35:34.138742397Z -> 2026-11-19T20:35:44.151452627Z
+
+## M2 console-derived key pinned (no Provider restart): first import with the original template -> FAIL (defects D1/D2 below)
+ submit HTTP 202 | id exec-7b37b56c84929c6969f5fe9f97fd80a3 | final failed
+ error: import failed: RouterOS did not report a successful import; RouterOS stops at the first failing command, so earlier commands may be applied; device state must be re-read before any retry
+ attempt: 2026-11-19T20:35:44.808963417Z -> 2026-11-19T20:35:47.954679212Z
+
+Device log for M2 (console, /log print): "script error: failure: already have such address"
+  D1 generated script added the day-0 management address unconditionally -> fixed: template adopts identical unowned entries
+  D2 /import verbose=no over SSH exec printed nothing on failure (exit 0) -> fixed: verbose=yes, failure lines parsed, silence = failure
+
+# ---- after fixes D1/D2, regenerated script sha256 ba977c14160a656c3e8c3822dcab0baf23e0553e6bc6318f4000421bfe32ddd1 ----
+## M1b known_hosts without 192.0.2.21 (unknown key must fail closed and name the presented key)
+ submit HTTP 202 | id exec-b2750bd303cb246ace8a54c151e5754b | final failed
+ error: SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.21:22: presented ssh-rsa SHA256:WfzS3RAuIbUz6X88m8BxyeEpXqut7OJ3Ob6KLmO1iLQ; no configuration was imported
+ attempt: 2026-11-19T20:38:42.600879259Z -> 2026-11-19T20:38:42.731780085Z
+
+## M3 import on the partially configured device (identity already set, day-0 address unowned)
+ submit HTTP 202 | id exec-e45c279f3a2dcd3e3736f0a17f71f786 | final failed
+ error: import failed: run "/import …": Process exited with status 1; RouterOS stops at the first failing command, so earlier commands may be applied; device state must be re-read before any retry
+ attempt: 2026-11-19T20:38:45.014103719Z -> 2026-11-19T20:38:45.154038649Z
+
+## M4 identical re-run (idempotency)
+ submit HTTP 202 | id exec-9a69dfeefe8ebcc548d4534ec8d707c6 | final failed
+ error: import failed: run "/import …": Process exited with status 1; RouterOS stops at the first failing command, so earlier commands may be applied; device state must be re-read before any retry
+ attempt: 2026-11-19T20:38:47.361872248Z -> 2026-11-19T20:38:47.502202385Z
+  M3/M4 above FAILED: device log 'failure: already have such address' -> D3: unquoted prefixes in RouterOS 'find where address=…' never match on 7.8 (verified over SSH: unquoted 0 matches, quoted 1). Fixed by quoting.
+
+# ---- after fix D3, regenerated script sha256 7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d ----
+## M5 import on the partially configured device
+ submit HTTP 202 | id exec-02166a1027a2411ab844ac198fca96dc | final failed
+ error: import failed: RouterOS did not confirm the import (no success line in the verbose output); RouterOS stops at the first failing command, so earlier commands may be applied; device state must be re-read before any retry
+ attempt: 2026-11-19T20:39:34.362386767Z -> 2026-11-19T20:39:34.622298801Z
+
+## M6 identical re-run (idempotency)
+ submit HTTP 202 | id exec-913c1516dae34e8aac99e3d99fb46e64 | final failed
+ error: import failed: RouterOS did not confirm the import (no success line in the verbose output); RouterOS stops at the first failing command, so earlier commands may be applied; device state must be re-read before any retry
+ attempt: 2026-11-19T20:39:36.813281134Z -> 2026-11-19T20:39:37.067955147Z
+  M5/M6 above FAILED as 'not confirmed' although the script ran to its last line -> D4: RouterOS 7.8 verbose imports never print a success line; verbose=no hides failures. Fixed: chained completion marker (failing import exits 1 and skips it; verified over SSH).
+
+# ---- after fix D4 (same script sha256) ----
+## M7 import
+ submit HTTP 202 | id exec-61475eaa95fe5acbc9ed374ef1ae7dd4 | final succeeded
+ result: {"artifact_sha256": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d", "device_version": "7.8 (stable)", "import_output": "... 3 earlier lines omitted\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether1\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"192.0.2.21/24\" interface=\"ether1\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"} else={/ip address set $addressEntry address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"}\n}\n#line 7..11\r\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether2\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"198.51.100.129/25\" interface=\"ether2\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"} else={/ip address set $addressEntry address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"}\n}\n#line 12..16\r\n{\n\t:local routeEntry [/ip route find where comment=\"infraflow:mt1:route:203.0.113.0/24\"];\n\t:if ([:len $routeEntry] = 0) do={:set routeEntry [/ip route find where dst-address=\"203.0.113.0/24\" gateway=\"192.0.2.2\" !dynamic]};\n\t:if ([:len $routeEntry] = 0) do={/ip route add dst
+ attempt: 2026-11-19T20:40:47.586577228Z -> 2026-11-19T20:40:47.861746131Z
+
+## M8 identical re-run (idempotency)
+ submit HTTP 202 | id exec-35e3d1d44e05f141a29d47368888d243 | final succeeded
+ result: {"artifact_sha256": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d", "device_version": "7.8 (stable)", "import_output": "... 3 earlier lines omitted\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether1\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"192.0.2.21/24\" interface=\"ether1\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"} else={/ip address set $addressEntry address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"}\n}\n#line 7..11\r\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether2\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"198.51.100.129/25\" interface=\"ether2\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"} else={/ip address set $addressEntry address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"}\n}\n#line 12..16\r\n{\n\t:local routeEntry [/ip route find where comment=\"infraflow:mt1:route:203.0.113.0/24\"];\n\t:if ([:len $routeEntry] = 0) do={:set routeEntry [/ip route find where dst-address=\"203.0.113.0/24\" gateway=\"192.0.2.2\" !dynamic]};\n\t:if ([:len $routeEntry] = 0) do={/ip route add dst
+ attempt: 2026-11-19T20:40:50.136823507Z -> 2026-11-19T20:40:50.390341402Z
+  (M7/M8 read-back verified: identity, static addresses, dhcp clients, routes, OSPF instance infraflow-v2)
+
+## M9 independent console read after two imports (no duplicates expected)
+>>> /system identity print
+  name: mt1
+>>> /ip address print terse where !dynamic
+1 comment=infraflow:mt1:interface:ether1 address=192.0.2.21/24 network=192.0.2.0 
+interface=ether1 actual-interface=ether1
+2 comment=infraflow:mt1:interface:ether2 address=198.51.100.129/25 network=198.51
+.100.128 interface=ether2 actual-interface=ether2
+>>> /ip dhcp-client print terse
+0 interface=ether1 add-default-route=yes default-route-distance=1 use-peer-dns=ye
+s use-peer-ntp=yes dhcp-options=hostname,clientid status=bound address=192.0.2.3
+/24 dhcp-server=192.0.2.2 expires-after=6m30s
+>>> /ip route print terse where static
+0 As comment=infraflow:mt1:route:203.0.113.0/24 dst-address=203.0.113.0/24 routin
+g-table=main pref-src= gateway=192.0.2.2 immediate-gw=192.0.2.2%ether1 distance=
+1 scope=30 target-scope=10 suppress-hw-offload=no
+>>> /routing ospf instance print terse
+0 name=infraflow-v2 version=2 vrf=main router-id=192.0.2.21
+>>> /routing ospf area print terse
+0 name=area-0-0-0-0 instance=infraflow-v2 area-id=0.0.0.0 type=default
+>>> /routing ospf interface-template print terse
+0 comment=infraflow:mt1:ospf:192.0.2.0/24 area=area-0-0-0-0 instance-id=0 network
+s=192.0.2.0/24 type=broadcast retransmit-interval=5s transmit-delay=1s hello-int
+erval=10s dead-interval=40s priority=128 cost=1
+1 comment=infraflow:mt1:ospf:198.51.100.128/25 area=area-0-0-0-0 instance-id=0 ne
+tworks=198.51.100.128/25 type=broadcast retransmit-interval=5s transmit-delay=1s
+ hello-interval=10s dead-interval=40s priority=128 cost=1
+>>> /file print terse
+0 name=skins type=directory creation-time=nov/19/2026 20:32:40
+>>> /ping 192.0.2.2 count=3
+  SEQ HOST                                     SIZE TTL TIME       STATUS      
+    0 192.0.2.2                                  56  64 838us     
+    1 192.0.2.2                                  56  64 298us     
+    2 192.0.2.2                                  56  64 262us     
+    sent=3 received=3 packet-loss=0% min-rtt=262us avg-rtt=466us 
+   max-rtt=838us 
+>>> /ping 203.0.113.1 count=3
+  SEQ HOST                                     SIZE TTL TIME       STATUS      
+    0 203.0.113.1                                56  64 245us     
+    1 203.0.113.1                                56  64 552us     
+    2 203.0.113.1                                56  64 271us     
+    sent=3 received=3 packet-loss=0% min-rtt=245us avg-rtt=356us 
+   max-rtt=552us 
+
+## M10 invalid device password
+ submit HTTP 202 | id exec-f55248de2fcd31da3f078261b05c3c83 | final failed
+ error: SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain; no configuration was imported
+ attempt: 2026-11-19T20:41:57.732299632Z -> 2026-11-19T20:41:57.919636492Z
+
+## M11 device silent (netem 100% loss)
+ submit HTTP 202 | id exec-8a6d8e558d578c5cd37160eee34ebe05 | final failed
+ error: SSH connection to mt1 (192.0.2.21) failed: connect to 192.0.2.21:22: dial tcp 192.0.2.21:22: connect: no route to host; no configuration was imported
+ attempt: 2026-11-19T20:42:02.16416893Z -> 2026-11-19T20:42:09.336007126Z
+ netem removed
+
+## M12 retry policy rejected
+ submit HTTP 400 | id invalid execution request: mikrotik.routeros.import does not allow automatic retries | final None
+
+## M13 Cisco device through the RouterOS executor
+ submit HTTP 202 | id exec-7d2bbbd53306bdf6eed76da4db117037 | final failed
+ error: target device authorization failed: target device vendor is not supported by this executor: expected mikrotik, got "cisco"
+ attempt: 2026-11-19T20:42:11.26790587Z -> 2026-11-19T20:42:11.269842603Z
+
+## M14 unknown parameter rejected
+ submit HTTP 400 | id invalid execution request: task "m" parameters failed validation: invalid parameters: json: unknown field "script" | final None
