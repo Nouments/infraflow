@@ -1,0 +1,39 @@
+# Agent negative scenarios against a real Provider (lab host 192.0.2.2), 2026-11-19T20:24:52+03:00
+# Provider/Agent built from worktree on top of c26fa63
+
+## A3 provider unavailable
+time=2026-11-19T17:24:52.434Z level=ERROR msg="agent registration failed" event=agent.registration.failed service=agent source=agent site_id=vendor-lab agent_id=agent-vendor status=FAILED hostname=LAB operation=registration error="provider API request: Post \"http://127.0.0.1:8080/api/v1/agents/register\": dial tcp 127.0.0.1:8080: connect: connection refused"
+infraflow-agent: register agent: provider API request: Post "http://127.0.0.1:8080/api/v1/agents/register": dial tcp 127.0.0.1:8080: connect: connection refused
+exit=1
+
+## A4 provider start with an artifact modified after publication
+infraflow-provider: load published artifact catalog for Agent site validation: artifact output hash mismatch: "vendor-lab/native/device-mt1.auto.rsc"
+
+## A5 artifact modified while the provider runs
+provider ready
+time=2026-11-19T17:25:16.555Z level=ERROR msg="provider catalog request failed" event=agent.catalog.failed service=agent source=agent-runner agent_id=agent-vendor status=FAILED site_id=vendor-lab run_id=0af2d64e8621adba10ab0f0183b4f2ff hostname=LAB correlation_id=0af2d64e8621adba10ab0f0183b4f2ff operation=download error="load provider catalog: list provider artifacts: rpc error: code = Internal desc = artifact catalog unavailable"
+time=2026-11-19T17:25:16.557Z level=ERROR msg="agent run failed" event=agent.run.failed service=agent source=agent-runner hostname=LAB agent_id=agent-vendor correlation_id=0af2d64e8621adba10ab0f0183b4f2ff error="load provider catalog: list provider artifacts: rpc error: code = Internal desc = artifact catalog unavailable" operation=download site_id=vendor-lab run_id=0af2d64e8621adba10ab0f0183b4f2ff status=FAILED duration_ms=13
+infraflow-agent: load provider catalog: list provider artifacts: rpc error: code = Internal desc = artifact catalog unavailable
+exit=1
+ls: cannot access '/lab/adata-tamper/vendor-lab/native/': No such file or directory
+
+## A5b executor with the modified script (must refuse before contacting the device)
+submit 202 status failed error: published script vendor-lab/native/device-mt1.auto.rsc is unavailable or failed its integrity check: artifact output hash mismatch: "vendor-lab/native/device-mt1.auto.rsc"
+e380341cff690c37bc9902b11c21c4086471336e9db50a90a4a9e7943b5aa51b  /lab/pdata/artifacts/vendor-lab/native/device-mt1.auto.rsc
+(original artifact restored)
+
+## A1 (rerun with Provider running) well-formed but wrong token (40 chars)
+time=2026-11-19T17:25:27.604Z level=ERROR msg="agent registration failed" event=agent.registration.failed service=agent source=agent hostname=LAB site_id=iosv-lab operation=registration agent_id=agent-iosv status=FAILED error="provider API returned HTTP 401: {\"error\":\"authentication required\"}"
+infraflow-agent: register agent: provider API returned HTTP 401: {"error":"authentication required"}
+exit=1
+
+## A2 (rerun with Provider running) agent-iosv credential presented for site vendor-lab
+time=2026-11-19T17:25:27.680Z level=ERROR msg="agent registration failed" event=agent.registration.failed service=agent source=agent hostname=LAB operation=registration site_id=vendor-lab agent_id=agent-iosv status=FAILED error="provider API returned HTTP 403: {\"error\":\"credential is not authorized for this agent identity\"}"
+infraflow-agent: register agent: provider API returned HTTP 403: {"error":"credential is not authorized for this agent identity"}
+exit=1
+
+## A6 control: both agents synchronize their own site
+infraflow-agent: synchronize local logs; events remain queued: submit agent logs: rpc error: code = FailedPrecondition desc = agent log batch was rejected
+exit=1
+infraflow-agent: synchronize local logs; events remain queued: submit agent logs: rpc error: code = FailedPrecondition desc = agent log batch was rejected
+exit=1

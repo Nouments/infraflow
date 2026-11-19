@@ -1,0 +1,16 @@
+# Agent recovery after outage/rejected run — regression for the shared, poisoned log outbox (2026-11-19T20:27:26+03:00)
+## state of the shared per-user outbox left by the previous build (events per agent/site):
+{('agent-iosv', 'iosv-lab'): 44, ('agent-iosv', 'vendor-lab'): 6, ('agent-vendor', 'vendor-lab'): 44}
+## B1 fixed agent-vendor run, forced onto that poisoned shared outbox
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+exit=0
+## B2 fixed agent-iosv run on the same shared outbox
+reported execution 47f7959a1ac2829f2a8a53fb4658d99cc3f7c274b707c21f432c040cee6badf9
+exit=0
+## remaining queued events (only the undeliverable cross-site ones must remain):
+{('agent-iosv', 'vendor-lab'): 6}
+## B3 default configuration now keeps each Agent's outbox in its state directory
+exit=0
+/lab/adata-agent-vendor/logs
+events.jsonl
+pending-events.json

@@ -1,0 +1,18 @@
+# cisco.ios.configure on Cisco IOSv 15.9(3)M6 (r1, 192.0.2.11) — SSH algorithm policy and host-key pinning (2026-11-19T20:33:53+03:00)
+## console-derived host key (show crypto key mypubkey rsa -> PKCS8 -> OpenSSH):
+ 2048 SHA256:ENQMrnA8LDaGEfBcikuWBqX9pGRFF2u1SKnHt/4me0k no comment (RSA)
+
+## S1 default policy (no SHA-1 exception), empty known_hosts
+ execution exec-4d8f608b77f4073ff03d18f192adbe45 failed:
+ error: ssh: no common algorithm for key exchange; we offered: [mlkem768x25519-sha256 curve25519-sha256 ... diffie-hellman-group14-sha256 diffie-hellman-group16-sha512 diffie-hellman-group-exchange-sha256 ...], peer offered: [diffie-hellman-group-exchange-sha1 diffie-hellman-group14-sha1]; the device may only offer legacy SHA-1 algorithms, which are disabled by default. If this is accepted risk, add "vendor-lab/r1" to ssh_legacy_sha1_targets in the Provider configuration
+ssh_legacy_sha1_targets: [vendor-lab/r1]
+
+## S2 exception vendor-lab/r1 granted, known_hosts still empty (unknown host must fail closed)
+ submit HTTP 202 | id exec-32ebda92bbea763ef0b52fba41ad8f33 | final failed
+ error: SSH connection to target r1 (192.0.2.11) failed: ssh handshake with 192.0.2.11:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.11:22: presented ssh-rsa SHA256:ENQMrnA8LDaGEfBcikuWBqX9pGRFF2u1SKnHt/4me0k
+ attempt: 2026-11-19T17:34:20.361265759Z -> 2026-11-19T17:34:20.420652987Z
+
+## S3 console-derived key added to known_hosts (no restart): apply
+ submit HTTP 202 | id exec-eff54b038bbf48225647a9212d9aa794 | final succeeded
+ result: {"observed_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r1", "interfaces": [{"admin_state": "down", "name": "GigabitEthernet0/2"}]}, "verified": true}
+ attempt: 2026-11-19T17:34:20.777994562Z -> 2026-11-19T17:34:21.634714635Z

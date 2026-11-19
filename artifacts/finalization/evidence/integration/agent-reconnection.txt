@@ -1,0 +1,17 @@
+# Connection loss and automatic reconnection (2026-11-19T20:27:38+03:00); agent-vendor runs with -interval 5s, heartbeat 10s, Provider heartbeat timeout 30s
+## T+12s Provider up
+ agent-vendor status: online last_heartbeat: 2026-11-19T17:27:49.09804492Z
+## Provider stopped at 20:27:50
+ agent errors while Provider down: 11
+ agent process still running
+provider ready
+## Provider restarted at 20:28:17
+ agent-vendor status: unknown last_heartbeat: 2026-11-19T17:27:49.09804492Z
+## T+20s after restart
+ agent-vendor status: online last_heartbeat: 2026-11-19T17:28:35.533666047Z
+time=2026-11-19T17:28:19.231Z level=ERROR msg="agent run failed" event=agent.run.failed service=agent source=agent-runner agent_id=agent-vendor correlation_id=5ce3fea389bc8bba5d709e688e0df42a error="load provider catalog: list provider artifacts: rpc error: co
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+## 35s after the Agent process was stopped (heartbeat timeout 30s)
+ agent-vendor status: offline last_heartbeat: 2026-11-19T17:28:35.533666047Z

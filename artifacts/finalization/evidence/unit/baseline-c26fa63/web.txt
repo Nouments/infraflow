@@ -1,0 +1,12 @@
+✔ splits complete SSE frames and preserves an incomplete suffix (1.951492ms)
+✔ decodes the server event_id and SSE id cursor (0.752333ms)
+✔ handles reset and error control frames without treating them as logs (1.665433ms)
+✔ rejects malformed events and deduplicates by event_id (1.234892ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 132.238247

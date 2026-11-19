@@ -1,0 +1,33 @@
+# cisco.ios.configure on IOSv r1: automatic rollback on a real IOS rejection, idempotency (2026-11-19T20:34:37+03:00)
+## R1 request Gi0/2 192.0.2.50/24, which overlaps Gi0/0 192.0.2.11/24; IOS rejects the address after the description was applied
+ submit HTTP 202 | id exec-667a7392acbe0d30f00f14e6eafc7c8c | final failed
+ error: configuration application failed after 2 command(s): failed executing "ip address 192.0.2.50 255.255.255.0": command rejected by Cisco IOS on command "ip address 192.0.2.50 255.255.255.0": 192.0.2.0 overlaps with GigabitEthernet0/0; changes were rolled back to the preflight state and the rollback was verified by read-back
+ attempt: 2026-11-19T17:34:37.278924Z -> 2026-11-19T17:34:37.574301973Z
+
+## R2 independent console read of Gi0/2 after the failed execution
+show running-config interface GigabitEthernet0/2
+Building configuration...
+
+Current configuration : 148 bytes
+!
+interface GigabitEthernet0/2
+ description infraflow managed
+ ip address 198.18.0.1 255.255.255.252
+ duplex auto
+ speed auto
+ media-type rj45
+end
+
+r1-infraflow#
+['*Nov 19 17:34:36.343: %SYS-5-CONFIG_I: Configured from console by infraflow on vty0 (192.0.2.2)', '*Nov 19 17:34:36.412: %SYS-5-CONFIG_I: Configured from console by infraflow on vty0 (192.0.2.2)', 'r1-infraflow#']
+
+## I1 first submission with key K
+ submit HTTP 202 | id exec-c3325bbce32fc1bbc0b50e5680e98362 | final succeeded
+ result: {"observed_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "verified": true}
+ attempt: 2026-11-19T17:34:42.275286745Z -> 2026-11-19T17:34:43.092181831Z
+## I2 same key, same body (replay)
+ submit HTTP 200 | id exec-c3325bbce32fc1bbc0b50e5680e98362 | final succeeded
+ result: {"observed_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "verified": true}
+ attempt: 2026-11-19T17:34:42.275286745Z -> 2026-11-19T17:34:43.092181831Z
+## I3 same key, different body
+ submit HTTP 409 | id idempotency key was used for a different request | final None

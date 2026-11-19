@@ -1,0 +1,32 @@
+# cisco.ios.configure failure handling against IOSv r1 (2026-11-19T20:35:00+03:00)
+## F1 device unreachable (blackhole route for 192.0.2.11 on the Provider host)
+ submit HTTP 202 | id exec-d04591ce05ba8468bbf2aafbb1ca2106 | final failed
+ error: SSH connection to target r1 (192.0.2.11) failed: connect to 192.0.2.11:22: dial tcp 192.0.2.11:22: connect: invalid argument
+ attempt: 2026-11-19T17:35:01.215549863Z -> 2026-11-19T17:35:01.217716771Z
+
+## F2 invalid device credentials (Provider restarted with a wrong password)
+ submit HTTP 202 | id exec-a01f1e711f89cff78ea06c7d6923f5a4 | final failed
+ error: SSH connection to target r1 (192.0.2.11) failed: ssh handshake with 192.0.2.11:22: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain
+ attempt: 2026-11-19T17:35:03.385625937Z -> 2026-11-19T17:35:05.479462015Z
+
+## F3 device absent from the published inventory
+ submit HTTP 202 | id exec-6da12d68a9c07fb8e95720878c0a8dcf | final failed
+ error: target device authorization failed: target device is not authorized or not found: vendor-lab/r9
+ attempt: 2026-11-19T17:35:07.633140509Z -> 2026-11-19T17:35:07.635421182Z
+
+## F4 inventory device of another vendor (mt1, MikroTik) through the Cisco executor
+ submit HTTP 202 | id exec-58c214167a5fc13e0f1a2f87e4f0bbf5 | final failed
+ error: target device authorization failed: target device vendor is not supported by this executor: expected cisco, got "mikrotik"
+ attempt: 2026-11-19T17:35:08.104653802Z -> 2026-11-19T17:35:08.106616178Z
+
+## F5 automatic retry policy on a device-mutating task
+ submit HTTP 400 | id invalid execution request: cisco.ios.configure does not allow automatic retries | final None
+ response: {'error': 'invalid execution request: cisco.ios.configure does not allow automatic retries'}
+
+## F1b device silent (tc netem 100% loss on the Provider host's lab interface): connect timeout
+ netem active
+ submit HTTP 202 | id exec-73ae822bde22d69cf03b446d91ee5326 | final failed
+ error: SSH connection to target r1 (192.0.2.11) failed: connect to 192.0.2.11:22: dial tcp 192.0.2.11:22: i/o timeout
+ attempt: 2026-11-19T17:35:18.000851122Z -> 2026-11-19T17:35:28.004874432Z
+ netem removed
+ r1 reachable again

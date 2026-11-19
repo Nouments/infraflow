@@ -1,0 +1,11 @@
+# Runtime expiry of a scoped Agent credential (2026-11-19T20:29:24+03:00); agent-vendor expires_at=2026-11-19T17:30:24Z
+## C1 before expiry
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+exit=0
+## waiting until after expiry
+## C2 after expiry (17:30:29Z)
+infraflow-agent: register agent: provider API returned HTTP 401: {"error":"authentication required"}
+exit=1
+## C3 credential restored (7-day expiry)
+reported execution 85849c4b47e667e7efc82772a7053dac741598a02eec61e8d7a5c5de8054b6c3
+exit=0

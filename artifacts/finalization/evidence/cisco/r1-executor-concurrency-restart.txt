@@ -1,0 +1,22 @@
+# Concurrency and Provider crash recovery, cisco.ios.configure on IOSv r1 (2026-11-19T20:36:10+0300)
+## K1 two executions submitted at the same time for the same device
+ exec-13b7c0a667ccc85708b25e968e7587d2: succeeded verified=True attempt 2026-11-19T17:36:10.231322963Z -> 2026-11-19T17:36:10.534788509Z
+ exec-fbe0e00ca7cc17e9b3685461769d23af: succeeded verified=True attempt 2026-11-19T17:36:10.236878441Z -> 2026-11-19T17:36:10.815247854Z
+ router log (SSH session open/close and config events, in device time):
+  *Nov 19 17:36:08.625: %SYS-5-CONFIG_I: Configured from console by console
+  *Nov 19 17:36:09.180: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.0.2.2 (tty = 0) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256' Succeeded
+  *Nov 19 17:36:09.357: %SYS-5-CONFIG_I: Configured from console by infraflow on vty0 (192.0.2.2)
+  *Nov 19 17:36:09.410: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.0.2.2 (tty = 0) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256' closed
+  *Nov 19 17:36:09.473: %SSH-5-SSH2_SESSION: SSH2 Session request from 192.0.2.2 (tty = 1) using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256' Succeeded
+  *Nov 19 17:36:09.638: %SYS-5-CONFIG_I: Configured from console by infraflow on vty1 (192.0.2.2)
+  *Nov 19 17:36:09.689: %SSH-5-SSH2_CLOSE: SSH2 Session from 192.0.2.2 (tty = 1) for user '' using crypto cipher 'aes128-ctr', hmac 'hmac-sha2-256' closed
+
+## K2 Provider killed (SIGKILL) while an execution is running
+ submitted: 202 exec-b15e278caca017004aad5e3b58329996
+ provider killed 0.15 s after submission
+provider ready
+ after restart: execution failed | task failed | provider restarted while task outcome was unknown
+ device afterwards:
+  show running-config interface GigabitEthernet0/3 | include descr$g-config interface GigabitEthernet0/3 | include descri         ption|shunterface GigabitEthernet0/3 | include description|shut         down
+   shutdown
+  r1-infraflow#

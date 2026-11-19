@@ -1,0 +1,58 @@
+# R2 Cisco 7200 post-AutoInstall check (read-only commands), console 2026-11-19T20:31:52+0300
+
+r2#terminal length 0
+r2#show version | include IOS Software|uptime
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+r2 uptime is 0 minutes
+r2#
+show running-config | include ^hostname
+otocol on Interface FastEthernet0/0, changed state to up
+*Nov 19 17:30:53.075: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/0, changed state to up
+*Nov 19 17:30:53.083: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/1, changed state to up
+*Nov 19 17:30:53.083: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/0, changed state to up
+*Nov 19 17:30:53.091: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/1, changed state to up
+*Nov 19 17:30:53.095: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/0, changed state to up
+*Nov 19 17:30:53.099: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/1, changed state to up
+*Nov 19 17:30:53.103: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/2, changed state to up
+*Nov 19 17:30:53.111: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/3, changed state to up
+*Nov 19 17:31:01.207: AUTOINSTALL: FastEthernet0/0 is assigned 192.0.2.12
+*Nov 19 17:31:01.2hostname r2
+r2#
+11: AUTOINSTALL: Obtain tftp server name 192.0.2.2resolved to 192.0.2.2
+*Nov 19 17:31:14.931: %PARSER-4-BADCFG: Unexpected end of configuration file.
+
+*Nov 19 17:31:14.931: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/network-confg by console
+*Nov 19 17:31:31.763: %PARSER-4-BADCFG: Unexpected end of configuration file.
+
+*Nov 19 17:31:31.763: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/r2-confg by console
+*Nov 19 17:31:33.919: %LINK-5-CHANGED: Interface FastEthernet1/0, changed state to administratively down
+*Nov 19 17:31:33.919: %LINK-5-CHANGED: Interface FastEthernet1/1, changed state to administratively down
+*Nov 19 17:31:33.923: %LINK-5-CHANGED: Interface FastEthernet2/0, changed state to administratively down
+*Nov 19 17:31:33.923: %LINK-5-CHANGED: Interface FastEthernet2/1, changed state to administratively down
+*Nov 19 17:31:33.927: %LINK-5-CHANGED: Interface Ethernet3/0, changed state to administratively down
+*Nov 19 17:31:33.927: %LINK-5-CHANGED: Interfacshow running-config interface FastEthernet0/0
+Building configuration...
+
+Current configuration : 83 bytes
+!
+interface FastEthernet0/0
+ ip address 192.0.2.12 255.255.255.0
+ duplex half
+end
+
+r2#
+show ip interface brief | include FastEthernet0/0
+FastEthernet0/0            192.0.2.12      YES TFTP   up                    up      
+r2#
+show ip route static
+S    203.0.113.0/24 [1/0] via 192.0.2.2
+r2#
+ping 203.0.113.1 repeat 5
+
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 203.0.113.1, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 4/8/16 ms
+r2#
+show startup-config | include hostname
+r2#
