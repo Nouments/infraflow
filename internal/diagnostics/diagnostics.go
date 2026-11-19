@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"infraflow/pkg/observability"
+	"infraflow/pkg/protocol"
 )
 
 const (
@@ -48,6 +49,10 @@ const (
 	StageReport        = "Provider report"
 	StageDevicePostChk = "device post-check"
 )
+
+// minIgnoredOffers is how many unanswered offers distinguish a client that
+// ignores offers from a single lost packet.
+const minIgnoredOffers = 3
 
 var stageOrder = []string{
 	StageProfile, StageConnectivity, StageAuth, StageRegistration, StageHeartbeat, StageSync,
@@ -251,12 +256,41 @@ func readSource(input io.Reader, file SourceFile) ([]Event, error) {
 				timestamp = fields[0]
 			}
 		}
-		events = append(events, Event{Timestamp: timestamp, Source: safe(file.Name + ":" + filepath.Base(file.Path)), Message: raw, Raw: raw})
+		event := Event{Timestamp: timestamp, Source: safe(file.Name + ":" + filepath.Base(file.Path)), Message: raw, Raw: raw}
+		parseServiceLine(&event, fields)
+		events = append(events, event)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 	return events, nil
+}
+
+// serviceEventName matches the canonical event names printed by the Agent's
+// standalone DHCP/TFTP/bootstrap HTTP services.
+var serviceEventName = regexp.MustCompile(`^(dhcp|tftp|bootstrap\.http)\.[a-z_.]+$`)
+
+// parseServiceLine recovers the event name, level and reserved device of a
+// line printed by an Agent bootstrap service started without -agent-config:
+// "<RFC3339> <LEVEL> <event> <detail...>". Detail of the form
+// "reservation <device>" names the reserved device; anything else stays text.
+func parseServiceLine(event *Event, fields []string) {
+	if event.Timestamp == "" || len(fields) < 3 || !serviceEventName.MatchString(fields[2]) {
+		return
+	}
+	switch fields[1] {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+	default:
+		return
+	}
+	event.Level, event.Name = fields[1], fields[2]
+	event.Detail = strings.Join(fields[3:], " ")
+	for index := 3; index+1 < len(fields); index++ {
+		if fields[index] == "reservation" && protocol.ValidSiteName(fields[index+1]) {
+			event.DeviceID = fields[index+1]
+			break
+		}
+	}
 }
 
 // Analyze correlates events without Provider-side Agent connectivity context.
@@ -298,6 +332,7 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 	uncorrelated := false
 	var joined strings.Builder
 	sawDiscover := false
+	offersSent := 0
 	for position, event := range events {
 		if (filter.RunID != "" && event.RunID == "") || (filter.DeviceID != "" && event.DeviceID == "") {
 			uncorrelated = true
@@ -323,6 +358,9 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 		}
 		if info.code == "DHCP_DISCOVER" {
 			sawDiscover = true
+		}
+		if info.code == "DHCP_OFFER" {
+			offersSent++
 		}
 		outcomeLabel := "observed"
 		if !info.info {
@@ -377,6 +415,16 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 	}
 	if failure.info.name == "" {
 		failure = weakFailure
+	}
+	// Inferred DHCP failure: offers were sent repeatedly but the client never
+	// requested the lease. The server side worked; the client ignored or never
+	// received the offers.
+	if failure.info.name == "" && sawDiscover && offersSent >= minIgnoredOffers && !successful[StageDHCP] {
+		failure = outcome{info: stageInfo{
+			name: StageDHCP, code: "DHCP_OFFER_NOT_ACCEPTED", inferred: true,
+			fail:   fmt.Sprintf("The DHCP server sent %d offers but the client never requested the lease; the server answered, the client did not accept or did not receive the offers.", offersSent),
+			action: "Capture on the client segment to confirm the offers reach the device, check the device's own DHCP client log (for Cisco: debug dhcp detail, show pnp tech summary), and compare with a reference DHCP server before changing InfraFlow's offer.",
+		}}
 	}
 	// Inferred DHCP failure: Discover observed, no lease confirmed.
 	if failure.info.name == "" && sawDiscover && !successful[StageDHCP] {
@@ -760,7 +808,10 @@ func classify(event Event) (stageInfo, bool) {
 	if strings.Contains(text, "dhcp offer") || strings.Contains(text, "dhcpoffer") || strings.Contains(text, "lease assigned") || strings.Contains(text, "dhcp ack") || strings.Contains(text, "dhcpack") {
 		return stageInfo{name: StageDHCP, code: "DHCP_LEASE_ASSIGNED"}, true
 	}
-	if strings.Contains(text, "file not found") || strings.Contains(text, "no such file") || strings.Contains(text, "unknown transfer id") {
+	// "File not found" alone is not a TFTP failure: IOS prints it for local
+	// flash probes too (for example "%Error opening flash0:ios_config.txt").
+	if strings.Contains(text, "unknown transfer id") ||
+		(strings.Contains(text, "tftp") && (strings.Contains(text, "file not found") || strings.Contains(text, "no such file"))) {
 		return stageInfo{name: StageTFTP, code: "TFTP_FILE_MISSING", fail: "The device requested a bootstrap filename that the TFTP server could not serve.", action: "Compare the device RRQ filename with the generated TFTP allowlist and staged file names."}, false
 	}
 	if strings.Contains(text, "tftp timeout") || strings.Contains(text, "tftp failed") || strings.Contains(text, "transfer timed out") {
