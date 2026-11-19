@@ -55,8 +55,17 @@ type CiscoIOSTransport interface {
 // SSHIOSTransport implements CiscoIOSTransport using golang.org/x/crypto/ssh.
 type SSHIOSTransport struct {
 	verifier       HostKeyVerifier
+	policy         *SSHAlgorithmPolicy
 	connectTimeout time.Duration
 	commandTimeout time.Duration
+}
+
+// WithAlgorithmPolicy replaces the default (SHA-1 free) SSH algorithm policy.
+func (t *SSHIOSTransport) WithAlgorithmPolicy(policy *SSHAlgorithmPolicy) *SSHIOSTransport {
+	if policy != nil {
+		t.policy = policy
+	}
+	return t
 }
 
 // NewSSHIOSTransport creates an SSH-backed Cisco IOS transport.
@@ -72,6 +81,7 @@ func NewSSHIOSTransport(verifier HostKeyVerifier, connectTimeout, commandTimeout
 	}
 	return &SSHIOSTransport{
 		verifier:       verifier,
+		policy:         &SSHAlgorithmPolicy{},
 		connectTimeout: connectTimeout,
 		commandTimeout: commandTimeout,
 	}, nil
@@ -103,7 +113,7 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 	stopConnectWatch := context.AfterFunc(ctx, func() { _ = tcpConn.Close() })
 	defer stopConnectWatch()
 
-	sshConfig, err := t.buildSSHConfig(addr, creds)
+	sshConfig, err := t.buildSSHConfig(addr, target, creds)
 	if err != nil {
 		_ = tcpConn.Close()
 		return nil, err
@@ -112,7 +122,7 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 	sshConn, chans, reqs, err := ssh.NewClientConn(tcpConn, addr, sshConfig)
 	if err != nil {
 		_ = tcpConn.Close()
-		return nil, fmt.Errorf("ssh handshake with %s: %w", addr, err)
+		return nil, fmt.Errorf("ssh handshake with %s: %w", addr, t.policy.explainAlgorithmMismatch(target, err))
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 
@@ -179,7 +189,7 @@ func (t *SSHIOSTransport) Connect(ctx context.Context, target AuthorizedDevice, 
 	return sess, nil
 }
 
-func (t *SSHIOSTransport) buildSSHConfig(addr string, creds credentials.DeviceCredentials) (*ssh.ClientConfig, error) {
+func (t *SSHIOSTransport) buildSSHConfig(addr string, target AuthorizedDevice, creds credentials.DeviceCredentials) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 	if creds.Password != "" {
 		authMethods = append(authMethods, ssh.Password(creds.Password))
@@ -201,14 +211,16 @@ func (t *SSHIOSTransport) buildSSHConfig(addr string, creds credentials.DeviceCr
 		return nil, errors.New("no authentication methods available for device")
 	}
 
-	return &ssh.ClientConfig{
+	config := &ssh.ClientConfig{
 		User: creds.Username,
 		Auth: authMethods,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			return t.verifier.Verify(hostname, remote, key)
 		},
 		Timeout: t.connectTimeout,
-	}, nil
+	}
+	t.policy.Apply(target, config)
+	return config, nil
 }
 
 type liveCiscoIOSSession struct {

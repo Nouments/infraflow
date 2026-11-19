@@ -458,8 +458,8 @@ func TestCiscoIOSConfigurePartialResultDetection(t *testing.T) {
 	if !strings.Contains(res.Error, "after 2 command(s)") {
 		t.Fatalf("expected mention of applied commands count, got %s", res.Error)
 	}
-	if !strings.Contains(res.Error, "router state is uncertain and must be re-read before any retry") {
-		t.Fatalf("partial configuration did not require a state read-back: %s", res.Error)
+	if !strings.Contains(res.Error, "rollback was verified by read-back") {
+		t.Fatalf("partial configuration did not report a verified rollback: %s", res.Error)
 	}
 }
 
@@ -484,8 +484,14 @@ rtr-core-01#`
 	if err == nil || res.Status != domain.ExecutionTaskFailed {
 		t.Fatalf("expected failure when observed state differs from requested, got res=%+v, err=%v", res, err)
 	}
-	if len(res.Output) != 0 || !strings.Contains(res.Error, "router state must be re-read before any retry") {
-		t.Fatalf("verification failure was reported as partial success or omitted the read-back requirement: %+v", res)
+	var failed CiscoIOSConfigureResult
+	if err := json.Unmarshal(res.Output, &failed); err != nil || failed.Verified || failed.Status != "failed" || failed.Rollback == nil {
+		t.Fatalf("verification failure was reported as success or without rollback evidence: %+v", res)
+	}
+	// The mock keeps reporting the preflight address, so the restored state is
+	// observed and the rollback is verified; the task itself still fails.
+	if !failed.Rollback.Verified || !strings.Contains(res.Error, "rollback was verified by read-back") {
+		t.Fatalf("rollback outcome missing from failure: %+v", res)
 	}
 	if !strings.Contains(res.Error, "verification failed") || !strings.Contains(res.Error, "ipv4 mismatch") {
 		t.Fatalf("unexpected error message: %s", res.Error)
@@ -735,8 +741,8 @@ func TestCiscoIOSConfigureIntegrationWithExecutionService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wait timeout execution failed: %v", err)
 	}
-	if len(timeoutResult.Tasks) != 1 || len(timeoutResult.Tasks[0].Attempts) != 1 || timeoutResult.Tasks[0].Status != domain.ExecutionTaskFailed || !strings.Contains(timeoutResult.Tasks[0].Error, "router state is uncertain and must be re-read before any retry") {
-		t.Fatalf("uncertain Cisco configuration was retried or not flagged: %#v", timeoutResult.Tasks)
+	if len(timeoutResult.Tasks) != 1 || len(timeoutResult.Tasks[0].Attempts) != 1 || timeoutResult.Tasks[0].Status != domain.ExecutionTaskFailed || !strings.Contains(timeoutResult.Tasks[0].Error, "rolled back to the preflight state and the rollback was verified") {
+		t.Fatalf("uncertain Cisco configuration was retried or its rollback was not reported: %d attempts, error %q", len(timeoutResult.Tasks[0].Attempts), timeoutResult.Tasks[0].Error)
 	}
 	var hostnameAttempts int
 	for _, command := range session.recordedCmds {

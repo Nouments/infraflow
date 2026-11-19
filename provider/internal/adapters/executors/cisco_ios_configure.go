@@ -64,7 +64,19 @@ type CiscoIOSConfigureResult struct {
 	PreviousChanges  ObservedChanges  `json:"previous_changes"`
 	ObservedChanges  ObservedChanges  `json:"observed_changes"`
 	Verified         bool             `json:"verified"`
+	Rollback         *RollbackResult  `json:"rollback,omitempty"`
+	Error            string           `json:"error,omitempty"`
 	Warnings         []string         `json:"warnings,omitempty"`
+}
+
+// RollbackResult records the automatic restoration of the preflight state
+// after a failed apply or a failed verification.
+type RollbackResult struct {
+	Attempted bool            `json:"attempted"`
+	Verified  bool            `json:"verified"`
+	Commands  int             `json:"commands"`
+	Observed  ObservedChanges `json:"observed"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // RequestedChanges mirrors the requested changes.
@@ -85,7 +97,12 @@ type ObservedInterfaceConfig struct {
 	Description string `json:"description,omitempty"`
 	IPv4Address string `json:"ipv4_address,omitempty"`
 	SubnetMask  string `json:"subnet_mask,omitempty"`
-	AdminState  string `json:"admin_state"`
+	// IPv4DHCP is true when the primary address is "ip address dhcp".
+	IPv4DHCP bool `json:"ipv4_dhcp,omitempty"`
+	// IPv4Unmanaged is set when the interface carries address forms the
+	// executor does not manage (secondary, negotiated, unnumbered...).
+	IPv4Unmanaged bool   `json:"ipv4_unmanaged,omitempty"`
+	AdminState    string `json:"admin_state"`
 }
 
 // CiscoIOSConfigureExecutor implements ports.ExecutionExecutor to securely apply and verify typed Cisco IOS configurations.
@@ -270,6 +287,17 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
 	}
 
+	if target.Vendor != "cisco" {
+		safeMsg := fmt.Sprintf("target device authorization failed: %v", ErrTargetVendorUnsupported)
+		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+	}
+	release, err := sharedDeviceLocks.Acquire(ctx, params.Site, params.DeviceID)
+	if err != nil {
+		safeMsg := err.Error() + "; no configuration changes were requested"
+		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+	}
+	defer release()
+
 	// 2. Resolve credentials safely
 	creds, err := e.credentialResolver.ResolveDeviceCredentials(ctx, params.Site, params.DeviceID)
 	if err != nil {
@@ -402,10 +430,10 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 
 	if configErr != nil {
 		safeMsg := fmt.Sprintf("configuration application failed after %d command(s): %s", len(appliedCommands), sanitizeErrorWithCreds(configErr, creds))
-		if mutationMayHaveStarted {
-			safeMsg += "; router state is uncertain and must be re-read before any retry"
+		if !mutationMayHaveStarted {
+			return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
 		}
-		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+		return e.failWithRollback(ctx, session, params, previous, target, creds, safeMsg)
 	}
 
 	if ctx.Err() != nil {
@@ -419,8 +447,8 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 	// 7. Read-back verification phase
 	observed, verifyErr := e.verifyRunningConfig(ctx, session, params)
 	if verifyErr != nil {
-		safeMsg := fmt.Sprintf("verification failed: %s; router state must be re-read before any retry", sanitizeErrorWithCreds(verifyErr, creds))
-		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: safeMsg}, errors.New(safeMsg)
+		safeMsg := fmt.Sprintf("verification failed: %s", sanitizeErrorWithCreds(verifyErr, creds))
+		return e.failWithRollback(ctx, session, params, previous, target, creds, safeMsg)
 	}
 
 	// 8. Assemble structured result
@@ -456,6 +484,153 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		Status: domain.ExecutionTaskSucceeded,
 		Output: resultPayload,
 	}, nil
+}
+
+// failWithRollback restores the preflight state of every field the task
+// manages, reads it back, and reports a failed execution that states whether
+// the device is known to be back in its previous state.
+func (e *CiscoIOSConfigureExecutor) failWithRollback(ctx context.Context, session CiscoIOSSession, params CiscoIOSConfigureParameters, previous ObservedChanges, target AuthorizedDevice, creds credentials.DeviceCredentials, failure string) (ports.ExecutionResult, error) {
+	rollback := e.rollback(ctx, session, params, previous)
+	msg := failure
+	if rollback.Verified {
+		msg += "; changes were rolled back to the preflight state and the rollback was verified by read-back"
+	} else {
+		rollback.Error = sanitizeErrorWithCreds(errors.New(rollback.Error), creds)
+		msg += "; rollback failed: " + rollback.Error + "; router state is uncertain and must be re-read before any retry"
+	}
+	family := target.Family
+	if family == "" {
+		family = "ios"
+	}
+	output, _ := json.Marshal(CiscoIOSConfigureResult{
+		Operation:        CiscoIOSConfigureType,
+		Site:             params.Site,
+		DeviceID:         params.DeviceID,
+		Vendor:           "cisco",
+		Family:           family,
+		ExecutedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+		Status:           string(domain.ExecutionTaskFailed),
+		RequestedChanges: RequestedChanges{Hostname: params.Hostname, Interfaces: params.Interfaces},
+		PreviousChanges:  previous,
+		Verified:         false,
+		Rollback:         &rollback,
+		Error:            msg,
+	})
+	return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: msg, Output: output}, errors.New(msg)
+}
+
+// rollbackCommands derives the commands that restore the preflight values of
+// the fields this task changed. It refuses interfaces whose addressing the
+// executor cannot represent, rather than deleting it.
+func rollbackCommands(params CiscoIOSConfigureParameters, previous ObservedChanges) ([]string, error) {
+	commands := []string{"configure terminal"}
+	if params.Hostname != "" && !strings.EqualFold(previous.Hostname, params.Hostname) {
+		if previous.Hostname == "" || !hostnamePattern.MatchString(previous.Hostname) {
+			return nil, errors.New("preflight hostname is unknown; it cannot be restored")
+		}
+		commands = append(commands, "hostname "+previous.Hostname)
+	}
+	for index, requested := range params.Interfaces {
+		if index >= len(previous.Interfaces) || previous.Interfaces[index].Name != requested.Name {
+			return nil, fmt.Errorf("preflight state of %s is missing", requested.Name)
+		}
+		before := previous.Interfaces[index]
+		var restore []string
+		// A field whose preflight value equals the request cannot have been
+		// changed by the failed apply, so it is left untouched.
+		if before.Description != requested.Description {
+			if before.Description == "" {
+				restore = append(restore, "no description")
+			} else {
+				restore = append(restore, "description "+before.Description)
+			}
+		}
+		if requested.IPv4CIDR != "" {
+			reqIP, reqMask := cidrToIPAndMask(requested.IPv4CIDR)
+			if before.IPv4DHCP || before.IPv4Unmanaged || before.IPv4Address != reqIP || before.SubnetMask != reqMask {
+				switch {
+				case before.IPv4Unmanaged:
+					return nil, fmt.Errorf("preflight IPv4 configuration of %s is not managed by this executor", requested.Name)
+				case before.IPv4DHCP:
+					restore = append(restore, "ip address dhcp")
+				case before.IPv4Address != "":
+					restore = append(restore, "ip address "+before.IPv4Address+" "+before.SubnetMask)
+				default:
+					restore = append(restore, "no ip address")
+				}
+			}
+		}
+		if before.AdminState != requested.AdminState {
+			if before.AdminState == "down" {
+				restore = append(restore, "shutdown")
+			} else {
+				restore = append(restore, "no shutdown")
+			}
+		}
+		if len(restore) > 0 {
+			commands = append(commands, "interface "+requested.Name)
+			commands = append(commands, restore...)
+			commands = append(commands, "exit")
+		}
+	}
+	return append(commands, "end"), nil
+}
+
+func (e *CiscoIOSConfigureExecutor) rollback(ctx context.Context, session CiscoIOSSession, params CiscoIOSConfigureParameters, previous ObservedChanges) RollbackResult {
+	result := RollbackResult{}
+	if ctx.Err() != nil {
+		result.Error = "rollback not attempted: " + ctx.Err().Error()
+		return result
+	}
+	commands, err := rollbackCommands(params, previous)
+	if err != nil {
+		result.Error = "rollback not attempted: " + err.Error()
+		return result
+	}
+	result.Attempted = true
+	// A failed command can leave the CLI in a configuration sub-mode.
+	_, _ = session.RunCommand(ctx, "end")
+	for _, command := range commands {
+		if _, err := session.RunCommand(ctx, command); err != nil {
+			result.Error = fmt.Sprintf("rollback command %q failed: %v", command, err)
+			if command != "end" {
+				_, _ = session.RunCommand(ctx, "end")
+			}
+			return result
+		}
+		result.Commands++
+	}
+	observed, err := e.readRunningConfig(ctx, session, params)
+	result.Observed = observed
+	if err != nil {
+		result.Error = "rollback read-back failed: " + err.Error()
+		return result
+	}
+	if err := compareWithPrevious(params, previous, observed); err != nil {
+		result.Error = "rollback verification failed: " + err.Error()
+		return result
+	}
+	result.Verified = true
+	return result
+}
+
+func compareWithPrevious(params CiscoIOSConfigureParameters, previous, observed ObservedChanges) error {
+	if params.Hostname != "" && !strings.EqualFold(previous.Hostname, observed.Hostname) {
+		return fmt.Errorf("hostname is %q, preflight was %q", observed.Hostname, previous.Hostname)
+	}
+	for index, requested := range params.Interfaces {
+		if index >= len(observed.Interfaces) {
+			return fmt.Errorf("interface %s is missing from read-back", requested.Name)
+		}
+		before, after := previous.Interfaces[index], observed.Interfaces[index]
+		if before.Description != after.Description || before.AdminState != after.AdminState {
+			return fmt.Errorf("interface %s description/admin state differ from preflight", requested.Name)
+		}
+		if requested.IPv4CIDR != "" && (before.IPv4Address != after.IPv4Address || before.SubnetMask != after.SubnetMask || before.IPv4DHCP != after.IPv4DHCP) {
+			return fmt.Errorf("interface %s IPv4 differs from preflight", requested.Name)
+		}
+	}
+	return nil
 }
 
 // verifyRunningConfig reads the active configuration from the device and compares it to requested changes.
@@ -610,10 +785,17 @@ func parseInterfaceFromRunningConfig(ifaceName, output string) ObservedInterface
 			obs.Description = strings.TrimPrefix(trimmed, "description ")
 		case strings.HasPrefix(trimmed, "ip address "):
 			fields := strings.Fields(trimmed)
-			if len(fields) >= 4 {
+			switch {
+			case len(fields) == 3 && fields[2] == "dhcp":
+				obs.IPv4DHCP = true
+			case len(fields) == 4:
 				obs.IPv4Address = fields[2]
 				obs.SubnetMask = fields[3]
+			default:
+				obs.IPv4Unmanaged = true
 			}
+		case strings.HasPrefix(trimmed, "ip unnumbered "), strings.HasPrefix(trimmed, "ip address negotiated"):
+			obs.IPv4Unmanaged = true
 		case trimmed == "shutdown":
 			obs.AdminState = "down"
 		}

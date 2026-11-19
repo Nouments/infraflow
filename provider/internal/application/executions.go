@@ -344,8 +344,8 @@ func (service *ExecutionService) validateRequest(request ExecutionRequest) ([]do
 		if input.MaxAttempts < 1 || input.MaxAttempts > maxExecutionAttempts || input.RetryInitialMillis < 0 || input.RetryInitialMillis > 30000 || input.RetryMaxMillis < 0 || input.RetryMaxMillis > 60000 || input.RetryInitialMillis > 0 && input.RetryMaxMillis == 0 || input.RetryMaxMillis > 0 && input.RetryInitialMillis > input.RetryMaxMillis {
 			return nil, "", fmt.Errorf("%w: retry policy is out of range", ErrInvalidExecution)
 		}
-		if input.Type == "cisco.ios.configure" && (input.MaxAttempts > 1 || input.RetryInitialMillis > 0 || input.RetryMaxMillis > 0) {
-			return nil, "", fmt.Errorf("%w: cisco.ios.configure does not allow automatic retries", ErrInvalidExecution)
+		if deviceMutatingTask(input.Type, executor) && (input.MaxAttempts > 1 || input.RetryInitialMillis > 0 || input.RetryMaxMillis > 0) {
+			return nil, "", fmt.Errorf("%w: %s does not allow automatic retries", ErrInvalidExecution, input.Type)
 		}
 		parameters, err := normalizeExecutionJSON(input.Parameters, true)
 		if err != nil {
@@ -1012,4 +1012,16 @@ func validExecutionStatus(status domain.ExecutionStatus) bool {
 	default:
 		return false
 	}
+}
+
+// deviceMutatingTask reports task types whose failure can leave a network
+// device partially changed. They never get automatic retries: an operator
+// must re-read the device first.
+func deviceMutatingTask(taskType string, executor ports.ExecutionExecutor) bool {
+	switch taskType {
+	case "cisco.ios.configure", "mikrotik.routeros.import":
+		return true
+	}
+	neverRetry, ok := executor.(interface{ NeverRetry() bool })
+	return ok && neverRetry.NeverRetry()
 }

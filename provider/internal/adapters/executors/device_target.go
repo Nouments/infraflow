@@ -16,7 +16,7 @@ import (
 
 var (
 	ErrTargetNotFound            = errors.New("target device is not authorized or not found")
-	ErrTargetVendorUnsupported   = errors.New("target device vendor is not supported by Cisco IOS executor")
+	ErrTargetVendorUnsupported   = errors.New("target device vendor is not supported by this executor")
 	ErrTargetInvalidManagementIP = errors.New("target device has an invalid management IP address")
 )
 
@@ -30,6 +30,9 @@ type AuthorizedDevice struct {
 	Model        string `json:"model,omitempty"`
 	ManagementIP string `json:"management_ip"`
 	SSHPort      int    `json:"ssh_port"`
+	// Intent is the published network intent of the device when the target
+	// was resolved from a site inventory. Executors use it for read-back.
+	Intent *domain.Device `json:"-"`
 }
 
 // DeviceTargetResolver defines the contract for resolving and authorizing targets.
@@ -74,11 +77,19 @@ func (r *StaticDeviceResolver) ResolveDevice(ctx context.Context, site, deviceID
 // artifacts in the provider's artifact directory.
 type ArtifactInventoryDeviceResolver struct {
 	artifactDir string
+	vendor      string
 }
 
 // NewArtifactInventoryDeviceResolver creates an inventory resolver based on the artifact storage directory.
+// It authorizes Cisco devices only; use ForVendor for other executors.
 func NewArtifactInventoryDeviceResolver(artifactDir string) *ArtifactInventoryDeviceResolver {
-	return &ArtifactInventoryDeviceResolver{artifactDir: artifactDir}
+	return &ArtifactInventoryDeviceResolver{artifactDir: artifactDir, vendor: "cisco"}
+}
+
+// ForVendor returns a resolver over the same inventory that authorizes only
+// devices of the given vendor.
+func (r *ArtifactInventoryDeviceResolver) ForVendor(vendor string) *ArtifactInventoryDeviceResolver {
+	return &ArtifactInventoryDeviceResolver{artifactDir: r.artifactDir, vendor: strings.ToLower(strings.TrimSpace(vendor))}
 }
 
 // ResolveDevice reads <site>/inventory.json to check if the target exists and is authorized.
@@ -148,8 +159,9 @@ func (r *ArtifactInventoryDeviceResolver) ResolveDevice(ctx context.Context, sit
 			Model:        matched.Model,
 			ManagementIP: matched.Management.IPv4,
 			SSHPort:      22,
+			Intent:       matched,
 		}
-		return validateAuthorizedDevice(dev)
+		return validateAuthorizedDeviceFor(dev, r.vendor)
 	}
 	return AuthorizedDevice{}, fmt.Errorf("%w: %s/%s", ErrTargetNotFound, cleanSite, cleanDevice)
 }
@@ -182,6 +194,10 @@ func (c *CompositeDeviceResolver) ResolveDevice(ctx context.Context, site, devic
 }
 
 func validateAuthorizedDevice(dev AuthorizedDevice) (AuthorizedDevice, error) {
+	return validateAuthorizedDeviceFor(dev, "cisco")
+}
+
+func validateAuthorizedDeviceFor(dev AuthorizedDevice, vendor string) (AuthorizedDevice, error) {
 	dev.Site = strings.TrimSpace(dev.Site)
 	dev.DeviceID = strings.TrimSpace(dev.DeviceID)
 	dev.Name = strings.TrimSpace(dev.Name)
@@ -193,8 +209,8 @@ func validateAuthorizedDevice(dev AuthorizedDevice) (AuthorizedDevice, error) {
 	if dev.Site == "" || dev.DeviceID == "" {
 		return AuthorizedDevice{}, fmt.Errorf("%w: site and device_id are required", ErrTargetNotFound)
 	}
-	if dev.Vendor != "cisco" {
-		return AuthorizedDevice{}, fmt.Errorf("%w: expected cisco, got %q", ErrTargetVendorUnsupported, dev.Vendor)
+	if dev.Vendor != vendor {
+		return AuthorizedDevice{}, fmt.Errorf("%w: expected %s, got %q", ErrTargetVendorUnsupported, vendor, dev.Vendor)
 	}
 	ip := net.ParseIP(dev.ManagementIP)
 	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) {

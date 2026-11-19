@@ -438,18 +438,35 @@ func runServe(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize host key verifier: %v\n", err)
 		return 2
 	}
+	sshPolicy, err := executors.NewSSHAlgorithmPolicy(settings.SSHLegacySHA1Targets)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: %v\n", err)
+		return 2
+	}
 	sshTransport, err := executors.NewSSHIOSTransport(hostKeyVerifier, 10*time.Second, 15*time.Second)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize ssh transport: %v\n", err)
 		return 2
 	}
+	sshTransport.WithAlgorithmPolicy(sshPolicy)
 	ciscoExecutor, err := executors.NewCiscoIOSConfigureExecutor(targetResolver, credentialResolver, sshTransport)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize cisco ios configure executor: %v\n", err)
 		return 2
 	}
 
-	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier, ciscoExecutor}, 4)
+	routerOSTransport, err := executors.NewSSHRouterOSTransport(hostKeyVerifier, sshPolicy, 10*time.Second, 60*time.Second)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize RouterOS transport: %v\n", err)
+		return 2
+	}
+	routerOSExecutor, err := executors.NewRouterOSImportExecutor(targetResolver.ForVendor("mikrotik"), credentialResolver, routerOSTransport, artifactRepo)
+	if err != nil {
+		fmt.Fprintf(stderr, "infraflow-provider: initialize RouterOS import executor: %v\n", err)
+		return 2
+	}
+
+	executionService, err := application.NewExecutionService(executionStore, eventStore, []ports.ExecutionExecutor{artifactVerifier, ciscoExecutor, routerOSExecutor}, 4)
 	if err != nil {
 		fmt.Fprintf(stderr, "infraflow-provider: initialize execution service: %v\n", err)
 		return 2

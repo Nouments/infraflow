@@ -43,6 +43,10 @@ type Config struct {
 	Logging                      LoggingConfig `yaml:"logging,omitempty"`
 	TLS                          TLSConfig     `yaml:"tls"`
 	KnownHostsFile               string        `yaml:"known_hosts_file,omitempty"`
+	// SSHLegacySHA1Targets lists "<site>/<device>" executor targets that may
+	// negotiate SHA-1 SSH algorithms (diffie-hellman-group14-sha1, hmac-sha1,
+	// ssh-rsa). Every other target is refused those algorithms.
+	SSHLegacySHA1Targets []string `yaml:"ssh_legacy_sha1_targets,omitempty"`
 }
 
 type AgentCredential struct {
