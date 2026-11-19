@@ -229,3 +229,20 @@ func writeConfig(t *testing.T, value string) string {
 	}
 	return path
 }
+
+// Regression (GNS3 finalization lab 2026-11-19): without
+// INFRAFLOW_AGENT_DATA every Agent used the same per-user log directory, so
+// Agents on one host shared one log outbox.
+func TestAgentLogsDefaultToItsOwnStateDirectory(t *testing.T) {
+	t.Setenv("INFRAFLOW_AGENT_DATA", "")
+	t.Setenv("INFRAFLOW_AGENT_LOG_DIRECTORY", "")
+	state := t.TempDir()
+	path := writeConfig(t, "agent:\n  id: agent-a\n  state_directory: "+state+"\nprovider:\n  address: 127.0.0.1:8443\n  token_env: INFRAFLOW_AGENT_TOKEN\n  tls:\n    enabled: false\n")
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Logging.Directory != filepath.Join(state, "logs") {
+		t.Fatalf("log directory %q is not inside the Agent state directory", loaded.Logging.Directory)
+	}
+}

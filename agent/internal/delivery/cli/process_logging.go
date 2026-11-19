@@ -202,7 +202,7 @@ func (session *processLogSession) syncPending(parent context.Context) error {
 	session.syncMu.Lock()
 	defer session.syncMu.Unlock()
 	for {
-		events, err := session.outbox.Pending(observability.MaxIngestBatch)
+		events, err := session.outbox.PendingFor(observability.MaxIngestBatch, session.agentID, session.siteID)
 		if err != nil {
 			return err
 		}

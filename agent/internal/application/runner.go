@@ -157,7 +157,7 @@ func (runner *Runner) syncLogs(ctx context.Context) error {
 		return nil
 	}
 	for {
-		events, err := runner.outbox.Pending(observability.MaxIngestBatch)
+		events, err := runner.outbox.PendingFor(observability.MaxIngestBatch, runner.agentID, runner.siteID)
 		if err != nil {
 			return fmt.Errorf("read local log outbox: %w", err)
 		}

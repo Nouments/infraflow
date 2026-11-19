@@ -110,6 +110,29 @@ func (outbox *Outbox) Pending(limit int) ([]Event, error) {
 	return append([]Event(nil), outbox.events[:limit]...), nil
 }
 
+// PendingFor returns up to limit queued events that the given Agent may
+// submit: events without an identity or with exactly this agent and site.
+// Events written under another identity (several Agents sharing a log
+// directory, or a run rejected for the wrong site) are skipped instead of
+// poisoning every batch, since the Provider rejects a batch as a whole.
+func (outbox *Outbox) PendingFor(limit int, agentID, siteID string) ([]Event, error) {
+	outbox.mu.Lock()
+	defer outbox.mu.Unlock()
+	if limit <= 0 || limit > MaxIngestBatch {
+		limit = MaxIngestBatch
+	}
+	events := make([]Event, 0, limit)
+	for _, event := range outbox.events {
+		if len(events) == limit {
+			break
+		}
+		if (event.AgentID == "" || event.AgentID == agentID) && (event.SiteID == "" || siteID == "" || event.SiteID == siteID) {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
 func (outbox *Outbox) Ack(ids []string) error {
 	outbox.mu.Lock()
 	defer outbox.mu.Unlock()

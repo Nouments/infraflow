@@ -91,7 +91,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("configure local agent logs: %w", err)
 	}
 	if config.Logging.Directory == "" {
-		if config.Agent.StateDirectory != "" && os.Getenv("INFRAFLOW_AGENT_DATA") != "" {
+		// Each Agent keeps its own log outbox next to its state, so several
+		// Agents on one host never share (and poison) a queue.
+		if config.Agent.StateDirectory != "" {
 			config.Logging.Directory = filepath.Join(config.Agent.StateDirectory, "logs")
 		} else {
 			config.Logging.Directory = defaults.Directory
