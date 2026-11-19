@@ -205,6 +205,44 @@ func TestGenerateNativeRequiresExactCiscoIOSAutoInstallProfile(t *testing.T) {
 	}
 }
 
+func TestGenerateNativeSelectsExactCiscoIOSvAutoInstallTemplate(t *testing.T) {
+	device := domain.Device{
+		Name: "r1", Vendor: "cisco", Family: "ios", Model: "IOSv", OSVersion: domain.CiscoIOSvVersion,
+		Provisioning: domain.Provisioning{Method: domain.ProvisioningMethodCiscoAutoInstall},
+		Network: &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{
+			Name: "GigabitEthernet0/0", Role: "management", IPv4Mode: "static", IPv4Address: "192.0.2.11/24",
+		}}},
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}}, root); err != nil {
+		t.Fatal(err)
+	}
+	configuration := readNativeArtifact(t, root, "lab/native/device-r1.cfg")
+	if !strings.Contains(configuration, "hostname r1") || !strings.Contains(configuration, "interface GigabitEthernet0/0") || !strings.Contains(configuration, "ip address 192.0.2.11 255.255.255.0") {
+		t.Fatalf("unexpected IOSv output: %s", configuration)
+	}
+	var manifest nativeManifest
+	if err := json.Unmarshal([]byte(readNativeArtifact(t, root, "lab/native/native-manifest.json")), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Devices) != 1 || manifest.Devices[0].TemplateID != "infraflow.cisco.ios.iosv.native" {
+		t.Fatalf("IOSv must resolve its own versioned template, got %#v", manifest.Devices)
+	}
+	// Releases are not shared between models: the IOSv release is not a 7200
+	// release and the 7200 releases are not IOSv releases.
+	for _, invalid := range []struct{ model, version string }{
+		{"7200", domain.CiscoIOSvVersion},
+		{"iosv", domain.CiscoIOS7200LabVerifiedVersion},
+		{"iosv", "15.9(3)M8"},
+	} {
+		candidate := device
+		candidate.Model, candidate.OSVersion = invalid.model, invalid.version
+		if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{candidate}}}}, filepath.Join(t.TempDir(), "out")); err == nil {
+			t.Fatalf("model %q release %q was accepted without an exact profile", invalid.model, invalid.version)
+		}
+	}
+}
+
 func TestFortiOSExampleMatchesExpectedConfiguration(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "..", "examples", "fortios-native.yaml")
 	data, err := os.ReadFile(examplePath)
@@ -776,7 +814,7 @@ func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
 				Provisioning: domain.Provisioning{Method: "cisco-autoinstall"},
 				Network:      &domain.DeviceNetwork{Interfaces: []domain.NetworkInterface{{Name: "GigabitEthernet1", Role: "lan", IPv4Mode: "static", IPv4Address: "192.0.2.1/24"}}},
 			},
-			wantMessage: "Cisco IOS AutoInstall supports only model 7200",
+			wantMessage: "Cisco IOS AutoInstall supports only exact model/release profiles",
 		},
 		{
 			name: "Fortinet ZTP inputs missing",
@@ -790,7 +828,7 @@ func TestGenerateNativeRejectsUnsupportedProvisioningProfiles(t *testing.T) {
 		{
 			name:        "unknown RouterOS model",
 			device:      autoRSCDevice("CCR2004", "7.x", "1", "ether1"),
-			wantMessage: "RouterOS Auto Import requires the exact RB750Gr3 model profile",
+			wantMessage: "RouterOS Auto Import requires an exact model profile",
 		},
 		{
 			name:        "unsupported RouterOS version",
@@ -866,4 +904,42 @@ func readNativeArtifact(t *testing.T, root, path string) string {
 		t.Fatalf("read native artifact %q: %v", path, err)
 	}
 	return string(data)
+}
+
+// Regression (GNS3 CHR run 2026-11-19): metadata declares the RouterOS train
+// "7.x", but only the literal string "7.x" was accepted, so every concrete
+// RouterOS release (7.8, 7.20.1) was rejected at generation.
+func TestGenerateNativeRouterOSAutoRSCAcceptsConcreteReleaseOfDeclaredTrain(t *testing.T) {
+	for _, test := range []struct{ model, version, templateID string }{
+		{"CHR", "7.8", "infraflow.mikrotik.routeros7.chr.auto-rsc"},
+		{"RB750Gr3", "7.20.1", "infraflow.mikrotik.routeros7.auto-rsc"},
+	} {
+		root := t.TempDir()
+		device := autoRSCDevice(test.model, test.version, "1", "ether2")
+		if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}}, root); err != nil {
+			t.Fatalf("%s %s: %v", test.model, test.version, err)
+		}
+		var manifest nativeManifest
+		if err := json.Unmarshal([]byte(readNativeArtifact(t, root, "lab/native/native-manifest.json")), &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if len(manifest.Devices) != 1 || manifest.Devices[0].TemplateID != test.templateID {
+			t.Fatalf("%s %s resolved %#v, want %s", test.model, test.version, manifest.Devices, test.templateID)
+		}
+	}
+}
+
+func TestMatchesReleaseTrainIsNumericAndPrefixBound(t *testing.T) {
+	for _, test := range []struct {
+		train, version string
+		want           bool
+	}{
+		{"7.x", "7.8", true}, {"7.x", "7.20.1", true}, {"7.x", "7.x", false},
+		{"7.x", "17.8", false}, {"7.x", "6.49.10", false}, {"7.x", "7.8beta1", false},
+		{"7.x", "7", false}, {"x", "7.8", false}, {"7.8", "7.8", false}, {"*", "7.8", false},
+	} {
+		if got := matchesReleaseTrain(test.train, test.version); got != test.want {
+			t.Errorf("matchesReleaseTrain(%q, %q) = %t, want %t", test.train, test.version, got, test.want)
+		}
+	}
 }

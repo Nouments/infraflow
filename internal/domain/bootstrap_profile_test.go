@@ -19,6 +19,16 @@ func TestBootstrapProfileSelectionIsVendorModelVersionAndMethodSpecific(t *testi
 			wantMethod: "Cisco IOS AutoInstall over DHCP and TFTP", wantState: CapabilityImplemented, wantText: "runtime verification is required",
 		},
 		{
+			name:       "Cisco IOSv AutoInstall exact release profile",
+			device:     Device{Vendor: "cisco", Family: "ios", Model: "IOSv", OSVersion: "15.9(3)M6", Provisioning: Provisioning{Method: ProvisioningMethodCiscoAutoInstall}},
+			wantMethod: "Cisco IOS AutoInstall over DHCP and TFTP", wantState: CapabilityPartial, wantText: "zero-touch AutoInstall is not verified",
+		},
+		{
+			name:       "Cisco IOSv neighbouring release is not accepted",
+			device:     Device{Vendor: "cisco", Family: "ios", Model: "IOSv", OSVersion: "15.9(3)M8", Provisioning: Provisioning{Method: ProvisioningMethodCiscoAutoInstall}},
+			wantMethod: "Cisco IOS AutoInstall over DHCP and TFTP", wantState: CapabilityUnsupported, wantText: "no fallback mechanism",
+		},
+		{
 			name:       "Cisco IOS XE AutoInstall has no profile",
 			device:     Device{Vendor: "cisco", Family: "iosxe", Model: "csr1000v", OSVersion: "16.7.1", Provisioning: Provisioning{Method: ProvisioningMethodCiscoIOSXEAutoInstall}},
 			wantMethod: "Cisco IOS XE AutoInstall", wantState: CapabilityPartial, wantText: "exact model and release compatibility still requires target verification",

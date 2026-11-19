@@ -1,0 +1,32 @@
+id: infraflow.cisco.ios.iosv.native
+version: "1"
+manufacturer: cisco
+model: iosv
+os_family: ios
+os_versions:
+  - "15.9(3)M6"
+provisioning_method: native-config
+template_file: native.cfg.tmpl
+features:
+  - system.hostname
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - interfaces.admin_state
+  - routes.static_ipv4
+  - routing.ospf
+variables:
+  - device.name
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.interfaces.enabled
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+required_variables:
+  - device.name
+status: render-only
+source: "Cisco IOSv 15.9(3)M6 AutoInstall profile (vios-adventerprisek9-m.spa.159-3.m6). Rendered config applied on a GNS3 IOSv via InfraFlow TFTP on 2026-11-19; the DHCP-triggered AutoInstall step did not complete on that appliance (artifacts/qa/cisco-autoinstall-report.md)."
+source_references:
+  - https://www.cisco.com/c/en/us/td/docs/routers/ios/config/17-x/syst-mgmt/b-system-management/m_cf-autoinstall-0.html

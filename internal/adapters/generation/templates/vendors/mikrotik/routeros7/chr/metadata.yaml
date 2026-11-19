@@ -1,0 +1,37 @@
+id: infraflow.mikrotik.routeros7.chr.auto-rsc
+version: "1"
+manufacturer: mikrotik
+model: CHR
+os_family: routeros
+os_versions:
+  - "7.x"
+provisioning_method: auto-rsc
+template_file: auto.rsc.tmpl
+features:
+  - system.identity
+  - interfaces.ipv4_static
+  - interfaces.ipv4_dhcp
+  - interfaces.idempotent_owned_update
+  - routes.static_ipv4
+  - routes.idempotent_owned_update
+  - routing.ospf
+variables:
+  - device.name
+  - network.interfaces.name
+  - network.interfaces.ipv4_mode
+  - network.interfaces.ipv4_address
+  - network.routes.destination
+  - network.routes.next_hop
+  - network.routes.interface
+  - network.routes.distance
+required_variables:
+  - device.name
+  - network.interfaces
+status: render-only
+source: "MikroTik Cloud Hosted Router (CHR) RouterOS 7 Auto Import profile; shares the RouterOS 7 auto.rsc script with the RB750Gr3 profile. Executed on a GNS3 CHR 7.8 on 2026-11-19 (artifacts/qa/mikrotik-report.md); delivery (FTP upload, .auto.log) was performed by the lab harness, not by InfraFlow."
+source_references:
+  - https://manual.mikrotik.com/docs/getting-started/configuration-management/
+  - https://help.mikrotik.com/docs/spaces/ROS/pages/47579229/Scripting
+  - docs/vendor-provisioning-audit.md
+  - design/VENDOR_AUTOINSTALL_ZTP_TEMPLATE_RESEARCH.md
+  - demo-output/equipment/mikrotik/hex-rb750gr3.md

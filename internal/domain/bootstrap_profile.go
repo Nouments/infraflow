@@ -40,20 +40,15 @@ func BootstrapProfileFor(device Device) (BootstrapProfile, bool) {
 		profile.RequiredArtifacts = []string{"network-confg", "<hostname>-confg"}
 		profile.Verification = []string{"show version", "show running-config", "show ip interface brief"}
 		profile.Evidence = []string{"Cisco IOS 15.x AutoInstall guide", "Cisco IOS 7200 GNS3 appliance profile"}
-		if vendor == "cisco" && family == "ios" && (model == "7200" || model == "cisco 7200") {
-			switch version {
-			case CiscoIOS7200LabVerifiedVersion:
-				profile.State = CapabilityLabVerified
-				profile.Reason = "AutoInstall over InfraFlow DHCP/TFTP applied hostname and FastEthernet0/0 addressing on a GNS3 Dynamips 7200 reporting IOS 12.4(24)T5; the configuration is applied to running-config and is not saved to NVRAM by AutoInstall."
-				profile.Evidence = append(profile.Evidence, "docs/DELIVERY/GNS3_ZTP_AUTOINSTALL.md (2026-11-19 lab run)")
-				return profile, true
-			case CiscoIOS7200DeclaredVersion:
-				profile.State = CapabilityImplemented
-				profile.Reason = "Exact Cisco IOS 7200 version profile selected; this version has not been observed on a running device, so runtime verification is required before claiming device support."
+		if vendor == "cisco" && family == "ios" {
+			if entry, ok := CiscoIOSAutoInstallProfileFor(model, version); ok {
+				profile.State = entry.State
+				profile.Reason = entry.Reason
+				profile.Evidence = append(profile.Evidence, entry.Evidence...)
 				return profile, true
 			}
 		}
-		profile.Reason = "Cisco AutoInstall is implemented only for exact cisco/ios/7200 with IOS " + CiscoIOS7200LabVerifiedVersion + " (lab-verified) or " + CiscoIOS7200DeclaredVersion + " (unverified); no fallback mechanism is selected."
+		profile.Reason = "Cisco AutoInstall is implemented only for exact cisco/ios model and release profiles (" + CiscoIOSAutoInstallProfileList() + "); no fallback mechanism is selected."
 		return profile, true
 
 	case ProvisioningMethodCiscoZTP, ProvisioningMethodCiscoIOSXEZTP:
@@ -87,9 +82,13 @@ func BootstrapProfileFor(device Device) (BootstrapProfile, bool) {
 		profile.RequiredServices = []string{"SFTP or FTP upload"}
 		profile.RequiredArtifacts = []string{"<device-id>.auto.rsc", "<device-id>.auto.log"}
 		profile.Evidence = []string{"MikroTik RouterOS Configuration Management"}
-		if vendor == "mikrotik" && family == "routeros" && model == "rb750gr3" && strings.HasPrefix(version, "7.") {
+		if vendor == "mikrotik" && family == "routeros" && (model == "rb750gr3" || model == "chr") && strings.HasPrefix(version, "7.") {
 			profile.State = CapabilityExperimental
 			profile.Reason = "RouterOS template selection is exact by model and v7 train; InfraFlow renders the script but does not upload it or read .auto.log."
+			if model == "chr" && version == "7.8" {
+				profile.Reason = "The rendered script executed via Auto Import on a GNS3 CHR running RouterOS 7.8 (identity, addresses, static route, OSPF; idempotent re-run; persisted across reboot), but the FTP upload and .auto.log retrieval were performed by the lab harness: InfraFlow does not yet upload it or read .auto.log."
+				profile.Evidence = append(profile.Evidence, "artifacts/qa/mikrotik-report.md (2026-11-19 lab run)")
+			}
 			return profile, true
 		}
 		profile.Reason = "RouterOS Auto Import is limited to the RB750Gr3 v7 template and still requires an SFTP/FTP transfer and .auto.log verification path."
@@ -170,11 +169,75 @@ func OSPFProfileFor(device Device) (BootstrapProfile, bool) {
 const (
 	CiscoIOS7200LabVerifiedVersion = "12.4(24)T5"
 	CiscoIOS7200DeclaredVersion    = "15.3(3)XB12"
+	// CiscoIOSvVersion is the IOSv (virtual IOS) release shipped as
+	// vios-adventerprisek9-m.spa.159-3.m6.
+	CiscoIOSvVersion = "15.9(3)M6"
 )
+
+// CiscoIOSAutoInstallProfile is one exact model/release pair for which the
+// Cisco IOS AutoInstall renderer is enabled. TemplateModel selects the
+// versioned native template directory under vendors/cisco/ios/.
+type CiscoIOSAutoInstallProfile struct {
+	Models        []string
+	Version       string
+	TemplateModel string
+	TemplateID    string
+	State         CapabilityState
+	Reason        string
+	Evidence      []string
+}
+
+var ciscoIOSAutoInstallProfiles = []CiscoIOSAutoInstallProfile{
+	{
+		Models: []string{"7200", "cisco 7200"}, Version: CiscoIOS7200LabVerifiedVersion,
+		TemplateModel: "7200", TemplateID: "infraflow.cisco.ios.7200.native", State: CapabilityLabVerified,
+		Reason:   "AutoInstall over InfraFlow DHCP/TFTP applied hostname and FastEthernet0/0 addressing on a GNS3 Dynamips 7200 reporting IOS 12.4(24)T5; the configuration is applied to running-config and is not saved to NVRAM by AutoInstall.",
+		Evidence: []string{"docs/DELIVERY/GNS3_ZTP_AUTOINSTALL.md (2026-11-19 lab run)"},
+	},
+	{
+		Models: []string{"7200", "cisco 7200"}, Version: CiscoIOS7200DeclaredVersion,
+		TemplateModel: "7200", TemplateID: "infraflow.cisco.ios.7200.native", State: CapabilityImplemented,
+		Reason: "Exact Cisco IOS 7200 version profile selected; this version has not been observed on a running device, so runtime verification is required before claiming device support.",
+	},
+	{
+		Models: []string{"iosv", "vios", "cisco iosv"}, Version: CiscoIOSvVersion,
+		TemplateModel: "iosv", TemplateID: "infraflow.cisco.ios.iosv.native", State: CapabilityPartial,
+		Reason:   "On a GNS3 IOSv reporting 15.9(3)M6 the rendered configuration was delivered by the InfraFlow TFTP service and applied (hostname, GigabitEthernet addressing, static route forwarding verified), and the device took an InfraFlow DHCP lease with its standard DHCP client. The DHCP-triggered AutoInstall step itself did not complete: the IOSv AutoInstall/PnP client never requested an offered lease, from InfraFlow or from a reference ISC dhcpd, so zero-touch AutoInstall is not verified for this profile.",
+		Evidence: []string{"artifacts/qa/cisco-autoinstall-report.md (2026-11-19 lab run)"},
+	},
+}
+
+// CiscoIOSAutoInstallProfileFor returns the exact AutoInstall profile for a
+// Cisco IOS model and release. Matching is exact; there is no train fallback.
+func CiscoIOSAutoInstallProfileFor(model, version string) (CiscoIOSAutoInstallProfile, bool) {
+	model = strings.ToLower(strings.TrimSpace(model))
+	version = strings.TrimSpace(version)
+	for _, entry := range ciscoIOSAutoInstallProfiles {
+		if entry.Version != version {
+			continue
+		}
+		for _, candidate := range entry.Models {
+			if candidate == model {
+				return entry, true
+			}
+		}
+	}
+	return CiscoIOSAutoInstallProfile{}, false
+}
+
+// CiscoIOSAutoInstallProfileList renders the accepted model/release pairs for
+// operator-facing error messages.
+func CiscoIOSAutoInstallProfileList() string {
+	parts := make([]string, 0, len(ciscoIOSAutoInstallProfiles))
+	for _, entry := range ciscoIOSAutoInstallProfiles {
+		parts = append(parts, entry.TemplateModel+" "+entry.Version+" ("+string(entry.State)+")")
+	}
+	return strings.Join(parts, ", ")
+}
 
 // CiscoIOS7200AutoInstallVersion reports whether version is an accepted Cisco
 // 7200 AutoInstall version.
 func CiscoIOS7200AutoInstallVersion(version string) bool {
-	version = strings.TrimSpace(version)
-	return version == CiscoIOS7200LabVerifiedVersion || version == CiscoIOS7200DeclaredVersion
+	_, ok := CiscoIOSAutoInstallProfileFor("7200", version)
+	return ok
 }

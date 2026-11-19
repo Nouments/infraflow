@@ -431,15 +431,11 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 	case vendor == "cisco" && (family == "iosxe" || family == "ios-xe" || family == "ios_xe"):
 		return nativeCiscoIOSXE, nil
 	case vendor == "cisco" && family == "ios":
-		model := strings.ToLower(strings.TrimSpace(device.Model))
-		if model != "7200" && model != "cisco 7200" {
-			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only model 7200; got %q", device.Name, device.Model)
-		}
-		if !domain.CiscoIOS7200AutoInstallVersion(device.OSVersion) {
-			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only versions %s (lab-verified) and %s; got %q", device.Name, domain.CiscoIOS7200LabVerifiedVersion, domain.CiscoIOS7200DeclaredVersion, device.OSVersion)
+		if _, ok := domain.CiscoIOSAutoInstallProfileFor(device.Model, device.OSVersion); !ok {
+			return 0, fmt.Errorf("device %s: Cisco IOS AutoInstall supports only exact model/release profiles %s; got model %q release %q", device.Name, domain.CiscoIOSAutoInstallProfileList(), device.Model, device.OSVersion)
 		}
 		if strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method))) != string(domain.ProvisioningMethodCiscoAutoInstall) {
-			return 0, fmt.Errorf("device %s: Cisco IOS 7200 requires explicit provisioning.method cisco-autoinstall", device.Name)
+			return 0, fmt.Errorf("device %s: Cisco IOS requires explicit provisioning.method cisco-autoinstall", device.Name)
 		}
 		return nativeCiscoIOSAutoInstall, nil
 	case vendor == "mikrotik" && family == "routeros":
@@ -449,8 +445,8 @@ func nativeProfileFor(device domain.Device) (nativeProfile, error) {
 		}
 		method := strings.ToLower(strings.TrimSpace(string(device.Provisioning.Method)))
 		if (method == string(domain.ProvisioningMethodAutoRSC) || method == string(domain.ProvisioningMethodMikroTikRouterOS7AutoRSC)) &&
-			!strings.EqualFold(strings.TrimSpace(device.Model), "RB750Gr3") {
-			return 0, fmt.Errorf("device %s: RouterOS Auto Import requires the exact RB750Gr3 model profile", device.Name)
+			!routerOSAutoRSCModel(device.Model) {
+			return 0, fmt.Errorf("device %s: RouterOS Auto Import requires an exact model profile (RB750Gr3 or CHR)", device.Name)
 		}
 		return nativeMikroTikRouterOS7, nil
 	case (vendor == "fortinet" || vendor == "fortigate") && (family == "fortios" || family == "fortigate"):
@@ -475,9 +471,12 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 		}
 		templateDevice := device
 		templateDevice.Provisioning.Method = domain.ProvisioningMethodNativeConfig
+		expectedTemplateID := nativeTemplateID(profile)
 		if profile == nativeCiscoIOSAutoInstall {
-			templateDevice.Model = "7200"
+			entry, _ := domain.CiscoIOSAutoInstallProfileFor(device.Model, device.OSVersion)
+			templateDevice.Model = entry.TemplateModel
 			templateDevice.Family = "ios"
+			expectedTemplateID = entry.TemplateID
 		}
 		if templateDevice.Provisioning.TemplateVersion == "" {
 			templateDevice.Provisioning.TemplateVersion = nativeTemplateVersion
@@ -486,7 +485,7 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 		if err != nil {
 			return nativeRenderedArtifact{}, err
 		}
-		if candidate.Metadata.ID != nativeTemplateID(profile) {
+		if candidate.Metadata.ID != expectedTemplateID {
 			return nativeRenderedArtifact{}, fmt.Errorf("device %s: resolved native template %q does not match vendor profile", device.Name, candidate.Metadata.ID)
 		}
 		data, err := buildNativeTemplateData(device, profile)
@@ -522,6 +521,13 @@ func renderNativeArtifact(device domain.Device, profile nativeProfile, templates
 	default:
 		return nativeRenderedArtifact{}, fmt.Errorf("device %s: unsupported native provisioning method %q", device.Name, device.Provisioning.Method)
 	}
+}
+
+// routerOSAutoRSCModel reports whether a RouterOS model has its own versioned
+// Auto Import template. Matching is exact; there is no model fallback.
+func routerOSAutoRSCModel(model string) bool {
+	model = strings.TrimSpace(model)
+	return strings.EqualFold(model, "RB750Gr3") || strings.EqualFold(model, "CHR")
 }
 
 func renderRouterOSAutoRSCArtifact(device domain.Device, method string, templates []templateCandidate) (nativeRenderedArtifact, error) {
@@ -570,7 +576,7 @@ func validateNativeMethodForProfile(method string, profile nativeProfile) error 
 		}
 	case string(domain.ProvisioningMethodCiscoAutoInstall):
 		if profile != nativeCiscoIOSAutoInstall {
-			return fmt.Errorf("method %q requires an exact Cisco IOS 7200 AutoInstall profile (%s or %s)", method, domain.CiscoIOS7200LabVerifiedVersion, domain.CiscoIOS7200DeclaredVersion)
+			return fmt.Errorf("method %q requires an exact Cisco IOS AutoInstall profile (%s)", method, domain.CiscoIOSAutoInstallProfileList())
 		}
 	case string(domain.ProvisioningMethodCiscoIOSXEAutoInstall):
 		if profile != nativeCiscoIOSXE {
@@ -795,11 +801,25 @@ func resolveTemplateForDevice(device domain.Device, method string, templates []t
 
 func containsExactOrWildcard(values []string, wanted string) bool {
 	for _, value := range values {
-		if value == wanted || value == "*" {
+		if value == wanted || value == "*" || matchesReleaseTrain(value, wanted) {
 			return true
 		}
 	}
 	return false
+}
+
+// releaseTrainVersion is a dotted numeric release such as 7.8 or 7.20.1.
+var releaseTrainVersion = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
+
+// matchesReleaseTrain reports whether a metadata train such as "7.x" covers a
+// concrete dotted numeric release such as "7.8" or "7.20.1". Only a trailing
+// ".x" after a numeric major is a train; other values match exactly.
+func matchesReleaseTrain(train, version string) bool {
+	major, ok := strings.CutSuffix(train, ".x")
+	if !ok || major == "" || strings.Trim(major, "0123456789") != "" {
+		return false
+	}
+	return releaseTrainVersion.MatchString(version) && strings.HasPrefix(version, major+".")
 }
 
 func containsExact(values []string, wanted string) bool {
