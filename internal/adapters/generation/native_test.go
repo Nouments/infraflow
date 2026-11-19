@@ -978,3 +978,44 @@ func TestGenerateNativeSkipsOnlineManagedDevicesWithNetworkIntent(t *testing.T) 
 		t.Fatal("Cisco IOS accepted an unsupported provisioning method")
 	}
 }
+
+// Regression (GNS3 CHR 7.8, 2026-11-19): the management address configured on
+// day 0 (needed to deliver the script remotely) has no InfraFlow owner
+// comment; the script's unconditional add failed with "already have such
+// address". Every block must adopt an identical unowned entry before adding.
+// Prefix values in find conditions must be quoted: on RouterOS 7.8 an unquoted
+// prefix never matches (verified on the device).
+func TestRouterOSAutoRSCAdoptsIdenticalUnownedEntries(t *testing.T) {
+	enabled := true
+	device := domain.Device{
+		Name: "mt1", Vendor: "mikrotik", Family: "routeros", Model: "CHR", OSVersion: "7.8",
+		Provisioning: domain.Provisioning{Method: "auto-rsc", TemplateVersion: "1"},
+		Network: &domain.DeviceNetwork{
+			Interfaces: []domain.NetworkInterface{
+				{Name: "ether1", Role: "management", IPv4Mode: "static", IPv4Address: "192.0.2.21/24"},
+				{Name: "ether2", Role: "lan", IPv4Mode: "dhcp"},
+			},
+			Routes: []domain.StaticRoute{{Destination: "203.0.113.0/24", NextHop: "192.0.2.2"}},
+		},
+		Routing: &domain.Routing{OSPF: &domain.OSPFConfig{Enabled: &enabled, RouterID: "192.0.2.21"}},
+	}
+	root := t.TempDir()
+	if _, err := GenerateNative(domain.Infrastructure{Sites: []domain.Site{{Name: "lab", Devices: []domain.Device{device}}}}, root); err != nil {
+		t.Fatal(err)
+	}
+	script := readNativeArtifact(t, root, "lab/native/device-mt1.auto.rsc")
+	for _, adoption := range []string{
+		`[/ip address find where address="192.0.2.21/24" interface="ether1" !dynamic]`,
+		`[/ip dhcp-client find where interface="ether2"]`,
+		`[/ip route find where dst-address="203.0.113.0/24" gateway="192.0.2.2" !dynamic]`,
+		`[/routing ospf interface-template find where networks="`,
+	} {
+		index := strings.Index(script, adoption)
+		if index < 0 {
+			t.Fatalf("script does not adopt existing entries with %s:\n%s", adoption, script)
+		}
+		if add := strings.Index(script[index:], " add "); add < 0 {
+			t.Fatalf("adoption lookup must precede the add for %s", adoption)
+		}
+	}
+}
