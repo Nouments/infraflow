@@ -1,0 +1,29 @@
+# 45 s capture of udp/67 with no DHCP server running (IOSv AutoInstall phase)
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x1699, secs 7, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169a, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169a, secs 3, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169a, secs 7, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169b, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169b, secs 3, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"
+    0.0.0.0.68 > 255.255.255.255.67: [udp sum ok] BOOTP/DHCP, Request from 0c:eb:25:a0:00:00, length 303, xid 0x169b, secs 7, Flags [Broadcast] (0x8000)
+	    DHCP-Message (53), length 1: Discover
+	    Client-ID (61), length 22: "[SERIAL-REDACTED]"
+	    Vendor-Class (60), length 8: "ciscopnp"

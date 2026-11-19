@@ -1,0 +1,14 @@
+# tshark summary of r1-autoinstall.pcap (filter: DHCP 67/68, TFTP 69, ICMP, SSH, ARP) — sha256 3eda445d193c5078003c3cff558f7e3d041439b9134ef9ac0ead8b7887b52845
+# DHCP message counts by type during the whole run (1=Discover 2=Offer 3=Request 5=Ack):
+    180 1	0c:eb:25:a0:00:00
+    103 2	0c:eb:25:a0:00:00
+      2 3	0c:eb:25:a0:00:00
+      2 5	0c:eb:25:a0:00:00
+      2 7	0c:eb:25:a0:00:00
+# AutoInstall-phase exchange for xid 0x16ac (Discover/Offer repeated, never Request):
+2026-11-19T18:56:43.739630000+0300	0.0.0.0	255.255.255.255	1	ciscopnp	0.0.0.0
+2026-11-19T18:56:43.740016000+0300	192.0.2.2	255.255.255.255	2		192.0.2.11
+2026-11-19T18:56:46.742140000+0300	0.0.0.0	255.255.255.255	1	ciscopnp	0.0.0.0
+2026-11-19T18:56:46.742547000+0300	192.0.2.2	255.255.255.255	2		192.0.2.11
+2026-11-19T18:56:50.741243000+0300	0.0.0.0	255.255.255.255	1	ciscopnp	0.0.0.0
+2026-11-19T18:56:50.741421000+0300	192.0.2.2	255.255.255.255	2		192.0.2.11

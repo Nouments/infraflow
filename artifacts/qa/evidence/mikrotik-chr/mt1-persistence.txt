@@ -1,0 +1,5 @@
+rebooting
+] . " ospf-templates=" . [:len [
+/routing ospf interface-template find where comment~"infraflow"]])
+after-reboot identity=mt1 addresses=2 routes=1 ospf-templates=2
+[admin@mt1] > [admin@mt1] > 

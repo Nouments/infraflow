@@ -1,0 +1,61 @@
+# Isolated GNS3 MikroTik CHR / FortiGate VM validation. TEST-NET addressing only.
+sites:
+  - name: vendor-lab
+    id: vendor-lab
+    devices:
+      - name: mt1
+        role: router
+        vendor: mikrotik
+        family: routeros
+        model: CHR
+        os_version: "7.8"
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        management:
+          ipv4: 192.0.2.21
+        network:
+          interfaces:
+            - name: ether1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.21/24
+            - name: ether2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.129/25
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 192.0.2.2
+        routing:
+          ospf:
+            enabled: true
+            router_id: 192.0.2.21
+      - name: fgt1
+        role: firewall
+        vendor: fortinet
+        family: fortios
+        model: FortiGate-VM64-KVM
+        os_version: "7.0.8"
+        provisioning:
+          method: fortios-native
+        management:
+          ipv4: 192.0.2.31
+        network:
+          vdom: root
+          interfaces:
+            - name: port1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.31/24
+              enabled: true
+            - name: port2
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.193/26
+              enabled: true
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 192.0.2.2
+              interface: port1
+              fortinet_sequence: 10

@@ -1,0 +1,19 @@
+re-upload: 226
+
+Script file loaded and executed successfully
+rtt min/avg/max/mdev = 0.354/0.404/0.454/0.050 ms
+:put ("addresses=" . [:len [/ip address find where comment~"infraf
+low"]] . " routes=" . [:len [/ip route find where comment~"infraflow"]] . " ospf
+-templates=" . [:len [/routing ospf interface-template find where comment~"infra
+flow"]] . " ospf-instances=" . [:len [/routing ospf instance find]])
+addresses=2 routes=1 ospf-templates=2 ospf-instances=1
+[admin@mt1] > [admin@mt1] > 
+/ping 203.0.113.1 count=3
+  SEQ HOST                                     SIZE TTL TIME       STATUS      
+    0 203.0.113.1                                56  64 279us     
+    1 203.0.113.1                                56  64 281us     
+    2 203.0.113.1                                56  64 277us     
+    sent=3 received=3 packet-loss=0% min-rtt=277us avg-rtt=279us 
+   max-rtt=281us 
+
+[admin@mt1] > [admin@mt1] > 

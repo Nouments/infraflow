@@ -1,6 +1,29 @@
 # InfraFlow — Delivery and engineering status
 
-## Current status — 2026-11-19
+## Current status — 2026-11-19 (evening)
+
+- Base `62a28b0`. That commit had deleted `.github/workflows/go-ci.yml`; it is
+  restored. Every earlier hosted run failed only at the govulncheck step
+  (pre-1.26.11 toolchain); Windows and demo jobs passed.
+- **Real devices in GNS3** (isolated project `infraflow-e2e-20261119`):
+  Cisco IOSv 15.9(3)M6, MikroTik CHR 7.8, FortiGate VM 7.0.8.
+  - IOSv: InfraFlow DHCP lease + TFTP delivery + applied config + routing
+    verified. DHCP-triggered AutoInstall does **not** complete on this
+    appliance (also with a reference ISC dhcpd) → IOSv profile PARTIAL.
+  - First real run of the `cisco.ios.configure` SSH executor: apply, read-back,
+    restore, idempotency, fail-closed host key, unauthorized device refusal.
+  - CHR 7.8: generated `.auto.rsc` executed by Auto Import (upload by the lab
+    harness), idempotent, persists across reboot.
+  - FortiGate: blocked — the image has an unknown pre-set admin password.
+- **Defects found by those runs and fixed:** RouterOS `7.x` train never matched
+  a real release; known_hosts changes ignored until restart; generic execution
+  validation error; diagnostics ignored standalone DHCP/TFTP lines; local flash
+  "File not found" misdiagnosed as TFTP failure.
+- Score **76/100** on the eight-dimension rubric (not comparable with the
+  previous 86); see [RELEASE_READINESS.md](docs/DELIVERY/RELEASE_READINESS.md)
+  and [artifacts/qa](artifacts/qa/).
+
+## Previous status — 2026-11-19 (morning)
 
 - Base `279f1da` (`stabilization11`, clean, equal to `origin/develop`). All
   changes below are local and uncommitted.

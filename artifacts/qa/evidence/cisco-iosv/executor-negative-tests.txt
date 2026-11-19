@@ -1,0 +1,11 @@
+== hostname-only request (validation reason)
+submit failed: {"error":"invalid execution request: task \"configure-r1\" parameters failed validation: at least one interface configuration is required"}
+== tampered host key
+succeeded | None
+== unauthorized device r9
+failed | target device authorization failed: target device is not authorized or not found: iosv-lab/r9
+failed | SSH connection to target r1 (192.0.2.11) failed: ssh handshake with 192.0.2.11:22: ssh: handshake failed: ssh: host key mismatch (possible man-in-the-middle attack) for 192.0.2.11:22: expected ssh-rsa, presented ssh-rsa
+== [fixed build] good key
+succeeded | None
+== [fixed build] key replaced while running, no restart
+failed | SSH connection to target r1 (192.0.2.11) failed: ssh handshake with 192.0.2.11:22: ssh: handshake failed: ssh: host key mismatch (possible man-in-the-middle attack) for 192.0.2.11:22: expected ssh-rsa SHA256:JeM/FvbVNwWxp1ZZ0gunQjvovsxDrCMU3Gdpnm15Al4, presented ssh-rsa SHA256:nHU9UOg1dy2bKj3eKGStHe8yZj3d7Q1Yr6sj86QuNNY

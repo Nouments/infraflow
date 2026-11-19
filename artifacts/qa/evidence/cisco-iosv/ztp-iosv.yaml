@@ -1,0 +1,38 @@
+# Isolated GNS3 IOSv AutoInstall validation. TEST-NET addressing only.
+sites:
+  - name: iosv-lab
+    id: iosv-lab
+    bootstrap:
+      network: 192.0.2.0/24
+      service_address: 192.0.2.2
+    services:
+      dhcp: true
+      tftp: true
+    devices:
+      - name: r1
+        role: router
+        vendor: cisco
+        family: ios
+        model: iosv
+        os_version: "15.9(3)M6"
+        provisioning:
+          method: cisco-autoinstall
+        identity:
+          macs: ["0c:eb:25:a0:00:00"]
+        management:
+          ipv4: 192.0.2.11
+        network:
+          interfaces:
+            - name: GigabitEthernet0/0
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.11/24
+              enabled: true
+            - name: GigabitEthernet0/1
+              role: lan
+              ipv4_mode: static
+              ipv4_address: 198.51.100.1/24
+              enabled: true
+          routes:
+            - destination: 203.0.113.0/24
+              next_hop: 192.0.2.2

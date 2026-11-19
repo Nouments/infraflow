@@ -1,0 +1,42 @@
+### failed AutoInstall phase
+Summary: The workflow stopped at DHCP (DHCP_OFFER_NOT_ACCEPTED).
+Observed status: failed
+Last confirmed successful stage: unknown
+Failure stage: DHCP DHCP_OFFER_NOT_ACCEPTED
+Likely cause: The DHCP server sent 5 offers but the client never requested the lease; the server answered, the client did not accept or did not receive the offers.
+Confidence: medium
+Recommended next action: Capture on the client segment to confirm the offers reach the device, check the device's own DHCP client log (for Cisco: debug dhcp detail, show pnp tech summary), and compare with a reference DHCP server before changing InfraFlow's offer.
+Evidence [bootstrap:bootstrap-autoinstall-fail.log/DHCP]: 2026-11-19T16:01:25Z INFO dhcp.discover client 0c:eb:25:a0:00:00 reservation r1
+
+### TFTP-delivered config phase
+Summary: The workflow stopped at TFTP (TFTP_FILE_MISSING). Last confirmed stage: DHCP.
+Observed status: failed
+Last confirmed successful stage: DHCP
+Failure stage: TFTP TFTP_FILE_MISSING
+Likely cause: The device requested a bootstrap filename that the TFTP server could not serve.
+Confidence: medium
+Recommended next action: Compare the device RRQ filename with the generated TFTP allowlist and staged file names.
+Evidence [bootstrap:bootstrap-success.log/DHCP]: 2026-11-19T16:12:29Z INFO dhcp.discover client 0c:eb:25:a0:00:00 reservation r1
+Evidence [bootstrap:bootstrap-success.log/DHCP]: 2026-11-19T16:12:29Z INFO dhcp.offer client 0c:eb:25:a0:00:00 reservation r1 ip 192.0.2.11
+Evidence [bootstrap:bootstrap-success.log/DHCP]: 2026-11-19T16:12:29Z INFO dhcp.ack client 0c:eb:25:a0:00:00 reservation r1 ip 192.0.2.11
+### TFTP-delivered config phase (fixed build)
+Summary: The workflow stopped at device configuration (DEVICE_CONFIG_REJECTED). Last confirmed stage: TFTP.
+Observed status: failed
+Last confirmed successful stage: TFTP
+Failure stage: device configuration DEVICE_CONFIG_REJECTED
+Likely cause: The device console reports that the downloaded configuration was rejected or contained invalid syntax.
+Confidence: medium
+Recommended next action: Use the console error location to correct the native template, then regenerate and review the artifact before retrying.
+Missing evidence: run_id/device_id correlation fields on every selected event source
+Summary: No failure was found. Last confirmed stage: TFTP. 5 expected evidence item(s) are missing, so success cannot be claimed.
+Observed status: incomplete evidence
+Last confirmed successful stage: TFTP
+Failure stage: unknown 
+Likely cause: The expected device state is present, but one or more earlier lifecycle stages are missing from the supplied evidence.
+Confidence: low
+Recommended next action: Collect the missing Provider, Agent, DHCP/TFTP, device configuration, or report events for the same run before marking the workflow successful.
+Missing evidence: Agent registration/site authorization events
+Missing evidence: Agent catalog synchronization events
+Missing evidence: Agent SHA-256 integrity verification events
+Missing evidence: device configuration execution evidence
+Missing evidence: final Provider execution report

@@ -1,0 +1,61 @@
+r1#copy tftp://192.0.2.2/r1-confg running-config
+Destination filename [running-config]? 
+Accessing tftp://192.0.2.2/r1-confg...
+Loading r1-confg from 192.0.2.2 (via GigabitEthernet0/0): !
+[OK - 221 bytes]
+
+221 bytes copied in 14.646 secs (15 bytes/sec)
+show version | include Software|uptime
+Cisco IOS Software, IOSv Software (VIOS-ADVENTERPRISEK9-M), Version 15.9(3)M6, RELEASE SOFTWARE (fc1)
+r1 uptime is 12 minutes
+r1#
+show running-config | include ^hostname|^ip route
+hostname r1
+ip route 203.0.113.0 255.255.255.0 192.0.2.2
+r1#
+show running-config interface GigabitEthernet0/0
+Building configuration...
+
+Current configuration : 115 bytes
+!
+interface GigabitEthernet0/0
+ ip address 192.0.2.11 255.255.255.0
+ duplex auto
+ speed auto
+ media-type rj45
+end
+
+r1#
+show running-config interface GigabitEthernet0/1
+Building configuration...
+
+Current configuration : 117 bytes
+!
+interface GigabitEthernet0/1
+ ip address 198.51.100.1 255.255.255.0
+ duplex auto
+ speed auto
+ media-type rj45
+end
+
+r1#
+show ip interface brief
+Interface                  IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0         192.0.2.11      YES TFTP   up                    up      
+GigabitEthernet0/1         198.51.100.1    YES TFTP   down                  down    
+GigabitEthernet0/2         unassigned      YES unset  administratively down down    
+GigabitEthernet0/3         unassigned      YES unset  administratively down down    
+r1#
+show ip route static | include 203.0.113
+S     203.0.113.0/24 [1/0] via 192.0.2.2
+r1#
+ping 203.0.113.1 repeat 5
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 203.0.113.1, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/1 ms
+r1#
+show ip cef 203.0.113.1
+203.0.113.0/24
+  nexthop 192.0.2.2 GigabitEthernet0/0
+r1#

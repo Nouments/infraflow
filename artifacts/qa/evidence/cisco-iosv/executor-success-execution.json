@@ -1,0 +1,174 @@
+{
+ "id": "exec-feda0e2debc2f2c79a6b2f3b677a9850",
+ "idempotency_key_hash": "f7b96788fc7765d8f7e73216db17e45400c05424bf8f67fe9185cfea821fa1e1",
+ "request_hash": "dec8f3b98b860c215559fd0142d1821d5783015979de2f09e4b25ca84f85670e",
+ "correlation_id": "279613a27f8a76d95e3a68211f88a562",
+ "status": "succeeded",
+ "tasks": [
+  {
+   "id": "configure-r1",
+   "type": "cisco.ios.configure",
+   "status": "succeeded",
+   "timeout_ms": 120000,
+   "max_attempts": 1,
+   "parameters": {
+    "device_id": "r1",
+    "hostname": "r1-infraflow",
+    "interfaces": [
+     {
+      "admin_state": "up",
+      "description": "InfraFlow SSH executor test",
+      "ipv4_cidr": "198.18.0.1/30",
+      "name": "GigabitEthernet0/2"
+     }
+    ],
+    "site": "iosv-lab"
+   },
+   "attempts": [
+    {
+     "number": 1,
+     "status": "succeeded",
+     "started_at": "2026-11-19T16:17:11.886009625Z",
+     "finished_at": "2026-11-19T16:17:12.570278334Z",
+     "duration_ms": 682,
+     "result": {
+      "device_id": "r1",
+      "executed_at": "2026-11-19T16:17:12.569945766Z",
+      "family": "ios",
+      "observed_changes": {
+       "hostname": "r1-infraflow",
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "InfraFlow SSH executor test",
+         "ipv4_address": "198.18.0.1",
+         "name": "GigabitEthernet0/2",
+         "subnet_mask": "255.255.255.252"
+        }
+       ]
+      },
+      "operation": "cisco.ios.configure",
+      "previous_changes": {
+       "hostname": "r1",
+       "interfaces": [
+        {
+         "admin_state": "down",
+         "name": "GigabitEthernet0/2"
+        }
+       ]
+      },
+      "requested_changes": {
+       "hostname": "r1-infraflow",
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "InfraFlow SSH executor test",
+         "ipv4_cidr": "198.18.0.1/30",
+         "name": "GigabitEthernet0/2"
+        }
+       ]
+      },
+      "site": "iosv-lab",
+      "status": "succeeded",
+      "vendor": "cisco",
+      "verified": true,
+      "warnings": [
+       "Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (write memory disabled by policy)"
+      ]
+     }
+    }
+   ],
+   "result": {
+    "device_id": "r1",
+    "executed_at": "2026-11-19T16:17:12.569945766Z",
+    "family": "ios",
+    "observed_changes": {
+     "hostname": "r1-infraflow",
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "InfraFlow SSH executor test",
+       "ipv4_address": "198.18.0.1",
+       "name": "GigabitEthernet0/2",
+       "subnet_mask": "255.255.255.252"
+      }
+     ]
+    },
+    "operation": "cisco.ios.configure",
+    "previous_changes": {
+     "hostname": "r1",
+     "interfaces": [
+      {
+       "admin_state": "down",
+       "name": "GigabitEthernet0/2"
+      }
+     ]
+    },
+    "requested_changes": {
+     "hostname": "r1-infraflow",
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "InfraFlow SSH executor test",
+       "ipv4_cidr": "198.18.0.1/30",
+       "name": "GigabitEthernet0/2"
+      }
+     ]
+    },
+    "site": "iosv-lab",
+    "status": "succeeded",
+    "vendor": "cisco",
+    "verified": true,
+    "warnings": [
+     "Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (write memory disabled by policy)"
+    ]
+   },
+   "created_at": "2026-11-19T16:17:11.860538627Z",
+   "updated_at": "2026-11-19T16:17:12.570278334Z",
+   "started_at": "2026-11-19T16:17:11.886009625Z",
+   "finished_at": "2026-11-19T16:17:12.570278334Z"
+  }
+ ],
+ "created_at": "2026-11-19T16:17:11.860748217Z",
+ "updated_at": "2026-11-19T16:17:12.580452257Z",
+ "started_at": "2026-11-19T16:17:11.871839937Z",
+ "finished_at": "2026-11-19T16:17:12.580452062Z",
+ "cancel_requested_at": "0001-01-01T00:00:00Z",
+ "revision": 5,
+ "events": [
+  {
+   "action": "execution.queued",
+   "status": "queued",
+   "timestamp": "2026-11-19T16:17:11.860748217Z",
+   "correlation_id": "279613a27f8a76d95e3a68211f88a562"
+  },
+  {
+   "action": "execution.running",
+   "status": "running",
+   "timestamp": "2026-11-19T16:17:11.871840167Z",
+   "correlation_id": "279613a27f8a76d95e3a68211f88a562"
+  },
+  {
+   "action": "execution.task.attempt_started",
+   "task_id": "configure-r1",
+   "status": "running",
+   "task_status": "running",
+   "timestamp": "2026-11-19T16:17:11.886010423Z",
+   "correlation_id": "279613a27f8a76d95e3a68211f88a562"
+  },
+  {
+   "action": "execution.task.attempt_succeeded",
+   "task_id": "configure-r1",
+   "status": "running",
+   "task_status": "succeeded",
+   "timestamp": "2026-11-19T16:17:12.570279093Z",
+   "correlation_id": "279613a27f8a76d95e3a68211f88a562"
+  },
+  {
+   "action": "execution.succeeded",
+   "status": "succeeded",
+   "timestamp": "2026-11-19T16:17:12.580452257Z",
+   "correlation_id": "279613a27f8a76d95e3a68211f88a562"
+  }
+ ]
+}

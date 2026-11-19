@@ -1,0 +1,35 @@
+show running-config | include ^hostname
+hostname r1-infraflow
+r1-infraflow#
+show running-config interface GigabitEthernet0/2
+Building configuration...
+
+Current configuration : 158 bytes
+!
+interface GigabitEthernet0/2
+ description InfraFlow SSH executor test
+ ip address 198.18.0.1 255.255.255.252
+ duplex auto
+ speed auto
+ media-type rj45
+end
+
+r1-infraflow#
+show ip interface brief | include 0/2
+GigabitEthernet0/2         198.18.0.1      YES manual down                  down    
+r1-infraflow#
+show startup-config | include hostname
+r1-infraflow#
+show logging | include SSH|CONFIG_I
+*Nov 19 16:12:16.778: %SYS-5-CONFIG_I: Configured from console by console
+*Nov 19 16:12:54.443: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/r1-confg by console
+*Nov 19 16:14:19.470: %SSH-5-ENABLED: SSH 2.0 has been enabled
+*Nov 19 16:14:20.152: %SYS-5-CONFIG_I: Configured from console by console
+*Nov 19 16:15:01.788: %SSH-3-NO_MATCH: No matching kex algorithm found: client sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256 server diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1
+*Nov 19 16:15:06.516: %SSH-3-NO_MATCH: No matching kex algorithm found: client sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256 server diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1
+*Nov 19 16:15:06.537: %SSH-3-NO_MATCH: No matching kex algorithm found: client sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256,ext-info-c,kex-strict-c-v00@openssh.com server diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1
+*Nov 19 16:15:14.526: %SSH-3-NO_MATCH: No matching kex algorithm found: client sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256 server diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1
+*Nov 19 16:16:41.176: %SYS-5-CONFIG_I: Configured from console by console
+*Nov 19 16:16:56.373: %SYS-5-CONFIG_I: Configured from console by console
+*Nov 19 16:17:09.492: %SYS-5-CONFIG_I: Configured from console by infraflow on vty0 (192.0.2.2)
+r1-infraflow#

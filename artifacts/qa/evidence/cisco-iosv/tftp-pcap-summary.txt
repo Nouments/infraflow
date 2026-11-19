@@ -1,0 +1,13 @@
+# tshark summary of r1-tftp-full.pcap (all traffic to/from 192.0.2.11 during copy tftp) — sha256 77c8d85bae2a23b19c6fd1b2c60f8b16c71339a7fb5993d256bfff2e90fbe932
+0.000080000	192.0.2.11	51026	192.0.2.2	69	Read Request, File: r1-confg, Transfer type: octet
+0.000345000	192.0.2.2	35456	192.0.2.11	51026	Data Packet, Block: 1 (last)
+0.000812000	192.0.2.11	51026	192.0.2.2	35456	51026 → 35456 Len=4
+0.001702000	192.0.2.11	58077	192.0.2.2	69	Read Request, File: r1-confg, Transfer type: octet
+0.001810000	192.0.2.2	56260	192.0.2.11	58077	Data Packet, Block: 1 (last)
+0.002217000	192.0.2.11	58077	192.0.2.2	56260	58077 → 56260 Len=4
+0.003558000	192.0.2.11	50874	192.0.2.2	69	Read Request, File: r1-confg, Transfer type: octet
+0.003654000	192.0.2.2	42390	192.0.2.11	50874	Data Packet, Block: 1 (last)
+0.004104000	192.0.2.11	50874	192.0.2.2	42390	50874 → 42390 Len=4
+0.005049000	192.0.2.11	51856	192.0.2.2	69	Read Request, File: r1-confg, Transfer type: octet
+0.005150000	192.0.2.2	44165	192.0.2.11	51856	Data Packet, Block: 1 (last)
+0.005906000	192.0.2.11	51856	192.0.2.2	44165	51856 → 44165 Len=4

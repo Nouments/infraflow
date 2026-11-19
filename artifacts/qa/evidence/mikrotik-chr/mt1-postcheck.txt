@@ -1,0 +1,43 @@
+/system identity print
+  name: mt1
+[admin@mt1] > [admin@mt1] > 
+/ip address print where comment~"infraflow"
+Columns: ADDRESS, NETWORK, INTERFACE
+# ADDRESS            NETWORK         INTERFACE
+;;; infraflow:mt1:interface:ether1
+1 192.0.2.21/24      192.0.2.0       ether1   
+;;; infraflow:mt1:interface:ether2
+2 198.51.100.129/25  198.51.100.128  ether2   
+[admin@mt1] > [admin@mt1] > 
+/ip route print detail where comment~"infraflow"
+Flags: D - dynamic; X - disabled, I - inactive, A - active; 
+c - connect, s - static, r - rip, b - bgp, o - ospf, d - dhcp, v - vpn, m - modem, y - copy; 
+H - hw-offloaded; + - ecmp 
+ 0  As   ;;; infraflow:mt1:route:203.0.113.0/24
+         dst-address=203.0.113.0/24 routing-table=main pref-src="" 
+         gateway=192.0.2.2 immediate-gw=192.0.2.2%ether1 distance=1 scope=30 
+         target-scope=10 suppress-hw-offload=no 
+[admin@mt1] > [admin@mt1] > 
+/routing ospf instance print
+Flags: X - disabled, I - inactive 
+ 0   name="infraflow-v2" version=2 vrf=main router-id=192.0.2.21 
+[admin@mt1] > [admin@mt1] > 
+/routing ospf area print
+Flags: X - disabled, I - inactive, D - dynamic; T - transit-capable 
+ 0    name="area-0-0-0-0" instance=infraflow-v2 area-id=0.0.0.0 type=default 
+[admin@mt1] > [admin@mt1] > 
+/routing ospf interface-template print
+Flags: X - disabled, I - inactive 
+ 0   ;;; infraflow:mt1:ospf:192.0.2.0/24
+     area=area-0-0-0-0 instance-id=0 networks=192.0.2.0/24 type=broadcast 
+     retransmit-interval=5s transmit-delay=1s hello-interval=10s 
+     dead-interval=40s priority=128 cost=1 
+
+ 1   ;;; infraflow:mt1:ospf:198.51.100.128/25
+     area=area-0-0-0-0 instance-id=0 networks=198.51.100.128/25 
+     type=broadcast retransmit-interval=5s transmit-delay=1s 
+     hello-interval=10s dead-interval=40s priority=128 cost=1 
+[admin@mt1] > [admin@mt1] > 
+/log print where message~"auto"
+
+[admin@mt1] > [admin@mt1] > 

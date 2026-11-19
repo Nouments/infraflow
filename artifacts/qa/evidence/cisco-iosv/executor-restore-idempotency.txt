@@ -1,0 +1,7 @@
+submit 1: HTTP 202
+   id exec-decf38c1ad405c0d2323e6cd0c4ea937
+submit 2: HTTP 200
+   id exec-decf38c1ad405c0d2323e6cd0c4ea937
+{"error":"idempotency key was used for a different request"}
+ HTTP 409
+succeeded True {"hostname": "r1", "interfaces": [{"admin_state": "down", "description": "InfraFlow restored", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}
