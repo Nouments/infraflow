@@ -31,3 +31,13 @@ r1-infraflow#
  attempt: 2026-11-19T17:34:42.275286745Z -> 2026-11-19T17:34:43.092181831Z
 ## I3 same key, different body
  submit HTTP 409 | id idempotency key was used for a different request | final None
+
+## Regression after fix D5 (commit 1c20d22, 2026-11-20T00:21:08+03:00) on IOSv r1
+### rollback probe
+ submit HTTP 202 | id exec-5fad977675600d6e68fce599b47350de | final failed
+ error: configuration application failed after 2 command(s): failed executing "ip address 192.0.2.50 255.255.255.0": command rejected by Cisco IOS on command "ip address 192.0.2.50 255.255.255.0": 192.0.2.0 overlaps with GigabitEthernet0/0; changes were rolled back to the preflight state and the rollback was verified by read-back
+ attempt: 2026-11-19T21:21:09.117500966Z -> 2026-11-19T21:21:09.646646286Z
+### normal apply
+ submit HTTP 202 | id exec-b449ae43cbce0579d1e2cbec9ebfe411 | final succeeded
+ result: {"observed_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r1-infraflow", "interfaces": [{"admin_state": "up", "description": "concurrent b", "ipv4_address": "198.18.0.1", "name": "GigabitEthernet0/2", "subnet_mask": "255.255.255.252"}]}, "verified": true}
+ attempt: 2026-11-19T21:21:11.760888483Z -> 2026-11-19T21:21:12.929335989Z
