@@ -105,7 +105,7 @@ func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte
 			if !exists {
 				continue
 			}
-			profile, method, reason := interfaceGeneratorSupport(device)
+			profile, method, reason := service.interfaceGeneratorSupport(site, device)
 			if reason != "" {
 				result.Tasks[taskIndex].Status = "UNSUPPORTED"
 				result.Tasks[taskIndex].Reason = reason
@@ -277,23 +277,38 @@ func (service *Service) markGenerationUnavailable(ctx context.Context, result Pl
 	return result, errors.Join(fmt.Errorf("%s", reason), auditErr)
 }
 
-func interfaceGeneratorSupport(device domain.Device) (domain.VendorProfile, string, string) {
-	profile, ok := domain.VendorProfileFor(device)
-	if !ok {
-		return domain.VendorProfile{}, "", fmt.Sprintf("no native configuration profile for %s/%s", device.Vendor, device.Family)
-	}
+// interfaceGeneratorSupport decides whether a planned interface task can be
+// generated. Vendor/method support comes from the native generator itself
+// (ports.NativeSupportChecker) so the web path and generate-all agree; the
+// plan model adds one restriction of its own: it describes interface
+// configuration only, so devices with static routes or NAT intent are
+// reported as unsupported here rather than generated partially.
+func (service *Service) interfaceGeneratorSupport(site domain.Site, device domain.Device) (domain.VendorProfile, string, string) {
+	profile, known := domain.VendorProfileFor(device)
 	method := strings.TrimSpace(string(device.Provisioning.Method))
-	if method == "" {
+	if method == "" && known {
 		method = profile.DefaultMethod
+	}
+	if device.Network != nil && (len(device.Network.Routes) > 0 || len(device.Network.NAT.Source) > 0 || len(device.Network.NAT.Destination) > 0) {
+		return profile, method, "the current plan models interface configuration only; static routes and NAT intent are unsupported"
+	}
+	if checker, ok := service.generator.(ports.NativeSupportChecker); ok {
+		if err := checker.CheckNativeDevice(site, device); err != nil {
+			return profile, method, "native generator cannot render this device: " + err.Error()
+		}
+		if !known {
+			profile = domain.VendorProfile{Vendor: device.Vendor, Family: device.Family, Model: device.Model, Status: domain.CapabilityUnverified}
+		}
+		return profile, method, ""
+	}
+	if !known {
+		return domain.VendorProfile{}, "", fmt.Sprintf("no native configuration profile for %s/%s", device.Vendor, device.Family)
 	}
 	if _, ok := profile.Methods[method]; !ok {
 		return profile, method, fmt.Sprintf("method %q is not supported by the %s/%s profile", method, device.Vendor, device.Family)
 	}
-	if (profile.Family == "routeros" || profile.Family == "fortios") && !hasIPv4Interface(device.Network.Interfaces) {
+	if (profile.Family == "routeros" || profile.Family == "fortios") && (device.Network == nil || !hasIPv4Interface(device.Network.Interfaces)) {
 		return profile, method, "native configuration rendering requires at least one explicit IPv4 interface address"
-	}
-	if len(device.Network.Routes) > 0 || len(device.Network.NAT.Source) > 0 || len(device.Network.NAT.Destination) > 0 {
-		return profile, method, "the current plan models interface configuration only; static routes and NAT intent are unsupported"
 	}
 	return profile, method, ""
 }

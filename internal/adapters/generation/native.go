@@ -188,6 +188,18 @@ func GenerateNative(infrastructure domain.Infrastructure, outputDirectory string
 	})
 }
 
+// CheckNativeDevice reports whether GenerateNative can render this device,
+// by rendering it in memory through the same path (validation, vendor
+// profile, method, template) and discarding the output. Callers that must
+// agree with the generator use this instead of keeping their own table.
+func CheckNativeDevice(site domain.Site, device domain.Device) error {
+	single := site
+	single.Devices = []domain.Device{device}
+	single.Links = nil
+	_, _, err := prepareNativeArtifacts(domain.Infrastructure{Sites: []domain.Site{single}})
+	return err
+}
+
 func generateNative(infrastructure domain.Infrastructure, outputDirectory string) ([]Artifact, error) {
 	files, artifacts, err := prepareNativeArtifacts(infrastructure)
 	if err != nil {

@@ -982,3 +982,71 @@ sites:
 func testDependencies() Dependencies {
 	return Dependencies{Parser: configadapter.Parser{}, PlanBuilder: planningadapter.Builder{}}
 }
+
+// Regression (browser E2E W08, 2026-11-19): the plan-and-generate path kept
+// its own vendor/method table, which refused the platforms generate-all
+// renders and the executors deliver (RouterOS auto-rsc, Cisco IOS ssh). It now
+// asks the native generator, so both entry points agree.
+func TestPlanAndGenerateAgreesWithNativeGenerator(t *testing.T) {
+	dependencies := testDependencies()
+	dependencies.ArtifactDirectory = t.TempDir()
+	service := NewService(nil, nil, generation.Generator{}, dependencies)
+	input := []byte(`sites:
+  - name: lab
+    devices:
+      - name: mt1
+        vendor: mikrotik
+        family: routeros
+        model: CHR
+        os_version: "7.8"
+        provisioning:
+          method: auto-rsc
+          template_version: "1"
+        network:
+          interfaces:
+            - name: ether1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.21/24
+      - name: r1
+        vendor: cisco
+        family: ios
+        model: IOSv
+        os_version: 15.9(3)M6
+        provisioning:
+          method: ssh
+        network:
+          interfaces:
+            - name: GigabitEthernet0/0
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.11/24
+      - name: r9
+        vendor: mikrotik
+        family: routeros
+        model: CHR
+        os_version: "6.49"
+        provisioning:
+          method: auto-rsc
+        network:
+          interfaces:
+            - name: ether1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.29/24
+`)
+	result, err := service.PlanAndGenerate(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]TaskGenerationResult{}
+	for _, task := range result.Tasks {
+		status[task.Device] = task
+	}
+	if result.GenerationStatus != "PARTIAL" || status["mt1"].Status == "UNSUPPORTED" || status["r1"].Status == "UNSUPPORTED" {
+		t.Fatalf("supported devices refused: %s %+v", result.GenerationStatus, status)
+	}
+	if status["r9"].Status != "UNSUPPORTED" || !strings.Contains(status["r9"].Reason, "RouterOS 7") {
+		t.Fatalf("RouterOS 6 device not refused with the generator's reason: %+v", status["r9"])
+	}
+}

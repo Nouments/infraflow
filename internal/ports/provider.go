@@ -41,6 +41,12 @@ type NativeArtifactGenerator interface {
 	GenerateNative(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }
 
+// NativeSupportChecker answers, without writing anything, whether the native
+// generator can render a device.
+type NativeSupportChecker interface {
+	CheckNativeDevice(domain.Site, domain.Device) error
+}
+
 type TerraformArtifactGenerator interface {
 	GenerateTerraform(domain.Infrastructure, string) ([]protocol.Artifact, error)
 }

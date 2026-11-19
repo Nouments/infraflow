@@ -20,6 +20,11 @@ func (Generator) GenerateNative(infrastructure domain.Infrastructure, outputDire
 	return coregeneration.GenerateNative(infrastructure, outputDirectory)
 }
 
+// CheckNativeDevice implements ports.NativeSupportChecker.
+func (Generator) CheckNativeDevice(site domain.Site, device domain.Device) error {
+	return coregeneration.CheckNativeDevice(site, device)
+}
+
 func (Generator) GenerateTerraform(infrastructure domain.Infrastructure, outputDirectory string) ([]protocol.Artifact, error) {
 	return coregeneration.GenerateTerraform(infrastructure, outputDirectory)
 }
