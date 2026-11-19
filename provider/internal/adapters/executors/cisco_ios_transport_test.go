@@ -335,3 +335,43 @@ func TestSSHSessionPromptReturnedWithEOFIsNotAccepted(t *testing.T) {
 		t.Fatalf("EOF did not close the session: closed=%v closeCount=%d", session.closed.Load(), closeCount.Load())
 	}
 }
+
+// Regression (GNS3 CSR1000v IOS XE 16.07.01): "end" sent at an EXEC prompt
+// made IOS XE try to connect to a host named "end"; no prompt came back, the
+// command timed out, the session closed and the rollback after a failed apply
+// could not run. "end" at a known EXEC prompt must not reach the device.
+func TestSSHSessionEndAtExecPromptIsNotSent(t *testing.T) {
+	reader, device := io.Pipe()
+	writer := &transportTestWriter{}
+	session := newLiveCiscoIOSSession(writer, reader, 200*time.Millisecond, func() error { _ = device.Close(); return reader.Close() })
+	defer session.Close()
+	go func() { _, _ = io.WriteString(device, "\r\nr3-infraflow#") }()
+	if _, err := session.ReadInitialPrompt(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out, err := session.RunCommand(context.Background(), "end")
+	if err != nil || out != "r3-infraflow#" {
+		t.Fatalf("end at EXEC prompt: out=%q err=%v", out, err)
+	}
+	writer.mu.Lock()
+	written := writer.writes.String()
+	writer.mu.Unlock()
+	if written != "" {
+		t.Fatalf("end was sent to the device at an EXEC prompt: %q", written)
+	}
+	// In configuration mode "end" is still sent.
+	go func() { _, _ = io.WriteString(device, "configure terminal\r\nr3-infraflow(config)#") }()
+	if _, err := session.RunCommand(context.Background(), "configure terminal"); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = io.WriteString(device, "end\r\nr3-infraflow#") }()
+	if _, err := session.RunCommand(context.Background(), "end"); err != nil {
+		t.Fatal(err)
+	}
+	writer.mu.Lock()
+	written = writer.writes.String()
+	writer.mu.Unlock()
+	if written != "configure terminal\nend\n" {
+		t.Fatalf("configuration-mode commands not sent as expected: %q", written)
+	}
+}

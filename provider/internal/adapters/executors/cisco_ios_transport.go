@@ -350,6 +350,14 @@ func (s *liveCiscoIOSSession) RunCommand(ctx context.Context, command string) (s
 		return "", err
 	}
 	cleanCmd := strings.TrimSpace(command)
+	// "end" only means something in configuration mode. In EXEC mode IOS XE
+	// (16.7, verified on GNS3) treats the unknown word as a host name to
+	// connect to and returns no prompt within the command timeout, which
+	// closed the session and broke the rollback that follows a failed apply.
+	// When the last prompt is known to be an EXEC prompt it is a no-op.
+	if cleanCmd == "end" && s.prompt != "" && !strings.Contains(s.prompt, "(config") {
+		return s.prompt, nil
+	}
 	if _, err := io.WriteString(s.stdin, cleanCmd+"\n"); err != nil {
 		_ = s.Close()
 		return "", fmt.Errorf("write command: %w", err)
