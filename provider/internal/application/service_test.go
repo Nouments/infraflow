@@ -388,6 +388,12 @@ func (executor deterministicExecutionExecutor) Retryable(err error) bool {
 	return executor.retryable != nil && executor.retryable(err)
 }
 
+type rejectingValidationExecutor struct{ deterministicExecutionExecutor }
+
+func (rejectingValidationExecutor) ValidateParameters(json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("at least one interface configuration is required")
+}
+
 func newPersistentExecutionService(t *testing.T, executors []ports.ExecutionExecutor, concurrency int) (*ExecutionService, *filesystem.ExecutionStore, *filesystem.EventStore, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -580,6 +586,19 @@ func TestExecutionServiceRejectsCiscoAutomaticRetries(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidExecution) || !strings.Contains(err.Error(), "does not allow automatic retries") {
 		t.Fatalf("expected Cisco automatic retry policy rejection, got %v", err)
+	}
+}
+
+// Regression (GNS3 IOSv run 2026-11-19): a hostname-only cisco.ios.configure
+// request was rejected as "task parameters failed validation" with no reason.
+func TestExecutionServiceReportsExecutorValidationReason(t *testing.T) {
+	executor := rejectingValidationExecutor{deterministicExecutionExecutor{typeName: "test.operation"}}
+	service, _, _, _ := newPersistentExecutionService(t, []ports.ExecutionExecutor{executor}, 1)
+	_, _, err := service.Submit(context.Background(), "user-admin", "validation-reason-key", ExecutionRequest{
+		Tasks: []ExecutionTaskRequest{{ID: "configure-router", Type: "test.operation", Parameters: json.RawMessage(`{"hostname":"r1"}`)}},
+	})
+	if !errors.Is(err, ErrInvalidExecution) || !strings.Contains(err.Error(), `task "configure-router" parameters failed validation: at least one interface configuration is required`) {
+		t.Fatalf("expected the executor's validation reason, got %v", err)
 	}
 }
 

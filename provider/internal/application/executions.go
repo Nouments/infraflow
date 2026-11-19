@@ -353,7 +353,10 @@ func (service *ExecutionService) validateRequest(request ExecutionRequest) ([]do
 		}
 		validated, err := executor.ValidateParameters(parameters)
 		if err != nil {
-			return nil, "", fmt.Errorf("%w: task parameters failed validation", ErrInvalidExecution)
+			// Executor validation messages describe the operator's own input
+			// and never contain secrets; returning them turns a generic
+			// rejection into an actionable one.
+			return nil, "", fmt.Errorf("%w: task %q parameters failed validation: %v", ErrInvalidExecution, input.ID, err)
 		}
 		parameters, err = normalizeExecutionJSON(validated, true)
 		if err != nil {
