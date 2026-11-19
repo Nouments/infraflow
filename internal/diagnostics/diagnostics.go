@@ -332,7 +332,8 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 	uncorrelated := false
 	var joined strings.Builder
 	sawDiscover := false
-	offersSent := 0
+	offersSent, requestsSeen := 0, 0
+	wire := false
 	for position, event := range events {
 		if (filter.RunID != "" && event.RunID == "") || (filter.DeviceID != "" && event.DeviceID == "") {
 			uncorrelated = true
@@ -345,7 +346,9 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 		if info.name == "" {
 			info, success = classify(event)
 			info.keyword = info.name != ""
-		} else if info.info {
+		} else if info.info && event.Source != "capture" {
+			// (Capture events are exact packet decodes; their text is not
+			// re-read by the keyword fallback.)
 			// An informational name (offer, RRQ) may carry a message that
 			// states a stronger outcome; prefer the explicit outcome.
 			if keyword, keywordSuccess := classify(event); keyword.name == info.name && !keyword.info {
@@ -361,6 +364,12 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 		}
 		if info.code == "DHCP_OFFER" {
 			offersSent++
+		}
+		if info.code == "DHCP_REQUEST" {
+			requestsSeen++
+		}
+		if event.Source == "capture" {
+			wire = true
 		}
 		outcomeLabel := "observed"
 		if !info.info {
@@ -416,12 +425,30 @@ func AnalyzeWithAgent(input []Event, filter Filter, agent *AgentContext) Report 
 	if failure.info.name == "" {
 		failure = weakFailure
 	}
+	// Wire-observed: the client requested a lease and no ACK or NAK followed.
+	if failure.info.name == "" && requestsSeen > 0 && !successful[StageDHCP] {
+		failure = outcome{info: stageInfo{
+			name: StageDHCP, code: "DHCP_REQUEST_WITHOUT_ACK", inferred: !wire,
+			fail:   fmt.Sprintf("The client sent %d DHCP REQUEST(s) but no ACK or NAK was observed; the server ignored the request (for example a server identifier or requested address it does not own) or its reply was lost.", requestsSeen),
+			action: "Compare the REQUEST's server identifier and requested address with the InfraFlow DHCP server address and the reservation, and check the server log for dhcp.reply_failed.",
+		}}
+	}
+	// Discover without any offer on the wire: no server answered at all. A
+	// server log alone cannot show this (an absent offer line may be an
+	// incomplete log), so it is only concluded from a capture.
+	if failure.info.name == "" && wire && sawDiscover && offersSent == 0 && !successful[StageDHCP] {
+		failure = outcome{info: stageInfo{
+			name: StageDHCP, code: "DHCP_DISCOVER_WITHOUT_OFFER",
+			fail:   "DHCP Discover was observed but no offer from any server was observed for this client.",
+			action: "Check that serve-dhcp is running and bound to the bootstrap interface (-interface/-listen), that UDP 67 is not filtered, and that the client MAC has a reservation.",
+		}}
+	}
 	// Inferred DHCP failure: offers were sent repeatedly but the client never
 	// requested the lease. The server side worked; the client ignored or never
 	// received the offers.
 	if failure.info.name == "" && sawDiscover && offersSent >= minIgnoredOffers && !successful[StageDHCP] {
 		failure = outcome{info: stageInfo{
-			name: StageDHCP, code: "DHCP_OFFER_NOT_ACCEPTED", inferred: true,
+			name: StageDHCP, code: "DHCP_OFFER_NOT_ACCEPTED", inferred: !wire,
 			fail:   fmt.Sprintf("The DHCP server sent %d offers but the client never requested the lease; the server answered, the client did not accept or did not receive the offers.", offersSent),
 			action: "Capture on the client segment to confirm the offers reach the device, check the device's own DHCP client log (for Cisco: debug dhcp detail, show pnp tech summary), and compare with a reference DHCP server before changing InfraFlow's offer.",
 		}}
@@ -769,6 +796,12 @@ func classifyStructured(event Event) (stageInfo, bool) {
 		return stageInfo{name: StageDHCP, code: "DHCP_LEASE_ASSIGNED"}, true
 	case "dhcp.no_offer":
 		return stageInfo{name: StageDHCP, code: "DHCP_NO_OFFER", fail: "A DHCP client request was observed without a matching offer or lease acknowledgement.", action: "Check that the DHCP service is bound to the isolated bootstrap interface and that the pool contains an unreserved address or the client MAC has a reservation."}, false
+	case "dhcp.request":
+		return stageInfo{name: StageDHCP, code: "DHCP_REQUEST", info: true}, true
+	case "dhcp.release":
+		return stageInfo{name: StageDHCP, code: "DHCP_RELEASE", info: true}, true
+	case "dhcp.decline":
+		return stageInfo{name: StageDHCP, code: "DHCP_DECLINE", fail: "The client declined the offered address, which normally means it detected the address already in use (ARP conflict).", action: "Find the host already using the reserved address on the bootstrap segment, or change the reservation, then let the client restart DISCOVER."}, false
 	case "dhcp.nak":
 		return stageInfo{name: StageDHCP, code: "DHCP_NAK", fail: "The DHCP server refused the address requested by the client.", action: "Clear the client's stale lease (or wait for it to restart DISCOVER) and check that reservations match the device MAC."}, false
 	case "tftp.rrq":

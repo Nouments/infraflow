@@ -722,7 +722,7 @@ Usage:
 	infraflow-agent serve-bootstrap -directory <state-dir> -interface <name> -listen <ipv4> [-port 80]
 	infraflow-agent serve-dhcp -config <dhcp-config.json> -interface <name> -listen <ipv4> [-port 67]
 	infraflow-agent serve-tftp -config <tftp-config.json> -root <bootstrap-dir> -interface <name> -listen <ipv4> [-port 69]
-	infraflow-agent diagnose (-run-id <id>|-device-id <id>) [-provider-log <jsonl>] [-agent-log <jsonl>] [-bootstrap-log <file>] [-device-console <file>] [-expected-hostname <name>] [-expected-ipv4 <address>] [-json]
+	infraflow-agent diagnose (-run-id <id>|-device-id <id>) [-provider-log <jsonl>] [-agent-log <jsonl>] [-bootstrap-log <file>] [-device-console <file>] [-capture <pcap> [-client-mac <mac>]] [-expected-hostname <name>] [-expected-ipv4 <address>] [-json]
 	infraflow-agent verify-device -console <capture> -device-id <id> (-expected-hostname <name>|-expected-ipv4 <address>) [-agent-config <yaml>] [-json]
 	infraflow-agent validate-terraform -directory <state-dir> -site <site> [-timeout 5m]
 	infraflow-agent tui -address <http(s)://server:port> -username <name> [-ca-file <path>] [-password-env <env>]
@@ -737,6 +737,8 @@ func runDiagnose(arguments []string, stdout, stderr io.Writer) int {
 	agentLog := flags.String("agent-log", "", "Agent event log (JSONL or text)")
 	bootstrapLog := flags.String("bootstrap-log", "", "DHCP/TFTP bootstrap service log")
 	deviceConsole := flags.String("device-console", "", "device console capture")
+	capture := flags.String("capture", "", "libpcap packet capture of the bootstrap segment (DHCP/TFTP)")
+	clientMAC := flags.String("client-mac", "", "client MAC selecting one device in -capture")
 	runID := flags.String("run-id", "", "filter correlated events by run ID")
 	deviceID := flags.String("device-id", "", "filter correlated events by device ID")
 	expectedHostname := flags.String("expected-hostname", "", "expected device hostname for console post-check")
@@ -757,10 +759,26 @@ func runDiagnose(arguments []string, stdout, stderr io.Writer) int {
 			files = append(files, diagnostics.SourceFile{Name: item.name, Path: item.path})
 		}
 	}
-	events, err := diagnostics.ReadFiles(files)
-	if err != nil {
-		fmt.Fprintf(stderr, "infraflow-agent: diagnose: %v\n", observability.Redact(err.Error()))
+	if len(files) == 0 && *capture == "" {
+		fmt.Fprintln(stderr, "infraflow-agent: diagnose: at least one log source or -capture is required")
 		return 2
+	}
+	var events []diagnostics.Event
+	if len(files) > 0 {
+		read, err := diagnostics.ReadFiles(files)
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: diagnose: %v\n", observability.Redact(err.Error()))
+			return 2
+		}
+		events = read
+	}
+	if *capture != "" {
+		wire, err := diagnostics.ReadCapture(diagnostics.CaptureSource{Path: *capture, ClientMAC: *clientMAC, DeviceID: *deviceID})
+		if err != nil {
+			fmt.Fprintf(stderr, "infraflow-agent: diagnose: %v\n", err)
+			return 2
+		}
+		events = append(events, wire...)
 	}
 	report := diagnostics.Analyze(events, diagnostics.Filter{
 		RunID: *runID, DeviceID: *deviceID, ExpectedHostname: *expectedHostname, ExpectedIPv4: *expectedIPv4,
