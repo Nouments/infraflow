@@ -24,35 +24,42 @@ type HostKeyVerifier interface {
 }
 
 // KnownHostsFileVerifier verifies host keys against an OpenSSH known_hosts file using knownhosts.New.
+// The file is re-read on every verification so that a revoked or rotated key
+// takes effect for the next connection without a Provider restart; a file that
+// can no longer be read fails closed.
 type KnownHostsFileVerifier struct {
-	callback ssh.HostKeyCallback
-	path     string
+	path string
 }
 
-// NewKnownHostsFileVerifier creates a known_hosts verifier.
+// NewKnownHostsFileVerifier creates a known_hosts verifier. The file must be
+// loadable at construction so configuration errors surface at startup.
 func NewKnownHostsFileVerifier(path string) (*KnownHostsFileVerifier, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("known_hosts file path is required")
 	}
-	cb, err := knownhosts.New(path)
-	if err != nil {
+	if _, err := knownhosts.New(path); err != nil {
 		return nil, fmt.Errorf("load known_hosts file %q: %w", path, err)
 	}
-	return &KnownHostsFileVerifier{callback: cb, path: path}, nil
+	return &KnownHostsFileVerifier{path: path}, nil
 }
 
-// Verify checks the key against known_hosts.
+// Verify checks the key against the current contents of known_hosts.
 func (v *KnownHostsFileVerifier) Verify(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	err := v.callback(hostname, remote, key)
+	callback, err := knownhosts.New(v.path)
+	if err != nil {
+		return fmt.Errorf("verify host key: reload known_hosts: %w", err)
+	}
+	err = callback(hostname, remote, key)
 	if err == nil {
 		return nil
 	}
 	var keyErr *knownhosts.KeyError
 	if errors.As(err, &keyErr) {
 		if len(keyErr.Want) > 0 {
-			return fmt.Errorf("%w for %s: expected %s, presented %s", ErrHostKeyMismatch, hostname, keyErr.Want[0].Key.Type(), key.Type())
+			return fmt.Errorf("%w for %s: expected %s %s, presented %s %s", ErrHostKeyMismatch, hostname,
+				keyErr.Want[0].Key.Type(), ssh.FingerprintSHA256(keyErr.Want[0].Key), key.Type(), ssh.FingerprintSHA256(key))
 		}
-		return fmt.Errorf("%w for %s", ErrHostKeyUnknown, hostname)
+		return fmt.Errorf("%w for %s: presented %s %s", ErrHostKeyUnknown, hostname, key.Type(), ssh.FingerprintSHA256(key))
 	}
 	return fmt.Errorf("verify host key: %w", err)
 }
