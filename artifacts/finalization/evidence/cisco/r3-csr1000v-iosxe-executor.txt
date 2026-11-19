@@ -1,0 +1,101 @@
+# cisco.ios.configure against Cisco CSR1000v IOS XE 16.07.01 (GNS3 node CSR1, inventory vendor-lab/r3, 192.0.2.13) (2026-11-20T00:14:23+03:00)
+## day-0 on console: Gi1 192.0.2.13/24, user infraflow priv 15, SSH v2 with RSA 2048 key label SSHKEY; NIC type changed vmxnet3 -> virtio-net-pci (vmxnet3 link stayed down in this GNS3/QEMU)
+## console-derived host key: 2048 SHA256:Dgjj3GRRaXtQwGxJU84MHtTPzwLHx5M8HMMvWURch9M no comment (RSA)
+## X1 apply under the DEFAULT policy (r3 has no SHA-1 exception; ssh_legacy_sha1_targets = [vendor-lab/r1])
+ submit HTTP 202 | id exec-28a329cb37283113d28e9f73f990ae66 | final failed
+ error: SSH connection to target r3 (192.0.2.13) failed: ssh handshake with 192.0.2.13:22: ssh: handshake failed: ssh: no common algorithm for key exchange; we offered: ["mlkem768x25519-sha256" "curve25519-sha256" "curve25519-sha256@libssh.org" "ecdh-sha2-nistp256" "ecdh-sha2-nistp384" "ecdh-sha2-nistp521" "diffie-hellman-group14-sha256" "diffie-hellman-group16-sha512" "diffie-hellman-group-exchange-sha256" "ext-info-c" "kex-strict-c-v00@openssh.com"], peer offered: ["diffie-hellman-group-exchange-sha1" "diffie-hellman-group14-sha1"]; the device may only offer legacy SHA-1 algorithms, which are disabled by default. If this is accepted risk, add "vendor-lab/r3" to ssh_legacy_sha1_targets in the Provider configuration
+ attempt: 2026-11-19T21:14:23.594332745Z -> 2026-11-19T21:14:23.600864295Z
+  device-side check: IOS XE 16.07.01 'ip ssh server algorithm kex ?' lists only diffie-hellman-group-exchange-sha1 and diffie-hellman-group14-sha1; hostkey only ssh-rsa / x509v3-ssh-rsa -> modern KEX cannot be enabled on this release
+ssh_legacy_sha1_targets: [vendor-lab/r1, vendor-lab/r3]
+
+## X2 apply with the per-device exception vendor-lab/r3
+ submit HTTP 202 | id exec-f3d984b466c8557c4314973d11804423 | final succeeded
+ result: {"observed_changes": {"hostname": "r3-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.5", "name": "GigabitEthernet2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r3", "interfaces": [{"admin_state": "down", "name": "GigabitEthernet2"}]}, "verified": true}
+ attempt: 2026-11-19T21:14:47.772469154Z -> 2026-11-19T21:14:49.383617488Z
+
+## X3 identical request, new key (idempotent re-apply)
+ submit HTTP 202 | id exec-2827f58e232c37e41e0ff3a6fc60ef46 | final succeeded
+ result: {"observed_changes": {"hostname": "r3-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.5", "name": "GigabitEthernet2", "subnet_mask": "255.255.255.252"}]}, "previous_changes": {"hostname": "r3-infraflow", "interfaces": [{"admin_state": "up", "description": "infraflow managed", "ipv4_address": "198.18.0.5", "name": "GigabitEthernet2", "subnet_mask": "255.255.255.252"}]}, "verified": true}
+ attempt: 2026-11-19T21:14:50.42404943Z -> 2026-11-19T21:14:51.811304984Z
+
+## X4 overlapping address on Gi3 (IOS XE rejects it after the description is applied) -> automatic rollback
+ submit HTTP 202 | id exec-58d18119393fa97ff1e4127964c1b815 | final failed
+ error: configuration application failed after 2 command(s): failed executing "ip address 192.0.2.50 255.255.255.0": command rejected by Cisco IOS on command "ip address 192.0.2.50 255.255.255.0": 192.0.2.0 overlaps with GigabitEthernet1; rollback failed: rollback command "configure terminal" failed: Cisco IOS session closed; router state is uncertain and must be re-read before any retry
+ attempt: 2026-11-19T21:14:53.144330759Z -> 2026-11-19T21:15:08.774533265Z
+
+## X5 independent console read
+show running-config | include ^hostname
+hostname r3-infraflow
+r3-infraflow#
+show running-config interface GigabitEthernet2
+Building configuration...
+
+Current configuration : 152 bytes
+!
+interface GigabitEthernet2
+ description infraflow managed
+ ip address 198.18.0.5 255.255.255.252
+ negotiation auto
+ no mop enabled
+ no mop sysid
+end
+
+r3-infraflow#
+show running-config interface GigabitEthernet3
+Building configuration...
+
+Current configuration : 157 bytes
+!
+interface GigabitEthernet3
+ description rollback probe
+ ip address 192.0.2.50 255.255.255.0
+ shutdown
+ negotiation auto
+ no mop enabled
+ no mop sysid
+end
+
+r3-infraflow#
+show ip interface brief | exclude unassigned
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet1       192.0.2.13      YES NVRAM  up                    up      
+GigabitEthernet2       198.18.0.5      YES manual down                  down    
+GigabitEthernet3       192.0.2.50      YES manual administratively down down    
+
+r3-infraflow#
+show ip ssh | include version|Encryption|MAC
+SSH Enabled - version 2.0
+Encryption Algorithms:aes128-ctr,aes192-ctr,aes256-ctr
+MAC Algorithms:hmac-sha2-256,hmac-sha2-512,hmac-sha1,hmac-sha1-96
+r3-infraflow#
+  X4 FAILED (defect D5): IOS XE accepted the overlapping address on the shut-down Gi3 with a '%' warning; the executor
+  then sent a precautionary 'end' at the EXEC prompt; IOS XE treats it as a host name to connect to, returns no prompt
+  within 15 s, the session timed out and closed, and the rollback could not run. The executor correctly reported
+  'rollback failed ... router state is uncertain'. Reproduced with the real transport (lab-tagged probe: 'end' at EXEC ->
+  15.014s timeout, then session closed). Fix: 'end' at a known EXEC prompt is a no-op in the session layer.
+  Gi3 was cleaned on the console-equivalent probe session before the re-run.
+
+# ---- after fix D5 ----
+## X4b overlapping address on Gi3 -> automatic rollback
+ submit HTTP 202 | id exec-93b59a7e85a9ae38b25cb2a3f1dbbc7a | final failed
+ error: configuration application failed after 2 command(s): failed executing "ip address 192.0.2.50 255.255.255.0": command rejected by Cisco IOS on command "ip address 192.0.2.50 255.255.255.0": 192.0.2.0 overlaps with GigabitEthernet1; changes were rolled back to the preflight state and the rollback was verified by read-back
+ attempt: 2026-11-19T21:20:21.057496314Z -> 2026-11-19T21:20:22.492679004Z
+
+## X5b independent console read of Gi3
+show running-config interface GigabitEthernet3
+Building configuration...
+
+Current configuration : 107 bytes
+!
+interface GigabitEthernet3
+ no ip address
+ shutdown
+ negotiation auto
+ no mop enabled
+ no mop sysid
+end
+
+r3-infraflow#
+*Nov 19 21:20:21.642: %SYS-5-CONFIG_I: Configured from console by infraflow on vty1 (192.0.2.2)
+*Nov 19 21:20:22.094: %SYS-5-CONFIG_I: Configured from console by infraflow on vty1 (192.0.2.2)
+r3-infraflow#

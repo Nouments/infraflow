@@ -63,6 +63,24 @@ sites:
           routes:
             - destination: 203.0.113.0/24
               next_hop: 192.0.2.2
+      - name: r3
+        role: router
+        vendor: cisco
+        family: iosxe
+        model: csr1000v
+        os_version: "16.7.1"
+        # Managed over SSH by cisco.ios.configure; day-0 access set on the console.
+        provisioning:
+          method: ssh
+        management:
+          ipv4: 192.0.2.13
+        network:
+          interfaces:
+            - name: GigabitEthernet1
+              role: management
+              ipv4_mode: static
+              ipv4_address: 192.0.2.13/24
+              enabled: true
       - name: mt1
         role: router
         vendor: mikrotik
