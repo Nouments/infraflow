@@ -1,0 +1,14 @@
+GATE gofmt PASS 0s
+GATE vet PASS 0s
+GATE test PASS 13s
+GATE race PASS 75s
+GATE build PASS 3s
+GATE vuln PASS 5s
+GATE coverage PASS 1s
+GATE web PASS 1s
+GATE web-e2e PASS 34s
+GATE shell PASS 0s
+GATE secrets PASS 0s
+GATE perms PASS 0s
+GATE diffcheck PASS 0s
+OVERALL PASS
