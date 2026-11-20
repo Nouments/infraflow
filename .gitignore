@@ -51,3 +51,7 @@ bin/
 *.pem
 *.crt
 *.key
+
+# Python bytecode (lab scripts)
+__pycache__/
+*.pyc
