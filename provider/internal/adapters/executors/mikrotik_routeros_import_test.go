@@ -367,7 +367,9 @@ func TestRouterOSImportReportsUnreachableDevice(t *testing.T) {
 	resolver.device.SSHPort = closedPort
 	executor.targets = resolver
 	_, err := runRouterOSImport(t, executor)
-	if err == nil || !strings.Contains(err.Error(), "connection refused") || !strings.Contains(err.Error(), "no configuration was imported") {
+	// The refusal text is OS-specific ("connection refused" on Linux, "actively
+	// refused it" on Windows), so assert on InfraFlow's own wording.
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("connect to 127.0.0.1:%d", closedPort)) || !strings.Contains(err.Error(), "no configuration was imported") {
 		t.Fatalf("unreachable device not reported: %v", err)
 	}
 }
