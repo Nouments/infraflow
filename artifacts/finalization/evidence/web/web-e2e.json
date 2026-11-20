@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-19T21:02:16.063Z",
+  "generated_at": "2026-11-20T03:18:43.859Z",
   "chromium": "Chromium 153.0.8010.52 Arch Linux",
   "summary": {
     "pass": 16,
@@ -13,7 +13,7 @@
       "observed": {
         "title": "InfraFlow Control"
       },
-      "duration_ms": 41
+      "duration_ms": 17
     },
     {
       "id": "W02",
@@ -22,7 +22,7 @@
       "observed": {
         "login_error": "invalid credentials"
       },
-      "duration_ms": 772
+      "duration_ms": 414
     },
     {
       "id": "W03",
@@ -32,7 +32,7 @@
         "user": "admin",
         "role": "admin"
       },
-      "duration_ms": 917
+      "duration_ms": 500
     },
     {
       "id": "W04",
@@ -41,26 +41,26 @@
       "observed": {
         "user": "admin"
       },
-      "duration_ms": 136
+      "duration_ms": 74
     },
     {
       "id": "W05",
       "title": "Provider connection indicator reports reachable",
       "status": "PASS",
       "observed": {
-        "connection": "Provider reachable · 12:01:46 AM"
+        "connection": "Provider reachable · 6:18:14 AM"
       },
-      "duration_ms": 17
+      "duration_ms": 12
     },
     {
       "id": "W06",
       "title": "create, disable and re-enable a user (no delete exists)",
       "status": "PASS",
       "observed": {
-        "after_disable": "qa-operatoruserdisabledNov 20, 2026, 12:01 AMEnable",
-        "after_enable": "qa-operatoruseractiveNov 20, 2026, 12:01 AMDisable"
+        "after_disable": "qa-operatoruserdisabledNov 20, 2026, 6:18 AMEnable",
+        "after_enable": "qa-operatoruseractiveNov 20, 2026, 6:18 AMDisable"
       },
-      "duration_ms": 1166
+      "duration_ms": 944
     },
     {
       "id": "W07",
@@ -69,19 +69,19 @@
       "observed": {
         "editor_error": "decode configuration: yaml: line 1: did not find expected ',' or ']'"
       },
-      "duration_ms": 981
+      "duration_ms": 920
     },
     {
       "id": "W08",
-      "title": "editor: built-in example validates; lab input generates native artifacts",
+      "title": "editor: example NOT_REQUIRED, routed lab devices refused, interface fixture GENERATED",
       "status": "PASS",
       "observed": {
         "example_status": "Generation NOT_REQUIRED",
-        "lab_input_status": "Generation UNSUPPORTED",
+        "lab_input_status": "Generation PARTIAL",
         "fixture_status": "Generation GENERATED",
         "plan_excerpt": "PLAN PREVIEWPLANNED · 1 tasksPLANNEDGeneration GENERATED · Execution NOT_REQUESTED · Verification NOT_PERFORMEDmt-web · native_device_configweb-lab/native/device-mt-web.auto.rscSHA-256 75502ff8e9557bc9bee74b25af19617a3f69c9aa8c0f43d259ea08ec98990269template 1 · GENERATEDmt-webweb-lab · configure_int"
       },
-      "duration_ms": 2499
+      "duration_ms": 2458
     },
     {
       "id": "W09",
@@ -90,18 +90,18 @@
       "observed": {
         "job_rows": 1
       },
-      "duration_ms": 98
+      "duration_ms": 100
     },
     {
       "id": "W10",
       "title": "executions list, status filter and detail",
       "status": "PASS",
       "observed": {
-        "execution": "exec-c8f364dc806717cfdf3c5ae786351929",
+        "execution": "exec-41889067830bcd22ff8baab818bd59ba",
         "filter_succeeded_hides_failed": true,
-        "detail_excerpt": "exec-c8f364dc806717cfdf3c5ae786351929failedCreatedNov 20, 2026, 12:01 AMUpdatedNov 20, 2026, 12:01 AMStartedNov 20, 2026, 12:01 AMFinishedNov 20, 2026, 12:01 AMone or more tasks failed or were blockedTasks (1)failedverifyartifact.verifyarti"
+        "detail_excerpt": "exec-41889067830bcd22ff8baab818bd59bafailedCreatedNov 20, 2026, 6:18 AMUpdatedNov 20, 2026, 6:18 AMStartedNov 20, 2026, 6:18 AMFinishedNov 20, 2026, 6:18 AMone or more tasks failed or were blockedTasks (1)failedverifyartifact.verifyartifact"
       },
-      "duration_ms": 1655
+      "duration_ms": 1824
     },
     {
       "id": "W11",
@@ -111,7 +111,7 @@
         "rows": 0,
         "state": "Connected"
       },
-      "duration_ms": 1689
+      "duration_ms": 1648
     },
     {
       "id": "W12",
@@ -121,7 +121,7 @@
         "required_error": "Enter an Agent, site, run or device to diagnose.",
         "report_excerpt": "unknownNo failure was found and no lifecycle stage is confirmed; 8 expected evidence item(s) are missing.Current stateNo confirmed failure; evidence is incompleteLast confirmed stagenoneMost likely ca"
       },
-      "duration_ms": 416
+      "duration_ms": 347
     },
     {
       "id": "W13",
@@ -131,7 +131,7 @@
         "revoke_http": 204,
         "login_message": "Your session expired. Please sign in again."
       },
-      "duration_ms": 64
+      "duration_ms": 50
     },
     {
       "id": "W14",
@@ -142,7 +142,7 @@
         "admin_nav_visible": false,
         "users_api_status": 403
       },
-      "duration_ms": 418
+      "duration_ms": 371
     },
     {
       "id": "W15",
@@ -151,18 +151,18 @@
       "observed": {
         "stored_tokens": 0
       },
-      "duration_ms": 153
+      "duration_ms": 101
     },
     {
       "id": "W16",
       "title": "Provider unavailable is shown, and recovery is detected",
       "status": "PASS",
       "observed": {
-        "while_down": "Provider unreachable since 12:02:05 AM",
-        "after_restart": "Provider reachable · 12:02:15 AM",
+        "while_down": "Provider unreachable since 6:18:33 AM",
+        "after_restart": "Provider reachable · 6:18:43 AM",
         "still_signed_in_after_restart": true
       },
-      "duration_ms": 20441
+      "duration_ms": 20355
     }
   ]
 }

@@ -6,7 +6,7 @@ PASS W04 page refresh keeps the tab session
 PASS W05 Provider connection indicator reports reachable
 PASS W06 create, disable and re-enable a user (no delete exists)
 PASS W07 editor: validation error is shown for invalid input
-PASS W08 editor: built-in example validates; lab input generates native artifacts
+PASS W08 editor: example NOT_REQUIRED, routed lab devices refused, interface fixture GENERATED
 PASS W09 editor: plan submission creates a job visible in Plans & jobs
 PASS W10 executions list, status filter and detail
 PASS W11 technical logs view loads and filters by level

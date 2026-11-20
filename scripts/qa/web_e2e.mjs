@@ -198,7 +198,7 @@ async function main() {
     const error = await waitFor("editor error", async () => (await text("#editor-error")) || false, 8000);
     return { editor_error: error.slice(0, 200) };
   });
-  await scenario("W08", "editor: example is NOT_REQUIRED, routed lab input UNSUPPORTED, interface fixture GENERATED", async () => {
+  await scenario("W08", "editor: example NOT_REQUIRED, routed lab devices refused, interface fixture GENERATED", async () => {
     await click("#editor-example");
     await waitFor("example preview ready", async () => !(await js("return document.querySelector('#editor-generate').disabled")), 10000);
     await click("#editor-generate");
@@ -211,14 +211,14 @@ async function main() {
       await click("#editor-generate");
       return waitFor("generation", async () => { const t = await text("#editor-status"); return t && t.startsWith("Generation ") && t !== previous && t; }, 20000);
     };
-    // The lab input has static routes on every device: the web path reports
-    // them as unsupported instead of silently dropping them.
+    // Lab devices with static routes are reported as unsupported by the web
+    // path (never silently dropped); route-free devices still generate.
     const labStatus = await generateFrom(readFileSync(inputs, "utf8"), exampleStatus);
     const labPlan = (await text("#editor-plan")) || "";
     const status = await generateFrom(readFileSync(new URL("./fixtures/web-generate.yaml", import.meta.url), "utf8"), labStatus);
     await screenshot("W08-generation");
     const plan = (await text("#editor-plan")) || "";
-    if (exampleStatus !== "Generation NOT_REQUIRED" || labStatus !== "Generation UNSUPPORTED" || !labPlan.includes("static routes") ||
+    if (exampleStatus !== "Generation NOT_REQUIRED" || !["Generation UNSUPPORTED", "Generation PARTIAL"].includes(labStatus) || !labPlan.includes("static routes") ||
         status !== "Generation GENERATED" || !plan.includes("mt-web")) {
       throw new Error(`example=${exampleStatus} lab=${labStatus} fixture=${status} error=${await text("#editor-error")}`);
     }

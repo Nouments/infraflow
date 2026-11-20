@@ -1,0 +1,15 @@
+# Cisco IOSv 15.9(3)M8 (GNS3 IOSvm8 template) AutoInstall/PnP against InfraFlow DHCP (2026-11-20T06:15:28+03:00)
+Setup: new node IOSVM8 (MAC 0c:21:ac:2f:00:00) on the iosv-lab bootstrap segment; InfraFlow serve-dhcp/serve-tftp for iosv-lab running.
+Attempt 1: the GNS3 template attaches a startup-config disk (hdb IOSv_startup_config.img); IOS applied flash2:ios_config.txt
+  ("%CVAC-4-CONFIG_DONE") and logged "%PNP-6-PNP_DISCOVERY_STOPPED: PnP Discovery stopped (Startup Config Present)" -> no AutoInstall.
+Attempt 2: write erase, hdb detached, reboot: IOS reached the initial configuration dialog with PnP/AutoInstall active.
+Capture on the lab host (server side), 9 minutes, sha256 647a52e3e658a03f..., 1576 packets:
+      771 1	ciscopnp
+      771 2	
+infraflow-agent diagnose -capture ... -client-mac 0c:21:ac:2f:00:00:
+  Summary: The workflow stopped at DHCP (DHCP_OFFER_NOT_ACCEPTED).
+  Failure stage: DHCP DHCP_OFFER_NOT_ACCEPTED
+  Confidence: high
+Result: same behaviour as IOSv 15.9(3)M6 -> IOSv AutoInstall remains PARTIAL (DHCP_OFFER_NOT_ACCEPTED confirmed on the wire, root cause unproven).
+NOT_RUN: comparison with a reference DHCP server (no dnsmasq/isc-dhcpd/kea in the lab container and no package access; running one
+  on the user's host network is not allowed). This is the next diagnostic step.
