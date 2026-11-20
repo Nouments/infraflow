@@ -1,0 +1,6 @@
+# GitHub Actions "Go CI" on develop (queried via the public API, 2026-11-20)
+65fe758  run 44621282773  failure  windows: go test failed (Linux-only error text in TestRouterOSImportReportsUnreachableDevice) -> fixed in aa79e52 (D8)
+aa79e52  run 44667749894  success  linux success, windows success, presentation-demo success  (final code commit)
+37a1d7c  run 44667859035  success  linux success, windows success, presentation-demo success  (reports, documentation only)
+https://github.com/Nouments/infraflow/actions/runs/44667749894
+https://github.com/Nouments/infraflow/actions/runs/44667859035

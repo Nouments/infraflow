@@ -94,12 +94,12 @@ Evidence paths are relative to `artifacts/finalization/evidence/`.
 | SEC-04 | No secrets in repository or history | Security | — | I | PASS | 04_SECURITY_REPORT.md | value scan of all lab secrets |
 | SEC-05 | Dependency vulnerabilities | Security | — | I | PASS | unit/final-*/vuln.txt | govulncheck: 0 |
 | SEC-06 | DHCP/TFTP integrity | Security | n/a | — | NOT_APPLICABLE | 04_SECURITY_REPORT.md | protocol has none; mitigations documented |
-| CI-01 | Hosted CI (Linux, Windows) on final commit | CI | yes | — | see 07 | ci/ | |
+| CI-01 | Hosted CI (Linux, Windows) on final commit | CI | yes | I | PASS | ci/hosted-ci.txt | run 44667749894 |
 | CI-02 | GNS3 tests as a separate CI category | CI | no | — | NOT_RUN | — | needs a lab runner; workflow edits need workflow scope |
 
 ## Counts (computed from the table above)
 
 - Features inventoried: 88
 - Implemented (fully or partly): 71
-- Tested (at least one executed test level): 72
-- BLOCKED: 2 · NOT_APPLICABLE: 2 · NOT_RUN: 6 · PARTIAL: 3 · PASS: 68 · UNSUPPORTED: 6 · see 07: 1
+- Tested (at least one executed test level): 73
+- BLOCKED: 2 · NOT_APPLICABLE: 2 · NOT_RUN: 6 · PARTIAL: 3 · PASS: 69 · UNSUPPORTED: 6
