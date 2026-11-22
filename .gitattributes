@@ -12,3 +12,5 @@
 *.cfg text eol=lf
 *.conf text eol=lf
 *.tmpl text eol=lf
+# Evidence logs are hashed byte-for-byte (SHA256SUMS, report evidence refs): never convert line endings.
+artifacts/finalization/evidence/**/*.log -text
