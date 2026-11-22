@@ -2038,3 +2038,20 @@ tr:hover td {
   .diag-facts { grid-template-columns: 1fr; }
   .artifact-type { min-width: 0; }
 }
+
+.interface-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1.3fr 1.1fr 0.6fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.interface-row label { font-size: 12px; }
+.checkbox-line { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+#device-cisco-fields .button { margin-top: 4px; }
+@media (max-width: 720px) {
+  .interface-row { grid-template-columns: 1fr 1fr; }
+}
+
+.exec-task-facts { margin-top: 6px; font-weight: 600; }
+pre.exec-task-result { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }

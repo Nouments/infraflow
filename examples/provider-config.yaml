@@ -1,5 +1,5 @@
-listen_address: 127.0.0.1:8443
-api_listen_address: 127.0.0.1:8080
+listen_address: 0.0.0.0:8443
+api_listen_address: 0.0.0.0:8080
 
 web_ui_enabled: true
 
@@ -7,14 +7,17 @@ artifact_directory: /var/lib/infraflow-provider
 database_path: /var/lib/infraflow-provider/.infraflow-users.sqlite3
 
 token_env: INFRAFLOW_AGENT_TOKEN
+token_expires_at: "2026-12-22T00:00:00+03:00"
 
 admin_username: admin
 admin_credential_file: /var/lib/infraflow-provider/.infraflow-admin-password
 admin_credential_script: /var/lib/infraflow-provider/get-admin-password.sh
 
 session_ttl_minutes: 480
+
 # An Agent is ONLINE only while its last authenticated heartbeat is newer than this.
 agent_heartbeat_timeout_seconds: 90
+
 chunk_size: 65536
 
 logging:
@@ -23,12 +26,6 @@ logging:
   retention_days: 30
 
 tls:
-  certificate_file: ""
-  key_file: ""
-  # For optional gRPC mTLS, configure the CA that issued Agent certificates.
-  # client_ca_file: /run/secrets/agent-ca.crt
-
-# For remote or cloud deployments, bind to the public interface and provide a TLS
-# certificate/key pair for the provider listener and API listener.
-# A remote single-site deployment using the global token also requires
-# token_expires_at. Scoped Agent credentials require expires_at individually.
+  certificate_file: "/home/noums/Projects/infraflow/docker/gns3/certs/provider.crt"
+  key_file: "/home/noums/Projects/infraflow/docker/gns3/certs/provider.key"
+  client_ca_file: "/home/noums/Projects/infraflow/docker/gns3/certs/provider-ca.pem"

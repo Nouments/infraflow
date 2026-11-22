@@ -1300,7 +1300,7 @@
       const deviceTable = node("table", "compact-table");
       const head = node("thead");
       const headRow = node("tr");
-      ["DEVICE", "ROLE", "VENDOR / FAMILY / MODEL", "OS", "MGMT IPv4", "METHOD", "COMPATIBILITY"].forEach((label) => headRow.append(node("th", "", label)));
+      ["DEVICE", "ROLE", "VENDOR / FAMILY / MODEL", "OS", "MGMT IPv4", "METHOD", "COMPATIBILITY", ""].forEach((label) => headRow.append(node("th", "", label)));
       head.append(headRow);
       const body = node("tbody");
       site.devices.forEach((device) => {
@@ -1316,6 +1316,7 @@
           node("td", "mono", device.management_ipv4 || "—"),
           node("td", "mono", device.provisioning_method || "default"),
           compatibility,
+          deviceActionCell(site.id, device),
         );
         body.append(row);
       });
@@ -1498,6 +1499,8 @@
       document.querySelectorAll(".exec-filter-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.execFilter === executionFilter));
       loadExecutions();
     }
+    const deviceButton = event.target.closest("[data-device-operation]");
+    if (deviceButton) openDeviceDialog(deviceButton.dataset.deviceSite, deviceButton.dataset.deviceName, deviceButton.dataset.deviceOperation);
     const execView = event.target.closest("[data-exec-id]");
     if (execView) {
       loadExecutionDetail(execView.dataset.execId);
@@ -1610,6 +1613,124 @@
     } catch (error) { showNotice(error.message, true); }
     finally { button.disabled = false; }
   });
+  // ---- Device operations (Provider executors over SSH) ---------------------
+  // The browser only builds the request; the Provider validates parameters,
+  // resolves credentials, pins host keys, verifies and rolls back.
+  function deviceOperation(device) {
+    const vendor = (device.vendor || "").toLowerCase();
+    const family = (device.family || "").toLowerCase();
+    if (vendor === "cisco" && (family === "ios" || family === "iosxe")) return "cisco.ios.configure";
+    if (vendor === "mikrotik" && family === "routeros") return "mikrotik.routeros.import";
+    return "";
+  }
+
+  function deviceActionCell(siteID, device) {
+    const cell = node("td");
+    const operation = deviceOperation(device);
+    if (!operation || !device.management_ipv4) return cell;
+    const button = node("button", "row-action", operation === "cisco.ios.configure" ? "Configure" : "Push config");
+    button.type = "button";
+    button.dataset.deviceSite = siteID;
+    button.dataset.deviceName = device.name;
+    button.dataset.deviceOperation = operation;
+    cell.append(button);
+    return cell;
+  }
+
+  let deviceTarget = null;
+
+  function interfaceRow(values = {}) {
+    const row = node("div", "interface-row");
+    const field = (label, name, input) => { const wrap = node("label", "", label); input.name = name; wrap.append(input); return wrap; };
+    const text = (value, placeholder) => { const input = document.createElement("input"); input.value = value || ""; input.placeholder = placeholder; input.spellcheck = false; input.autocomplete = "off"; return input; };
+    const state = document.createElement("select");
+    ["up", "down"].forEach((value) => { const option = document.createElement("option"); option.value = value; option.textContent = value; state.append(option); });
+    state.value = values.admin_state || "up";
+    const remove = node("button", "row-action", "Remove");
+    remove.type = "button";
+    remove.addEventListener("click", () => row.remove());
+    row.append(field("Interface", "if_name", text(values.name, "GigabitEthernet0/1")), field("Description", "if_description", text(values.description, "")),
+      field("IPv4/prefix", "if_ipv4", text(values.ipv4_cidr, "198.51.100.1/24")), field("Admin", "if_state", state), remove);
+    return row;
+  }
+
+  function openDeviceDialog(siteID, name, operation) {
+    deviceTarget = { site: siteID, device_id: name, operation, key: `web-${crypto.randomUUID()}` };
+    const form = $("#device-form");
+    form.reset();
+    $("#device-error").textContent = "";
+    $("#device-interfaces").replaceChildren();
+    const cisco = operation === "cisco.ios.configure";
+    $("#device-cisco-fields").classList.toggle("hidden", !cisco);
+    $("#device-mikrotik-note").classList.toggle("hidden", cisco);
+    if (cisco) $("#device-interfaces").append(interfaceRow());
+    $("#device-dialog-target").textContent = `${siteID} / ${name} · ${operation}`;
+    $("#device-dialog-title").textContent = cisco ? "Configure Cisco device" : "Push RouterOS configuration";
+    $("#device-submit").disabled = false;
+    $("#device-dialog").showModal();
+  }
+
+  function deviceParameters() {
+    const parameters = { site: deviceTarget.site, device_id: deviceTarget.device_id };
+    if (deviceTarget.operation !== "cisco.ios.configure") return parameters;
+    const form = $("#device-form");
+    const hostname = form.elements.hostname.value.trim();
+    if (hostname) parameters.hostname = hostname;
+    parameters.interfaces = [...document.querySelectorAll("#device-interfaces .interface-row")].map((row) => {
+      const value = (name) => row.querySelector(`[name="${name}"]`).value.trim();
+      const entry = { name: value("if_name"), admin_state: value("if_state") };
+      if (value("if_description")) entry.description = value("if_description");
+      if (value("if_ipv4")) entry.ipv4_cidr = value("if_ipv4");
+      return entry;
+    }).filter((entry) => entry.name);
+    if (!parameters.interfaces.length) throw new Error("Add at least one interface.");
+    if (form.elements.persist.checked) parameters.persist = true;
+    return parameters;
+  }
+
+  $("#device-add-interface")?.addEventListener("click", () => $("#device-interfaces").append(interfaceRow()));
+  ["#close-device-dialog", "#cancel-device"].forEach((selector) => $(selector)?.addEventListener("click", () => $("#device-dialog").close()));
+  $("#device-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!deviceTarget) return;
+    const submit = $("#device-submit");
+    $("#device-error").textContent = "";
+    let parameters;
+    try { parameters = deviceParameters(); } catch (error) { $("#device-error").textContent = error.message; return; }
+    submit.disabled = true;
+    try {
+      // The key is fixed for this dialog, so a repeated click or a retry after
+      // a lost response returns the same execution instead of a second one.
+      const created = await request("/executions", {
+        method: "POST",
+        headers: { "Idempotency-Key": deviceTarget.key },
+        body: JSON.stringify({ tasks: [{ id: `${deviceTarget.device_id}-web`, type: deviceTarget.operation, parameters }] }),
+      });
+      $("#device-dialog").close();
+      showNotice(`Execution ${created.id} submitted to ${deviceTarget.site}/${deviceTarget.device_id}.`);
+      await loadExecutionDetail(created.id);
+      followExecution(created.id);
+    } catch (error) {
+      $("#device-error").textContent = error.message;
+      submit.disabled = false;
+    }
+  });
+
+  // Refresh an execution detail until it reaches a terminal state, while the
+  // operator stays on it.
+  function followExecution(id) {
+    const terminal = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
+    const tick = async () => {
+      if (!executionDetail || executionDetail.id !== id || terminal.has(executionDetail.status) || $("#execution-detail-view").classList.contains("hidden")) return;
+      try {
+        executionDetail = await request(`/executions/${encodeURIComponent(id)}`);
+        renderExecutionDetail();
+      } catch (_) { /* the next tick retries */ }
+      window.setTimeout(tick, 2000);
+    };
+    window.setTimeout(tick, 2000);
+  }
+
   async function loadExecutions() {
     if (currentUser?.role !== "admin") return;
     const table = $("#exec-table");
@@ -1689,6 +1810,16 @@
     }
   }
 
+  // Task results arrive as JSON objects; older records may carry a string.
+  function taskResult(value) {
+    if (!value) return null;
+    if (typeof value === "string") {
+      if (value.length <= 2) return null;
+      try { return JSON.parse(value); } catch (_) { return { output: value }; }
+    }
+    return typeof value === "object" && Object.keys(value).length ? value : null;
+  }
+
   function renderExecutionDetail() {
     const container = $("#exec-detail-content");
     container.replaceChildren();
@@ -1741,8 +1872,15 @@
       if (task.error) {
         taskEl.append(node("div", "exec-task-error", task.error));
       }
-      if (task.result && task.result.length > 2) {
-        taskEl.append(node("div", "exec-task-result", String(task.result)));
+      const result = taskResult(task.result);
+      if (result) {
+        const facts = [];
+        if (typeof result.verified === "boolean") facts.push(result.verified ? "verified by read-back" : "NOT verified");
+        if (result.persistence) facts.push(result.persistence.verified ? "saved to startup-config and verified" : `NOT persisted${result.persistence.error ? `: ${result.persistence.error}` : ""}`);
+        if (result.rollback) facts.push(result.rollback.verified ? "rolled back and verified" : "rollback NOT verified");
+        if (facts.length) taskEl.append(node("div", "exec-task-facts", facts.join(" · ")));
+        const pre = node("pre", "exec-task-result", JSON.stringify(result, null, 2));
+        taskEl.append(pre);
       }
       (task.attempts || []).forEach((attempt) => {
         const attemptEl = node("div", "exec-attempt");

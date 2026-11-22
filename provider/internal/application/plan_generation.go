@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -24,6 +25,18 @@ type PlanGenerationResult struct {
 	ExecutionStatus    string                 `json:"execution_status"`
 	VerificationStatus string                 `json:"verification_status"`
 	AuditStatus        string                 `json:"audit_status"`
+	// Published is true when the complete input was published to the catalog
+	// that Agents synchronize.
+	Published bool `json:"published"`
+	// Unpublished lists devices the native generator refuses; they are left
+	// out of the published catalog, exactly as `generate-all` would refuse them.
+	Unpublished []UnpublishedDevice `json:"unpublished,omitempty"`
+}
+
+type UnpublishedDevice struct {
+	Site   string `json:"site"`
+	Device string `json:"device"`
+	Reason string `json:"reason"`
 }
 
 type TaskGenerationResult struct {
@@ -139,7 +152,28 @@ func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte
 	if strings.TrimSpace(service.artifactDirectory) == "" {
 		return service.markGenerationUnavailable(ctx, result, "artifact directory is not configured")
 	}
-	artifacts, err := generator.GenerateNative(filtered, service.artifactDirectory)
+	// The artifact directory is the published catalog that Agents synchronize.
+	// Writing native files into it alone would leave site-manifest.json with
+	// stale hashes and make the whole catalog unavailable (D15). So the complete
+	// validated input is published through the staged, locked GenerateAll path
+	// (the same as `generate-all`), and only a generator without it renders
+	// into a throwaway directory that is never published.
+	readRoot := service.artifactDirectory
+	var artifacts []protocol.Artifact
+	if publisher, publishes := service.generator.(ports.AllArtifactGenerator); publishes {
+		var published domain.Infrastructure
+		published, result.Unpublished = service.publishableInfrastructure(infrastructure)
+		artifacts, err = publisher.GenerateAll(published, service.artifactDirectory)
+		result.Published = err == nil
+	} else {
+		staging, stagingErr := os.MkdirTemp("", "infraflow-plan-generate-")
+		if stagingErr != nil {
+			return service.markGenerationUnavailable(ctx, result, "staging directory is unavailable")
+		}
+		defer os.RemoveAll(staging)
+		readRoot = staging
+		artifacts, err = generator.GenerateNative(filtered, staging)
+	}
 	if err != nil {
 		for index := range result.Tasks {
 			if result.Tasks[index].Status == "PLANNED" {
@@ -151,7 +185,7 @@ func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte
 		}
 		result.GenerationStatus = "FAILED"
 		result, auditErr := service.recordPlanGeneration(ctx, result)
-		return result, errors.Join(fmt.Errorf("generate planned native configurations: %w", err), auditErr)
+		return result, errors.Join(fmt.Errorf("generate and publish artifacts: %w", err), auditErr)
 	}
 
 	manifests := make(map[string]nativeManifestVersion)
@@ -160,7 +194,7 @@ func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte
 			continue
 		}
 		site, _, _ := strings.Cut(artifact.Path, "/")
-		data, err := readGeneratedArtifact(service.artifactDirectory, artifact)
+		data, err := readGeneratedArtifact(readRoot, artifact)
 		if err != nil {
 			return service.failPlanGeneration(ctx, result, err)
 		}
@@ -179,7 +213,7 @@ func (service *Service) PlanAndGenerateContext(ctx context.Context, input []byte
 		if artifact.Type != "native_device_config" {
 			continue
 		}
-		if _, err := readGeneratedArtifact(service.artifactDirectory, artifact); err != nil {
+		if _, err := readGeneratedArtifact(readRoot, artifact); err != nil {
 			return service.failPlanGeneration(ctx, result, err)
 		}
 		site, _, _ := strings.Cut(artifact.Path, "/")
@@ -311,6 +345,33 @@ func (service *Service) interfaceGeneratorSupport(site domain.Site, device domai
 		return profile, method, "native configuration rendering requires at least one explicit IPv4 interface address"
 	}
 	return profile, method, ""
+}
+
+// publishableInfrastructure keeps every validated device the native generator
+// can render, including those whose intent the web plan does not model
+// (routes, NAT checks happen in the generator), so publishing from the web
+// never drops a device that `generate-all` would publish.
+func (service *Service) publishableInfrastructure(infrastructure domain.Infrastructure) (domain.Infrastructure, []UnpublishedDevice) {
+	checker, ok := service.generator.(ports.NativeSupportChecker)
+	if !ok {
+		return infrastructure, nil
+	}
+	published := infrastructure
+	published.Sites = make([]domain.Site, 0, len(infrastructure.Sites))
+	var refused []UnpublishedDevice
+	for _, site := range infrastructure.Sites {
+		kept := site
+		kept.Devices = make([]domain.Device, 0, len(site.Devices))
+		for _, device := range site.Devices {
+			if err := checker.CheckNativeDevice(site, device); err != nil {
+				refused = append(refused, UnpublishedDevice{Site: site.Name, Device: device.Name, Reason: err.Error()})
+				continue
+			}
+			kept.Devices = append(kept.Devices, device)
+		}
+		published.Sites = append(published.Sites, kept)
+	}
+	return published, refused
 }
 
 func hasIPv4Interface(interfaces []domain.NetworkInterface) bool {

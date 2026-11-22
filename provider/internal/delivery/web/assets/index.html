@@ -140,5 +140,16 @@
     </div>
 
     <dialog id="plan-dialog" class="plan-dialog"><form id="plan-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">DECLARATIVE INPUT</p><h2>Create planning job</h2></div><button type="button" id="close-dialog" class="close-button" aria-label="Close">&#215;</button></div><label>Infrastructure YAML<textarea name="input" rows="16" spellcheck="false" required placeholder="sites:\n  - name: lab"></textarea></label><p class="dialog-note">Validation and planning only. No infrastructure changes are executed.</p><p id="plan-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel-plan" class="button button-quiet">Cancel</button><button class="button button-primary" type="submit">Build plan</button></div></form></dialog>
+    <dialog id="device-dialog" class="plan-dialog"><form id="device-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow" id="device-dialog-target">DEVICE</p><h2 id="device-dialog-title">Configure device</h2></div><button type="button" id="close-device-dialog" class="close-button" aria-label="Close">&#215;</button></div>
+      <div id="device-cisco-fields">
+        <label>Hostname (optional)<input name="hostname" autocomplete="off" spellcheck="false" maxlength="63"></label>
+        <div id="device-interfaces"></div>
+        <button type="button" id="device-add-interface" class="button button-quiet">Add interface</button>
+        <label class="checkbox-line"><input type="checkbox" name="persist"> Save to startup-config after verification (write memory, then startup-config is read back)</label>
+      </div>
+      <p id="device-mikrotik-note" class="dialog-note hidden">Uploads the configuration published for this device, imports it over SSH, and verifies it by read-back.</p>
+      <p class="dialog-note">Runs on the real device through the Provider (SSH with pinned host keys). Changes are verified by read-back; a failed apply is rolled back.</p>
+      <p id="device-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-device" class="button button-quiet">Cancel</button><button class="button button-primary" type="submit" id="device-submit">Run on device</button></div></form></dialog>
   </body>
 </html>
