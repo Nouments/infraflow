@@ -57,5 +57,53 @@ Implemented:
 - DIA-09: reference DHCP comparison executed; IOSv M6 AutoInstall reclassified UNSUPPORTED (image-side), with evidence.
 
 Counts (05): 94 features — PASS 77, PARTIAL 2, BLOCKED 2, NOT_RUN 4, UNSUPPORTED 7, NOT_APPLICABLE 2.
-Gate: `scripts/qa/gate.sh` 13/13 PASS on the final tree (see below). Hosted CI does not cover these uncommitted changes.
+Gate: `scripts/qa/gate.sh` 13/13 PASS on the final tree. Hosted CI did not cover these uncommitted changes at the time (they were later committed as `c9f5a86`; see the next addendum).
 Evidence: evidence/gns3-20261122/ (SHA256SUMS inside), docs/DELIVERY/GNS3_VALIDATION_20261122.md.
+
+## Addendum — 2026-11-22, release validation of `c9f5a86`
+
+Commit under test: `c9f5a8676006f505e711f071bdf89f5056290dfa` (`develop` = `origin/develop`). It contains the
+morning's changes (D9–D12, AGT-10/11, GNS3 client). Its commit message says "up to 100/100"; the evidence below does
+not support that number.
+
+### Evidence for the exact commit
+
+| Check | Result | Evidence (evidence/release-c9f5a86/) |
+|---|---|---|
+| `scripts/qa/gate.sh` in a clean detached worktree of `c9f5a86` | 13/13 PASS (gofmt, vet, test, race, build, govulncheck, coverage, web, web-e2e 16/16, shell, secrets, perms, diffcheck); worktree clean before and after | gate/context.txt, gate/*.txt |
+| govulncheck | 0 reachable vulnerabilities (3 in required modules, not called) | gate/vuln.txt |
+| Hosted CI, run 44993837424 on `c9f5a86` (push) | success: linux (vuln, test, race, vet, build, coverage, web checks, gofmt, diff-check), windows (test, vet, build, gofmt, diff-check), presentation-demo | ci-runs-c9f5a86.json, ci-jobs-44993837424.json |
+| GNS3 scenarios on the commit's binaries | 8 PASS, 2 UNSUPPORTED (+ 1 PASS needing an uncommitted patch) | gns3-c9f5a86/*.json, docs/DELIVERY/GNS3_VALIDATION_c9f5a86.md |
+| Provider soak, c9f5a86 binary (4 clients, 1 min windows) | **PARTIAL**: stopped at the user's request after 1 h 53 of the planned 3 h (109 windows); 6.43 M requests, 0 errors, open files and threads flat, p99 23.6 → 28.7 ms (no drift); **RSS 575–710 MiB, above the 512 MiB objective** → D13 | soak-c9f5a86.json |
+| Short load + SIGKILL recovery, c9f5a86 binary | PASS: 0 errors, p99 at c=32 within objective, recovery 1.68 s with the same 4 sites and the session, 8 parallel generations identical (throughput lower than in the morning because the soak shared the host) | load-report-c9f5a86.json |
+
+Matrix (05) after this validation: 94 features — PASS 78, PARTIAL 2 (GNS-04, PRV-20), BLOCKED 2, NOT_RUN 1 (CI-02), UNSUPPORTED 8, NOT_APPLICABLE 3.
+Score of `c9f5a86`: **88/100** (docs/DELIVERY/RELEASE_READINESS.md).
+
+### Uncommitted changes on top of `c9f5a86` (not in the HEAD, not covered by hosted CI)
+
+- D14 / GNS-04: `cisco.ios.configure` gains an explicit `persist: true`. It runs `write memory` only after a
+  verified running state, requires `[OK]`, then reads `show startup-config` back and compares every requested
+  field. A failed save is reported as FAILED ("NOT persisted") and is not rolled back. It is never implicit.
+  Three unit tests, and a real IOSv reload: the persisted change survived; a non-persisted one did not.
+- D13: the central log store keeps an index instead of a second copy of every event, and compaction no longer
+  copies the whole store once more. On the same 57 MiB store, live heap fell from 233 to 133 MiB. Test
+  mutation-checked. Comparison soak, 42 min, same parameters: PASS, 1.69 M requests, 0 errors, RSS peak 499 MiB (≤ 512, small margin) — soak-worktree-d13-fix-42min.json. Shorter than the HEAD soak, so it is indicative, not equivalent.
+- `scripts/qa/load -soak`: multi-hour mode (per-window JSON report, drift and leak objectives).
+- Topologies `infraflow-automated-validation-devices.json` and `-csr.json`.
+- Working-tree gate: 12/13 PASS. web-e2e failed when Chrome's renderer died under host memory pressure; re-run
+  alone, it gave 16/16 PASS. Both runs are kept in release-c9f5a86/gate-worktree/.
+
+### Not done, and why
+
+- CSR1000v (CIS-05) not re-run. `gns3 host-check` refused it (4096 MiB plus 1 GiB reserve, 5005 MiB available),
+  and the reserve was not lowered. Executor production code is unchanged since its 2026-11-20 PASS.
+- FortiGate: BLOCKED, no password guessed. IOL-XE: BLOCKED, image absent.
+- VLANs (MTK-08), routes/NAT from the web (GEN-06), user deletion (WEB-06): re-evaluated, still UNSUPPORTED.
+  - VLANs need a model field, per-vendor templates and executor read-back.
+  - Routes/NAT need a web planner.
+  - User deletion needs an audited delete with a last-administrator guard.
+  - None was implemented in this validation pass.
+- GNS3 view in the Admin Web: NOT_APPLICABLE. The Provider never contacts GNS3, by design.
+
+Nothing was committed or pushed.

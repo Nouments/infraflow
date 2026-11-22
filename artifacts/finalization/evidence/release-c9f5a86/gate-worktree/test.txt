@@ -1,0 +1,46 @@
+?   	infraflow/agent/cmd	[no test files]
+ok  	infraflow/agent/internal/adapters/filesystem	0.012s
+ok  	infraflow/agent/internal/adapters/processor	0.013s
+ok  	infraflow/agent/internal/adapters/providergrpc	0.147s
+ok  	infraflow/agent/internal/adapters/providerhttp	0.387s
+ok  	infraflow/agent/internal/application	16.953s
+ok  	infraflow/agent/internal/application/toolrunner	11.649s
+ok  	infraflow/agent/internal/config	0.045s
+ok  	infraflow/agent/internal/delivery/artifacts	0.300s
+ok  	infraflow/agent/internal/delivery/cli	1.204s
+ok  	infraflow/agent/internal/delivery/dhcp	0.073s
+ok  	infraflow/agent/internal/delivery/tftpserver	0.076s
+ok  	infraflow/agent/internal/delivery/tui	0.206s
+?   	infraflow/agent/internal/ports	[no test files]
+?   	infraflow/agent/internal/testutil	[no test files]
+ok  	infraflow/internal/adapters/catalog	0.016s
+ok  	infraflow/internal/adapters/config	0.068s
+ok  	infraflow/internal/adapters/generation	4.141s
+?   	infraflow/internal/adapters/planning	[no test files]
+ok  	infraflow/internal/application/planner	0.024s
+ok  	infraflow/internal/application/reconcile	0.044s
+ok  	infraflow/internal/application/scheduler	0.134s
+ok  	infraflow/internal/diagnostics	0.117s
+ok  	infraflow/internal/domain	0.013s
+ok  	infraflow/internal/gns3	0.200s
+ok  	infraflow/internal/infrastructure/safefs	0.025s
+ok  	infraflow/internal/infrastructure/security	0.011s
+?   	infraflow/internal/ports	[no test files]
+ok  	infraflow/pkg/observability	0.118s
+ok  	infraflow/pkg/protocol	0.012s
+?   	infraflow/pkg/protocol/infraflow/v1	[no test files]
+?   	infraflow/provider/cmd	[no test files]
+ok  	infraflow/provider/internal/adapters/config	0.042s
+ok  	infraflow/provider/internal/adapters/executors	1.162s
+ok  	infraflow/provider/internal/adapters/filesystem	0.282s
+?   	infraflow/provider/internal/adapters/generation	[no test files]
+ok  	infraflow/provider/internal/adapters/sqlite	1.888s
+ok  	infraflow/provider/internal/application	0.333s
+ok  	infraflow/provider/internal/delivery/cli	0.822s
+ok  	infraflow/provider/internal/delivery/grpcapi	0.110s
+ok  	infraflow/provider/internal/delivery/httpapi	10.528s
+ok  	infraflow/provider/internal/delivery/web	1.360s
+?   	infraflow/provider/internal/domain	[no test files]
+ok  	infraflow/provider/internal/infrastructure/credentials	0.013s
+?   	infraflow/provider/internal/ports	[no test files]
+?   	infraflow/scripts/qa/load	[no test files]

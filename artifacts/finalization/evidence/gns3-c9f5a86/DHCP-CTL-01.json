@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "scenario_id": "DHCP-CTL-01",
+  "title": "Control client against the reference ISC dhcpd (c9f5a86 session)",
+  "mandatory": true,
+  "started_at": "2026-11-22T07:23:00Z",
+  "finished_at": "2026-11-22T07:24:10Z",
+  "duration_seconds": 70.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "",
+  "device": "PC1",
+  "model": "VPCS",
+  "os": "VPCS",
+  "os_version": "GNS3 builtin",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T07:24:04Z",
+      "description": "VPCS: ip dhcp; show ip; ping 10.99.0.1 -c 3",
+      "result": "DORA, 10.99.0.100/24, 3/3 replies"
+    }
+  ],
+  "checks": [
+    {
+      "name": "DORA",
+      "expected": "DISCOVER, OFFER, REQUEST, ACK in the server log",
+      "observed": "all four for 00:50:79:66:68:00",
+      "status": "PASS"
+    },
+    {
+      "name": "reachability",
+      "expected": "ping the server",
+      "observed": "3/3",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/pc1-vs-reference-dhcpd.txt",
+      "sha256": "22c663e18db60c569d5b5f8e7e2a885ddffa670edcae64b25e7da87f6d5acd4b",
+      "description": "VPCS console"
+    },
+    {
+      "path": "logs/ref-dhcpd.log",
+      "sha256": "bf45c895ccd37f4fdea3a40b16a97401ef6ca8cfe91e6542b90652632ca757bf",
+      "description": "reference dhcpd log"
+    },
+    {
+      "path": "logs/ref-dhcpd.conf",
+      "sha256": "b9f06c4ad9b951a3653117588c5ec0c958ad3712269a9038c1f8c7053dd471bd",
+      "description": "reference dhcpd configuration"
+    }
+  ],
+  "captures": [
+    {
+      "path": "captures/pc1-vs-reference-dhcpd.pcap",
+      "sha256": "cd531e3144ec660f36f3f17eaf2faf836787d88b77fb52757b8af5f3aa181729",
+      "description": "PC1 link"
+    }
+  ],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [],
+  "initial_state": "InfraFlow DHCP/TFTP stopped on the segment; reference ISC dhcpd 4.4.3-P1 started on REFDHCP 10.99.0.1/24",
+  "final_state": "PC1 bound 10.99.0.100 from the reference server",
+  "status": "PASS",
+  "status_reason": "the reference server serves a plain client, so it is a valid comparison point"
+}

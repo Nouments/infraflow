@@ -1,0 +1,6 @@
+HEAD=c9f5a8676006f505e711f071bdf89f5056290dfa
+DIRTY=[ M pkg/observability/store.go  M pkg/observability/store_test.go  M provider/internal/adapters/executors/cisco_ios_configure.go  M provider/internal/adapters/executors/cisco_ios_configure_test.go  M scripts/qa/load/main.go ?? artifacts/finalization/evidence/gns3-c9f5a86/ ?? artifacts/finalization/evidence/release-c9f5a86/ ?? provider/internal/adapters/executors/cisco_ios_persist_test.go ?? scripts/lab/topologies/infraflow-automated-validation-csr.json ?? scripts/lab/topologies/infraflow-automated-validation-devices.json ]
+DIFF_SHA256=6f080292712b1a9e60cd59ed4d3aeb8528145daa0d28cca9f842bdab124e8e90
+2026-11-22T10:36:08+03:00
+GATE_EXIT=1
+2026-11-22T10:42:14+03:00

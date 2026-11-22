@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -227,4 +228,51 @@ func TestStoreCompactsOldestEventsInsteadOfFailingWhenFull(t *testing.T) {
 	if len(reloaded.Events) != len(page.Events) {
 		t.Fatalf("reopened store has %d events, want %d", len(reloaded.Events), len(page.Events))
 	}
+}
+
+// TestStoreIDIndexSurvivesCompactionAndReload pins D13: byID holds indexes
+// into events, so after a compaction shifts every position, and after a
+// reload from disk, duplicate and conflict detection must still find the
+// right event.
+func TestStoreIDIndexSurvivesCompactionAndReload(t *testing.T) {
+	directory := t.TempDir()
+	store, err := NewStore(directory, 16<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last Event
+	for index := 0; index < 200; index++ {
+		last = storeEvent(fmt.Sprintf("event-%03d", index), "INFO", "agent-1", "run-1", strings.Repeat("x", 100))
+		if _, err := store.Append([]Event{last}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(store *Store, stage string) {
+		t.Helper()
+		if len(store.byID) != len(store.events) {
+			t.Fatalf("%s: index has %d ids for %d events", stage, len(store.byID), len(store.events))
+		}
+		for id, index := range store.byID {
+			if store.events[index].ID != id {
+				t.Fatalf("%s: id %s points to %s", stage, id, store.events[index].ID)
+			}
+		}
+		if result, err := store.Append([]Event{last}); err != nil || result.Duplicate != 1 {
+			t.Fatalf("%s: identical retry not detected: %#v %v", stage, result, err)
+		}
+		conflict := last
+		conflict.Message = "different body"
+		if _, err := store.Append([]Event{conflict}); err == nil {
+			t.Fatalf("%s: conflicting reuse of a retained id was accepted", stage)
+		}
+	}
+	if _, present := store.byID["event-000"]; present {
+		t.Fatal("compaction did not run: the first event is still stored")
+	}
+	check(store, "after compaction")
+	reloaded, err := NewStore(directory, 16<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(reloaded, "after reload")
 }

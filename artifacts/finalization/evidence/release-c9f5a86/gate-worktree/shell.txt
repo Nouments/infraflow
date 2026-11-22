@@ -1,0 +1,12 @@
+PASS no arguments
+PASS too many arguments
+PASS invalid host
+PASS host with shell metachar
+PASS invalid user
+PASS fingerprint without SHA256 prefix
+PASS fingerprint with MD5 format
+PASS port zero
+PASS port too large
+PASS port not numeric
+PASS bash syntax
+All preflight script checks passed.

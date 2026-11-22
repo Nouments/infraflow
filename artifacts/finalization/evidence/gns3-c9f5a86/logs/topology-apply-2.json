@@ -1,0 +1,438 @@
+{
+  "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd",
+  "created_nodes": null,
+  "reused_nodes": [
+    "SW-PROV",
+    "IOSV1",
+    "REFDHCP",
+    "PC1",
+    "R2",
+    "MT1",
+    "IOSVM8"
+  ],
+  "created_links": 0,
+  "reused_links": 6,
+  "nodes": {
+    "IOSV1": {
+      "node_id": "c24a6a7a-c19f-46fa-9971-f241c8a970e1",
+      "name": "IOSV1",
+      "node_type": "qemu",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "6229184a-9d99-4ff5-9e16-4a4e8d017d2d",
+      "console": 5002,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "Gi0/0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/1",
+          "adapter_number": 1,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/2",
+          "adapter_number": 2,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/3",
+          "adapter_number": 3,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "IOSVM8": {
+      "node_id": "98abdaa7-8b68-4e2b-9f81-ffeeaa046f02",
+      "name": "IOSVM8",
+      "node_type": "qemu",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "62dc5717-6753-41a0-93a3-12b07814a79c",
+      "console": 5011,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "Gi0/0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/1",
+          "adapter_number": 1,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/2",
+          "adapter_number": 2,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/3",
+          "adapter_number": 3,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "MT1": {
+      "node_id": "890e7638-3f5a-4d7c-8c4f-1efe5305c521",
+      "name": "MT1",
+      "node_type": "qemu",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "c9d14345-e88b-42f7-b938-e0c74eef85bc",
+      "console": 5008,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "sfp1",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp2",
+          "adapter_number": 1,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp3",
+          "adapter_number": 2,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp4",
+          "adapter_number": 3,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp5",
+          "adapter_number": 4,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp6",
+          "adapter_number": 5,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp7",
+          "adapter_number": 6,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp8",
+          "adapter_number": 7,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp9",
+          "adapter_number": 8,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp10",
+          "adapter_number": 9,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp11",
+          "adapter_number": 10,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp12",
+          "adapter_number": 11,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp13",
+          "adapter_number": 12,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp14",
+          "adapter_number": 13,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp15",
+          "adapter_number": 14,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp16",
+          "adapter_number": 15,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp17",
+          "adapter_number": 16,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp18",
+          "adapter_number": 17,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp19",
+          "adapter_number": 18,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp20",
+          "adapter_number": 19,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp21",
+          "adapter_number": 20,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp22",
+          "adapter_number": 21,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp23",
+          "adapter_number": 22,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp24",
+          "adapter_number": 23,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp25",
+          "adapter_number": 24,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp26",
+          "adapter_number": 25,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp27",
+          "adapter_number": 26,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "sfp28",
+          "adapter_number": 27,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "PC1": {
+      "node_id": "32bcda23-c59c-4b39-8f14-63e6e0a0aae0",
+      "name": "PC1",
+      "node_type": "vpcs",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "52136454-1f50-590a-94e4-816bd02d1062",
+      "console": 5005,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "Ethernet0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "R2": {
+      "node_id": "9798288b-c6bf-4ba9-b9eb-adf95d649ecb",
+      "name": "R2",
+      "node_type": "dynamips",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "ef3859b1-cfac-453d-93c1-8458b65c1cd2",
+      "console": 5007,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "FastEthernet0/0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "FastEthernet1/0",
+          "adapter_number": 1,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "FastEthernet1/1",
+          "adapter_number": 1,
+          "port_number": 1,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "FastEthernet2/0",
+          "adapter_number": 2,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "FastEthernet2/1",
+          "adapter_number": 2,
+          "port_number": 1,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3/0",
+          "adapter_number": 3,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3/1",
+          "adapter_number": 3,
+          "port_number": 1,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3/2",
+          "adapter_number": 3,
+          "port_number": 2,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3/3",
+          "adapter_number": 3,
+          "port_number": 3,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "REFDHCP": {
+      "node_id": "e9d4c7c2-c115-4a94-bbfd-9376a3fd059c",
+      "name": "REFDHCP",
+      "node_type": "docker",
+      "status": "stopped",
+      "compute_id": "local",
+      "template_id": "385f7c1a-42a0-4beb-8a2c-9a3f73335ba6",
+      "console": 5004,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "eth0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    "SW-PROV": {
+      "node_id": "d0e8cc5e-5f3e-46ce-8898-79a813ce31cc",
+      "name": "SW-PROV",
+      "node_type": "ethernet_switch",
+      "status": "started",
+      "compute_id": "local",
+      "template_id": "92a43283-9c7e-5a68-9695-1f05a2e8dd05",
+      "console": 5001,
+      "console_host": "127.0.0.1",
+      "console_type": "none",
+      "ports": [
+        {
+          "name": "Ethernet0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet1",
+          "adapter_number": 0,
+          "port_number": 1,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet2",
+          "adapter_number": 0,
+          "port_number": 2,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3",
+          "adapter_number": 0,
+          "port_number": 3,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet4",
+          "adapter_number": 0,
+          "port_number": 4,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet5",
+          "adapter_number": 0,
+          "port_number": 5,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet6",
+          "adapter_number": 0,
+          "port_number": 6,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet7",
+          "adapter_number": 0,
+          "port_number": 7,
+          "link_type": "ethernet"
+        }
+      ]
+    }
+  }
+}

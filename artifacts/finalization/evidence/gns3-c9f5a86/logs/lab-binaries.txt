@@ -1,0 +1,6 @@
+# Binaries used in the isolated GNS3 lab (LAB container), 2026-11-22
+# Pristine c9f5a8676006f505e711f071bdf89f5056290dfa (clean worktree, static build):
+78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5  infraflow-provider  (inventory, generation, c7200, CHR, CIS-04, IOSv M6/M8)
+c9b90b233eaa9fe5835b381343f84911e2f57a7bedd2d7679d4d4996e427f16f  infraflow-agent
+# c9f5a86 + uncommitted persistence patch (logs/persist-patch-on-c9f5a86.diff, sha256 5dd54ebb13c605f294e025cd274541bbaa3c172e0e6814fb4aab8026dcd4eef3):
+0d668450da37b7a78cf0696f8a4c61867e11fde966b866fb9bfe1718911ed447  infraflow-provider  (r1 P1/P2/P3 persistence only, 07:13-07:17Z)

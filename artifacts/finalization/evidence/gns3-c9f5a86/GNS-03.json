@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "scenario_id": "GNS-03",
+  "title": "Isolated project, device topology applied twice (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T06:44:40Z",
+  "finished_at": "2026-11-22T06:45:30Z",
+  "duration_seconds": 50.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "",
+  "device": "SW-PROV, IOSV1, REFDHCP, PC1, R2, MT1, IOSVM8",
+  "model": "switch, IOSv, debian-dhcp, VPCS, c7200, CHR, IOSvm8",
+  "os": "mixed",
+  "os_version": "n/a",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T06:44:40Z",
+      "description": "gns3 host-check -topology scripts/lab/topologies/infraflow-automated-validation-devices.json",
+      "result": "ok: budget 2192 MiB RAM, 950 MiB disk"
+    },
+    {
+      "at": "2026-11-22T06:44:50Z",
+      "description": "gns3 project-ensure",
+      "result": "reused (created=false), opened"
+    },
+    {
+      "at": "2026-11-22T06:45:00Z",
+      "description": "gns3 topology-apply (1st)",
+      "result": "3 nodes and 3 links created, 4 nodes and 3 links reused"
+    },
+    {
+      "at": "2026-11-22T06:45:20Z",
+      "description": "gns3 topology-apply (2nd)",
+      "result": "7 nodes and 6 links reused, nothing created"
+    },
+    {
+      "at": "2026-11-22T06:46:00Z",
+      "description": "LAB docker node (infraflow-e2e-lab:20261119) added with scripts/lab/gns3lab.py node-docker and linked to SW-PROV 0/3",
+      "result": "started"
+    }
+  ],
+  "checks": [
+    {
+      "name": "host pre-check",
+      "expected": "RAM/disk budget checked before creating nodes",
+      "observed": "ok, no problems",
+      "status": "PASS"
+    },
+    {
+      "name": "idempotent re-apply",
+      "expected": "second apply creates nothing",
+      "observed": "created_nodes=null, created_links=0, reused 7/6",
+      "status": "PASS"
+    },
+    {
+      "name": "isolation",
+      "expected": "no uplink; pre-existing projects unchanged",
+      "observed": "no Cloud/NAT node; project list unchanged",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/host-check.json",
+      "sha256": "2a43c035ab02e45f84dadc7041098637d47c1d76ca4b6c6f16975d06084a9fa0",
+      "description": "host pre-check"
+    },
+    {
+      "path": "logs/project-ensure.json",
+      "sha256": "ecc139c2b02774243ce6de97b72800c0c58239cc18c07f3b484d393c5805337b",
+      "description": "project reuse"
+    },
+    {
+      "path": "logs/topology-apply-1.json",
+      "sha256": "69510130dc74a1028ee00bfeb1f921f6ee01faafaf19b43e2f7157d737bbdd63",
+      "description": "first apply"
+    },
+    {
+      "path": "logs/topology-apply-2.json",
+      "sha256": "2bbd9eba9105a13e558f9015a54db40ccbc8e0aeb135715ed61783873db25b1e",
+      "description": "second apply"
+    },
+    {
+      "path": "logs/project-snapshot.json",
+      "sha256": "7111bb8585a4180ff627970ce585b6d89ad5193289437225368ad34dc997b01d",
+      "description": "final nodes and links"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [
+    "the LAB node has no GNS3 template, so it is added by the lab script, not by topology-apply"
+  ],
+  "initial_state": "project InfraFlow-Automated-Validation closed, 4 nodes / 3 links from the previous session",
+  "final_state": "8 nodes, 7 links in the isolated project; no Cloud/NAT node; other projects untouched",
+  "status": "PASS",
+  "status_reason": "topology built from real templates and re-applied without change"
+}

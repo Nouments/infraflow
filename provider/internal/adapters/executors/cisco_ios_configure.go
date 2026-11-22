@@ -41,6 +41,9 @@ type CiscoIOSConfigureParameters struct {
 	DeviceID   string                   `json:"device_id"`
 	Hostname   string                   `json:"hostname,omitempty"`
 	Interfaces []InterfaceConfiguration `json:"interfaces"`
+	// Persist is an explicit opt-in: after the running-config is applied and
+	// verified, save it with "write memory" and verify startup-config.
+	Persist bool `json:"persist,omitempty"`
 }
 
 // InterfaceConfiguration defines the typed configuration for a single authorized interface.
@@ -64,9 +67,19 @@ type CiscoIOSConfigureResult struct {
 	PreviousChanges  ObservedChanges  `json:"previous_changes"`
 	ObservedChanges  ObservedChanges  `json:"observed_changes"`
 	Verified         bool             `json:"verified"`
+	Persistence      *PersistResult   `json:"persistence,omitempty"`
 	Rollback         *RollbackResult  `json:"rollback,omitempty"`
 	Error            string           `json:"error,omitempty"`
 	Warnings         []string         `json:"warnings,omitempty"`
+}
+
+// PersistResult records the explicit save to startup-config and its read-back.
+type PersistResult struct {
+	Requested bool            `json:"requested"`
+	Saved     bool            `json:"saved"`
+	Verified  bool            `json:"verified"`
+	Startup   ObservedChanges `json:"startup_config"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // RollbackResult records the automatic restoration of the preflight state
@@ -451,10 +464,28 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		return e.failWithRollback(ctx, session, params, previous, target, creds, safeMsg)
 	}
 
-	// 8. Assemble structured result
+	// 8. Optional, explicit persistence. Only a verified running state is
+	// saved. A failed save is reported as such and is not rolled back: the
+	// running state is the requested one, and a rollback would not be
+	// persisted either.
+	var persistence *PersistResult
+	warning := "Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (persist not requested)"
+	if params.Persist {
+		persistence = e.persist(ctx, session, params)
+		warning = "Configuration was applied to running-config, verified, saved with write memory, and startup-config was verified by read-back"
+	}
+
+	// 9. Assemble structured result
 	family := target.Family
 	if family == "" {
 		family = "ios"
+	}
+	status := domain.ExecutionTaskSucceeded
+	var failure string
+	if persistence != nil && !persistence.Verified {
+		status = domain.ExecutionTaskFailed
+		failure = "configuration applied and verified in running-config but NOT persisted: " + sanitizeErrorWithCreds(errors.New(persistence.Error), creds)
+		warning = failure
 	}
 	resultPayload, err := json.Marshal(CiscoIOSConfigureResult{
 		Operation:  CiscoIOSConfigureType,
@@ -463,7 +494,7 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		Vendor:     "cisco",
 		Family:     family,
 		ExecutedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Status:     string(domain.ExecutionTaskSucceeded),
+		Status:     string(status),
 		RequestedChanges: RequestedChanges{
 			Hostname:   params.Hostname,
 			Interfaces: params.Interfaces,
@@ -471,19 +502,83 @@ func (e *CiscoIOSConfigureExecutor) Execute(ctx context.Context, task domain.Exe
 		PreviousChanges: previous,
 		ObservedChanges: observed,
 		Verified:        true,
-		Warnings: []string{
-			"Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (write memory disabled by policy)",
-		},
+		Persistence:     persistence,
+		Error:           failure,
+		Warnings:        []string{warning},
 	})
 	if err != nil {
 		errMsg := "failed to marshal execution result"
 		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Error: errMsg}, errors.New(errMsg)
+	}
+	if failure != "" {
+		return ports.ExecutionResult{Status: domain.ExecutionTaskFailed, Output: resultPayload, Error: failure}, errors.New(failure)
 	}
 
 	return ports.ExecutionResult{
 		Status: domain.ExecutionTaskSucceeded,
 		Output: resultPayload,
 	}, nil
+}
+
+// persist saves the running-config and verifies that startup-config holds
+// every requested field.
+func (e *CiscoIOSConfigureExecutor) persist(ctx context.Context, session CiscoIOSSession, params CiscoIOSConfigureParameters) *PersistResult {
+	result := &PersistResult{Requested: true}
+	output, err := session.RunCommand(ctx, "write memory")
+	if err != nil {
+		result.Error = "write memory failed: " + err.Error()
+		return result
+	}
+	if !strings.Contains(output, "[OK]") {
+		result.Error = "write memory did not report [OK]"
+		return result
+	}
+	result.Saved = true
+	startup, err := session.RunCommand(ctx, "show startup-config")
+	if err != nil {
+		result.Error = "read startup-config: " + err.Error()
+		return result
+	}
+	observed := ObservedChanges{Interfaces: make([]ObservedInterfaceConfig, 0, len(params.Interfaces))}
+	if params.Hostname != "" {
+		observed.Hostname = parseHostnameFromOutput(startup)
+	}
+	for _, iface := range params.Interfaces {
+		block, found := configBlock(startup, "interface "+iface.Name)
+		if !found {
+			result.Startup = observed
+			result.Error = "startup-config has no block for interface " + iface.Name
+			return result
+		}
+		observed.Interfaces = append(observed.Interfaces, parseInterfaceFromRunningConfig(iface.Name, block))
+	}
+	result.Startup = observed
+	if err := compareRunningConfig(params, observed); err != nil {
+		result.Error = "startup-config differs from the requested state: " + err.Error()
+		return result
+	}
+	result.Verified = true
+	return result
+}
+
+// configBlock returns the lines of one top-level section ("interface X")
+// of a full configuration, up to the next top-level line.
+func configBlock(config, header string) (string, bool) {
+	lines := strings.Split(strings.ReplaceAll(config, "\r", ""), "\n")
+	for index, line := range lines {
+		if strings.TrimRight(line, " ") != header {
+			continue
+		}
+		block := []string{line}
+		for _, next := range lines[index+1:] {
+			if next == "" || (next[0] != ' ' && next[0] != '\t') {
+				break
+			}
+			block = append(block, next)
+		}
+		return strings.Join(block, "\n"), true
+	}
+	return "", false
 }
 
 // failWithRollback restores the preflight state of every field the task

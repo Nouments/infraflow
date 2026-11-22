@@ -1,0 +1,102 @@
+admin+ct
+admin+ct
+Password: 
+<empty factory password>
+
+
+
+
+
+
+
+
+
+  MMM      MMM       KKK                          TTTTTTTTTTT      KKK
+  MMMM    MMMM       KKK                          TTTTTTTTTTT      KKK
+  MMM MMMM MMM  III  KKK  KKK  RRRRRR     OOOOOO      TTT     III  KKK  KKK
+  MMM  MM  MMM  III  KKKKK     RRR  RRR  OOO  OOO     TTT     III  KKKKK
+  MMM      MMM  III  KKK KKK   RRRRRR    OOO  OOO     TTT     III  KKK KKK
+  MMM      MMM  III  KKK  KKK  RRR  RRR   OOOOOO      TTT     III  KKK  KKK
+
+  MikroTik RouterOS 7.8 (c) 1999-2023       https://www.mikrotik.com/
+
+
+Do you want to see the software license? [Y/n]:
+n
+ n
+
+Press F1 for help
+[9999B[9999B
+Change your password
+[9999Bnew password> 
+<admin password set>
+new password> [K************************
+[9999Brepeat new password> 
+<repeat>
+************************
+
+Password changed
+[9999B[admin@MikroTik] > 
+/user add name=infraflow group=full password=***
+/user add name=infraflow group=full password=***
+PugyyTS5b"
+[9999B[admin@MikroTik] > 
+/ip address add address=192.0.2.21/24 interface=ether1
+/ip address add address=192.0.2.21/24 interface=ether1
+[9999B[admin@MikroTik] > 
+/ip ssh export-host-key key-file-prefix=hk
+/ip ssh export-host-key key-file-prefix=hk
+[9999B[admin@MikroTik] > 
+:put [/file get [find name~"hk_rsa.pub"] contents]
+[admin@MikroTik] > [K
+06:52:02 echo: ssh,critical SSH host keys exported![K
+[9999B[admin@MikroTik] > 
+/ip address print without-paging
+:put [/file get [find name~"hk_rsa.pub"] contents]
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4M7/u3N+IGIjV3mvRdcH
+xgK9U3xq+VuGF00tmoafR4oig99mQFrv+hb/CJAWnJkiUbgknbuoNJkiFNxBM1rq
+4oR3QIhl0fFTBhYMaeF+4G7YoXupX9vke/KYkrQ7coL2fDwdAIsDdpT3Nzi/t9lo
+yclvVoPQJRfkxrKD3V2NTtRxRmVVPyzfJ1jW8KZSQHMiejwG5ovps7IcyZY3RjZr
+NlAjZ6Bu2CI8sF+k5K+bszWXcIh/pgJtDNEhAtPWoCZ9U8mUwVOdiothd8CfpSWl
+QhWW4NJPNL1NtaV9W7+Eo11gfvYfDZHVgHIloM2U50831rMFvtLJ02DinejliD9q
+rwIDAQAB
+-----END PUBLIC KEY-----
+
+[9999B[admin@MikroTik] > /ip address print without-paging
+Flags: D - DYNAMIC
+Columns: ADDRESS, NETWORK, INTERFACE
+#   ADDRESS        NETWORK    INTERFACE
+0 D 192.0.2.1/24   192.0.2.0  ether1   
+1   192.0.2.21/24  192.0.2.0  ether1   
+
+[9999B[admin@MikroTik] > 
+/user print without-paging
+/user print without-paging
+Columns: NAME, GROUP
+# NAME       GROUP
+;;; system default user
+0 admin      full 
+1 infraflow  full 
+
+[9999B[admin@MikroTik] > 
+/system resource print
+/system resource print
+                   uptime: 4m24s
+                  version: 7.8 (stable)
+               build-time: Feb/24/2023 09:03:00
+         factory-software: 7.1
+              free-memory: 106.6MiB
+             total-memory: 192.0MiB
+                      cpu: QEMU
+                cpu-count: 1
+            cpu-frequency: 2419MHz
+                 cpu-load: 18%
+           free-hdd-space: 71.4MiB
+          total-hdd-space: 89.2MiB
+  write-sect-since-reboot: 1632
+         write-sect-total: 1632
+        architecture-name: x86_64
+               board-name: CHR
+                 platform: MikroTik
+[9999B[admin@MikroTik] > 

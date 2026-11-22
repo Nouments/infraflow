@@ -1,0 +1,10 @@
+2026-11-22T06:52:05Z INFO dhcp.ack client ca:01:b6:b0:00:00 reservation r2 ip 192.0.2.12 
+2026-11-22T06:52:40Z INFO dhcp.ack client ca:01:b6:b0:00:00 reservation r2 ip 192.0.2.12 
+2026-11-22T07:02:28Z INFO dhcp.discover client ca:01:b6:b0:00:00 reservation r2 
+2026-11-22T07:02:28Z INFO dhcp.offer client ca:01:b6:b0:00:00 reservation r2 ip 192.0.2.12 
+2026-11-22T07:02:29Z INFO dhcp.ack client ca:01:b6:b0:00:00 reservation r2 ip 192.0.2.12 
+2026-11-22T07:03:05Z INFO dhcp.ack client ca:01:b6:b0:00:00 reservation r2 ip 192.0.2.12 
+2026-11-22T07:03:02Z INFO tftp.rrq file r2-confg from 192.0.2.12 
+2026-11-22T07:03:02Z INFO tftp.transfer.completed file r2-confg from 192.0.2.12 
+2026-11-22T07:03:02Z INFO tftp.rrq file r2-confg from 192.0.2.12 
+2026-11-22T07:03:02Z INFO tftp.transfer.completed file r2-confg from 192.0.2.12 

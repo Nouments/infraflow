@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "scenario_id": "GNS-01",
+  "title": "Controller discovery and real inventory (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T06:44:10Z",
+  "finished_at": "2026-11-22T06:44:20Z",
+  "duration_seconds": 10.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "",
+  "device": "controller",
+  "model": "GNS3 server",
+  "os": "GNS3",
+  "os_version": "3.1.0a4",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T06:44:10Z",
+      "description": "infraflow-provider gns3 inventory (c9f5a86 binary, credentials from INFRAFLOW_GNS3_* environment)",
+      "result": "exit 0"
+    }
+  ],
+  "checks": [
+    {
+      "name": "version",
+      "expected": "v3 API and server version",
+      "observed": "v3, 3.1.0a4",
+      "status": "PASS"
+    },
+    {
+      "name": "templates",
+      "expected": "every template with its image availability",
+      "observed": "30 templates; IOL-XE and Mikrotik WinBox images absent",
+      "status": "PASS"
+    },
+    {
+      "name": "projects",
+      "expected": "pre-existing projects listed, none modified",
+      "observed": "11 projects (10 pre-existing + InfraFlow-Automated-Validation)",
+      "status": "PASS"
+    },
+    {
+      "name": "inventory errors",
+      "expected": "no section silently missing",
+      "observed": "errors: none",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/gns3-inventory.json",
+      "sha256": "8fc1f32a96013c285b02411a4071c4e9fbff9e3b2767b2d8de2215ef3a275348",
+      "description": "inventory from the c9f5a86 binary"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [
+    "controller uses the default admin/admin account; acceptable only while it listens on loopback"
+  ],
+  "initial_state": "controller running on 127.0.0.1:3080 (left running by the previous session)",
+  "final_state": "inventory collected; nothing changed on the controller",
+  "status": "PASS",
+  "status_reason": "inventory collected from the real controller by the c9f5a86 binary"
+}

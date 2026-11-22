@@ -1,0 +1,596 @@
+{
+  "collected_at": "2026-11-22T06:43:55.905587295Z",
+  "url": "http://127.0.0.1:3080",
+  "version": {
+    "version": "3.1.0a4",
+    "local": false,
+    "controller_host": "127.0.0.1",
+    "api_version": "v3"
+  },
+  "exposure": {
+    "loopback": true,
+    "private_network": false,
+    "tls": false,
+    "default_credentials": true,
+    "warnings": [
+      "controller uses the default admin/admin account; change it before exposing the server"
+    ]
+  },
+  "computes": [
+    {
+      "compute_id": "3f2c37a4-46c7-4e4b-af9e-f50abd9d0894",
+      "name": "<redacted remote compute>",
+      "protocol": "http",
+      "host": "<redacted remote compute>",
+      "port": 3080
+    }
+  ],
+  "templates": [
+    {
+      "template_id": "f40091a3-e048-4991-93c4-a9cd97be5076",
+      "name": "Chromium",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "gns3/chromium:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "1d6c88ed-b116-4c6b-8c5c-c7c62445fe9d",
+      "name": "Cisco 3640",
+      "template_type": "dynamips",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "c3640-a3js-mz.124-25d.image",
+      "ram": 192,
+      "image_registered": true
+    },
+    {
+      "template_id": "ef3859b1-cfac-453d-93c1-8458b65c1cd2",
+      "name": "Cisco 7200",
+      "template_type": "dynamips",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "c7200-adventerprisek9-mz.153-3.XB12.image",
+      "ram": 512,
+      "image_registered": true
+    },
+    {
+      "template_id": "a21b57af-9efa-444c-bae4-17b571dfad3d",
+      "name": "Cisco CSR1000v",
+      "template_type": "qemu",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "csr1000v-universalk9.16.07.01-serial.qcow2",
+      "ram": 4096,
+      "cpus": 1,
+      "adapters": 4,
+      "image_registered": true
+    },
+    {
+      "template_id": "6bf6e3c0-9b26-44f4-96ae-66131333d65a",
+      "name": "Cisco IOL-XE",
+      "template_type": "docker",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "iol-xe/iol-xe:17-18-02",
+      "adapters": 2,
+      "image_registered": false,
+      "note": "docker image is not present on the compute"
+    },
+    {
+      "template_id": "6229184a-9d99-4ff5-9e16-4a4e8d017d2d",
+      "name": "Cisco IOSv",
+      "template_type": "qemu",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "vios-adventerprisek9-m.spa.159-3.m6.qcow2",
+      "ram": 512,
+      "cpus": 1,
+      "adapters": 4,
+      "image_registered": true
+    },
+    {
+      "template_id": "b231e235-d097-4693-90de-b82f2381f1af",
+      "name": "Cisco IOSvL2",
+      "template_type": "qemu",
+      "category": "switch",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "vios_l2-adventerprisek9-m.ssa.high_iron_20200929.qcow2",
+      "ram": 768,
+      "cpus": 1,
+      "adapters": 16,
+      "image_registered": true
+    },
+    {
+      "template_id": "62dc5717-6753-41a0-93a3-12b07814a79c",
+      "name": "Cisco IOSvm8",
+      "template_type": "qemu",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "vios-adventerprisek9-m.spa.159-3.m8.qcow2",
+      "ram": 512,
+      "cpus": 1,
+      "adapters": 4,
+      "image_registered": true
+    },
+    {
+      "template_id": "3e60ea06-85ea-4629-bcf3-b3d5ff9bfe12",
+      "name": "DNS",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "adosztal/dns:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "5e5b401f-178c-447d-ae0d-77594a106832",
+      "name": "InfraFlow Agent appliance delivery 2026-11-18",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "infraflow-agent:delivery-20261118-r1",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "db3c7d3c-360e-4929-998f-08cade0c8352",
+      "name": "InfraFlow Provider appliance delivery 2026-11-18",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "infraflow-provider:delivery-20261118",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "3cc7efb3-3dec-4fa4-ba98-96c436afe608",
+      "name": "MikroTik CCR1036-8G-2S",
+      "template_type": "qemu",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "chr-7.8.img",
+      "ram": 8192,
+      "cpus": 36,
+      "adapters": 10,
+      "image_registered": true
+    },
+    {
+      "template_id": "c9d14345-e88b-42f7-b938-e0c74eef85bc",
+      "name": "MikroTik CRS328-4C-20S-4S",
+      "template_type": "qemu",
+      "category": "switch",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "chr-7.8.img",
+      "ram": 512,
+      "cpus": 1,
+      "adapters": 28,
+      "image_registered": true
+    },
+    {
+      "template_id": "6f03fb27-e445-45b6-b8d6-49184071bcb6",
+      "name": "MikroTik RB1100AHx4 Dude Edition",
+      "template_type": "qemu",
+      "category": "router",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "chr-7.8.img",
+      "ram": 1024,
+      "cpus": 4,
+      "adapters": 13,
+      "image_registered": true
+    },
+    {
+      "template_id": "72ff3686-b86b-45cc-b628-c640a102643c",
+      "name": "MikroTik WinBox 2026",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "snatao808/winbox-mikrotik-2026",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "f32e0eec-f153-4a1a-a319-3e3267b5962c",
+      "name": "Mikrotik WinBox",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "gns3/mikrotik-winbox",
+      "adapters": 1,
+      "image_registered": false,
+      "note": "docker image is not present on the compute"
+    },
+    {
+      "template_id": "c60f6820-dd54-4e2f-921f-259c57292e46",
+      "name": "Python-Go-Perl-PHP",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "adosztal/python-go-perl-php:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "5f7235f8-a50e-42c6-a5f8-ba9ad7836a48",
+      "name": "arch-gns3-gui",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "arch-gns3-gui:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "4ab7a4aa-dabb-4a86-9308-298523a8dfc9",
+      "name": "debian",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "debian:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "90b8ab17-cf0c-4c76-94ff-1752ee8ffa60",
+      "name": "debian-base",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "debian-base:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "385f7c1a-42a0-4beb-8a2c-9a3f73335ba6",
+      "name": "debian-dhcp",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "debian-dhcp:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "8056f674-6c62-4224-8217-0dceaaf8e967",
+      "name": "debian-dns",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "debian-dns:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "0f66ef97-c35a-4148-8b92-4e4336ac299b",
+      "name": "debian-ftp",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "debian-ftp:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "6147d6fe-7831-4da7-a038-c74ec966a652",
+      "name": "fortigate",
+      "template_type": "qemu",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "hda_disk_image": "/home/noums/GNS3/images/QEMU/fortigate-7.0.8-gns3.qcow2",
+      "ram": 1258,
+      "cpus": 1,
+      "adapters": 3,
+      "image_registered": true
+    },
+    {
+      "template_id": "ebf9db74-d76c-418b-aba1-e5b61d54c5d9",
+      "name": "haproxy",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "gns3/haproxy:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "c079e0ed-b12b-4a7a-a1f6-31cc75cef897",
+      "name": "infraflow-agent",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "infraflow-agent:dev",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "38ca7797-1d6f-44fb-b36d-a6ebe6e4d2bd",
+      "name": "infraflow-provider",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "infraflow-provider:dev",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "283cd6a0-4323-4c47-a49d-f3041baa979d",
+      "name": "linuxserver-code-server",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "linuxserver/code-server:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "c58971db-677b-40b4-a834-d7521c39964c",
+      "name": "nginx",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "nginx:latest",
+      "adapters": 1,
+      "image_registered": true
+    },
+    {
+      "template_id": "26cd3d73-8072-4f63-9129-504a047cae9b",
+      "name": "ubuntu-bind9",
+      "template_type": "docker",
+      "category": "guest",
+      "builtin": false,
+      "compute_id": "local",
+      "image": "ubuntu/bind9:9.20-26.04_edge",
+      "adapters": 1,
+      "image_registered": true
+    }
+  ],
+  "images": [
+    {
+      "filename": "empty500G.qcow2",
+      "image_type": "qemu",
+      "image_size": 204608,
+      "checksum": "658c825441b9b3080ba00f9eec002eaa"
+    },
+    {
+      "filename": "empty50G.qcow2",
+      "image_type": "qemu",
+      "image_size": 197408,
+      "checksum": "9a17e67e685907fbc0c351689ab289b2"
+    },
+    {
+      "filename": "empty30G.qcow2",
+      "image_type": "qemu",
+      "image_size": 197120,
+      "checksum": "3411a599e822f2ac6be560a26405821a"
+    },
+    {
+      "filename": "empty150G.qcow2",
+      "image_type": "qemu",
+      "image_size": 199008,
+      "checksum": "7db590ad39f84fdfc91516d162af26f6"
+    },
+    {
+      "filename": "empty10G.qcow2",
+      "image_type": "qemu",
+      "image_size": 196768,
+      "checksum": "1d4589798b8a63a6afa7150492ca3193"
+    },
+    {
+      "filename": "empty8G.qcow2",
+      "image_type": "qemu",
+      "image_size": 197120,
+      "checksum": "f1d2c25b6990f99bd05b433ab603bdb4"
+    },
+    {
+      "filename": "empty200G.qcow2",
+      "image_type": "qemu",
+      "image_size": 200192,
+      "checksum": "d1686d2f25695dee32eab9a6f4652c7c"
+    },
+    {
+      "filename": "empty1T.qcow2",
+      "image_type": "qemu",
+      "image_size": 212992,
+      "checksum": "34997a22f618827aaa62bcfd5b8ce2bb"
+    },
+    {
+      "filename": "empty250G.qcow2",
+      "image_type": "qemu",
+      "image_size": 200608,
+      "checksum": "7d7272f02edd189aafd81f9c29a35255"
+    },
+    {
+      "filename": "empty20G.qcow2",
+      "image_type": "qemu",
+      "image_size": 196928,
+      "checksum": "df9e4a1169c597117fd8999f0bc3de91"
+    },
+    {
+      "filename": "empty40G.qcow2",
+      "image_type": "qemu",
+      "image_size": 197248,
+      "checksum": "4a9e538aa1946a27d91a8d53a8dbc546"
+    },
+    {
+      "filename": "empty100G.qcow2",
+      "image_type": "qemu",
+      "image_size": 198656,
+      "checksum": "1e6409a4523ada212dea2ebc50e50a65"
+    },
+    {
+      "filename": "chr-7.8.img",
+      "image_type": "qemu",
+      "image_size": 134217728,
+      "checksum": "08fc9baf18d920bc65c974cafa3719be"
+    },
+    {
+      "filename": "c7200-adventerprisek9-mz.153-3.XB12.image",
+      "image_type": "ios",
+      "image_size": 102345240,
+      "checksum": "6b89d0d804e1f2bb5b8bda66b5692047"
+    },
+    {
+      "filename": "c3640-a3js-mz.124-25d.image",
+      "image_type": "ios",
+      "image_size": 65688632,
+      "checksum": "493c4ef6578801d74d715e7d11596964"
+    },
+    {
+      "filename": "vios_l2-adventerprisek9-m.ssa.high_iron_20200929.qcow2",
+      "image_type": "qemu",
+      "image_size": 90409984,
+      "checksum": "99ecab32de12410c533e6abd4e9710aa"
+    },
+    {
+      "filename": "vios-adventerprisek9-m.spa.159-3.m6.qcow2",
+      "image_type": "qemu",
+      "image_size": 57309696,
+      "checksum": "49a6977977263b2774bebc56e4e678ff"
+    },
+    {
+      "filename": "IOSv_startup_config.img",
+      "image_type": "qemu",
+      "image_size": 1048576,
+      "checksum": "bc605651c4688276f81fd59dcf5cc786"
+    },
+    {
+      "filename": "vios-adventerprisek9-m.spa.159-3.m8.qcow2",
+      "image_type": "qemu",
+      "image_size": 57319424,
+      "checksum": "8d93a185c2fa778178a933f20b02150a"
+    },
+    {
+      "filename": "fortigate-7.0.8-gns3.qcow2",
+      "image_type": "qemu",
+      "image_size": 183304192,
+      "checksum": "a4cf14ddcfb7b014e4e29c1d45db44fe"
+    },
+    {
+      "filename": "csr1000v-universalk9.16.07.01-serial.qcow2",
+      "image_type": "qemu",
+      "image_size": 884539392,
+      "checksum": "bad9000d4ae8317bbc99a34a8cdd2eb4"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "853b91e1-51de-4ebd-9c1f-2c5b104325b0",
+      "name": "infraflow",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "476c9e9b-3a1e-4358-b57d-f66883692057",
+      "name": "infraflow-provisioning-validation-20261119",
+      "status": "opened",
+      "auto_open": true,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "b62c57a6-0c40-4d87-a456-85aa515ed71d",
+      "name": "dev-mikrotik",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "77e1a3b3-88b6-4895-b409-8ecc108ce022",
+      "name": "site A",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "ca690f7a-44e0-4af9-bb1d-813862cecf50",
+      "name": "infraflow-appliance-lab-20261118",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": false
+    },
+    {
+      "project_id": "d87e7ecf-4ead-473f-8202-5f6d49bb9006",
+      "name": "infraflow-ztp-c7200-20261119",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "f4e36d28-eb21-48b4-9d2e-d2c1748a1eea",
+      "name": "infraflow-e2e-20261119",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "3bae405d-9301-4f35-aaef-f29c4387a098",
+      "name": "cisco_add_internet",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "923b12f7-b893-452b-a30a-e01f5c0157f0",
+      "name": "topologie",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "5623bbc5-61df-494c-94ed-64a698f16139",
+      "name": "untitled",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    },
+    {
+      "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd",
+      "name": "InfraFlow-Automated-Validation",
+      "status": "closed",
+      "auto_open": false,
+      "auto_start": false,
+      "auto_close": true
+    }
+  ]
+}

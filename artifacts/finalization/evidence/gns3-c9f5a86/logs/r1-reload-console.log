@@ -1,0 +1,132 @@
+
+*Nov 22 07:13:15.680: %SYS-5-RELOAD: Reload requested by console. Reload Reason: Reload Command.
+ *Nov 22 07:13:19.182 
+Reload requested
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[H[J[H[J[?25l[m[H[J[2;30HGNU GRUB  version 2.00
+
+[m[4;2H+--------------------------------------------------------------------------+[5;2H|[5;77H|[6;2H|[6;77H|[7;2H|[7;77H|[8;2H|[8;77H|[9;2H|[9;77H|[10;2H|[10;77H|[11;2H|[11;77H|[12;2H|[12;77H|[13;2H|[13;77H|[14;2H|[14;77H|[15;2H|[15;77H|[16;2H+--------------------------------------------------------------------------+[m[17;2H[m
+      Use the ^ and v keys to select which entry is highlighted.      
+      Press enter to boot the selected OS, `e' to edit the commands      
+      before booting or `c' for a command-line. ESC to return      
+      previous menu.      
+      [5;78H [7m[5;3HIOSv: flash0:vios-adventerprisek9-m (hd0,msdos1)                         [m [5;76H[m[m[6;3H                                                                         [m [6;76H[m[m[7;3H                                                                         [m [7;76H[m[m[8;3H                                                                         [m [8;76H[m[m[9;3H                                                                         [m [9;76H[m[m[10;3H                                                                         [m [10;76H[m[m[11;3H                                                                         [m [11;76H[m[m[12;3H                                                                         [m [12;76H[m[m[13;3H                                                                         [m [13;76H[m[m[14;3H                                                                         [m [14;76H[m[m[15;3H                                                                         [m [15;76H[m[15;78H [5;76H[22;1H   The highlighted entry will be executed automatically in 5s.
+                                                                               [5;76H[22;1H   The highlighted entry will be executed automatically in 4s.
+                                                                               [5;76H[22;1H   The highlighted entry will be executed automatically in 3s.
+                                                                               [5;76H[22;1H   The highlighted entry will be executed automatically in 2s.
+                                                                               [5;76H[22;1H   The highlighted entry will be executed automatically in 1s.
+                                                                               [5;76H[22;1H   The highlighted entry will be executed automatically in 0s.
+                                                                               [5;76H[?25h[H[J[H[J  Booting `IOSv: flash0:vios-adventerprisek9-m (hd0,msdos1)'
+
+Booted IOSv. Boot args: [/vios-adventerprisek9-m]
+
+Smart Init is enabled
+
+              Restricted Rights Legend
+
+Use, duplication, or disclosure by the Government is
+subject to restrictions as set forth in subparagraph
+(c) of the Commercial Computer Software - Restricted
+Rights clause at FAR sec. 52.227-19 and subparagraph
+(c) (1) (ii) of the Rights in Technical Data and Computer
+Software clause at DFARS sec. 252.227-7013.
+
+           cisco Systems, Inc.
+           170 West Tasman Drive
+           San Jose, California 95134-1706
+
+
+
+Cisco IOS Software, IOSv Software (VIOS-ADVENTERPRISEK9-M), Version 15.9(3)M6, RELEASE SOFTWARE (fc1)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2022 by Cisco Systems, Inc.
+Compiled Mon 08-Aug-22 15:22 by mcpre
+
+
+
+
+This product contains cryptographic features and is subject to United
+States and local country laws governing import, export, transfer and
+use. Delivery of Cisco cryptographic products does not imply
+third-party authority to import, export, distribute or use encryption.
+Importers, exporters, distributors and users are responsible for
+compliance with U.S. and local country laws. By using this product you
+agree to comply with applicable laws and regulations. If you are unable
+to comply with U.S. and local laws, return this product immediately.
+
+A summary of U.S. laws governing Cisco cryptographic products may be found at:
+http://www.cisco.com/wwl/export/crypto/tool/stqrg.html
+
+If you require further assistance please contact us by sending email to
+export@cisco.com.
+
+Cisco IOSv (revision 1.0) with  with 460021K/62464K bytes of memory.Installed image archive
+
+Processor board ID 9WEA1HY98IR93BT9H8521
+4 Gigabit Ethernet interfaces
+DRAM configuration is 72 bits wide with parity disabled.
+256K bytes of non-volatile configuration memory.
+2097152K bytes of ATA System CompactFlash 0 (Read/Write)
+0K bytes of ATA CompactFlash 1 (Read/Write)
+0K bytes of ATA CompactFlash 2 (Read/Write)
+0K bytes of ATA CompactFlash 3 (Read/Write)
+
+
+
+Press RETURN to get started!
+
+
+*Mar  1 00:00:01.227: %ATA-6-DEV_FOUND: device 0x1F0
+*Mar  1 00:00:11.565: %NVRAM-5-CONFIG_NVRAM_READ_OK: NVRAM configuration 'flash:/nvram' was read from disk.
+*Nov 22 07:15:06.203: %C3600-3-NOMAC: Can't allocate MAC address for interface 0/0
+*Nov 22 07:15:06.241: %C3600-3-NOMAC: Can't allocate MAC address for interface 0/0
+*Nov 22 07:15:06.761: %C3600-3-NOMAC: Can't allocate MAC address for interface 0/0
+*Nov 22 07:15:08.381: %PA-3-PA_INIT_FAILED: Performance Agent failed to initialize (Missing Data License)
+*Nov 22 07:15:10.739: %PNP-6-PNP_DISCOVERY_STARTED: PnP Discovery started
+*Nov 22 07:15:10.800: %LINK-3-UPDOWN: Interface GigabitEthernet0/0, changed state to up
+*Nov 22 07:15:10.801: %LINK-3-UPDOWN: Interface GigabitEthernet0/1, changed state to down
+*Nov 22 07:15:10.801: %LINK-3-UPDOWN: Interface GigabitEthernet0/2, changed state to down
+*Nov 22 07:15:10.801: %LINK-3-UPDOWN: Interface GigabitEthernet0/3, changed state to down
+*Nov 22 07:15:11.629: %SSH-5-DISABLED: SSH 1.99 has been disabled
+*Nov 22 07:15:11.647: %SYS-5-CONFIG_I: Configured from memory by console
+*Nov 22 07:15:11.892: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/0, changed state to up
+*Nov 22 07:15:11.892: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/1, changed state to down
+*Nov 22 07:15:11.893: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/2, changed state to down
+*Nov 22 07:15:11.893: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/3, changed state to down
+*Nov 22 07:15:13.528: %SYS-5-RESTART: System restarted --
+Cisco IOS Software, IOSv Software (VIOS-ADVENTERPRISEK9-M), Version 15.9(3)M6, RELEASE SOFTWARE (fc1)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2022 by Cisco Systems, Inc.
+Compiled Mon 08-Aug-22 15:22 by mcpre
+*Nov 22 07:15:13.529: %CVAC-4-FILE_IGNORED: Configuration file flash0:/ios_config.txt is ignored : empty file
+*Nov 22 07:15:13.558: %SSH-5-ENABLED: SSH 2.0 has been enabled
+*Nov 22 07:15:13.561: %LINK-5-CHANGED: Interface GigabitEthernet0/2, changed state to administratively down
+*Nov 22 07:15:13.570: %CRYPTO-6-ISAKMP_ON_OFF: ISAKMP is OFF
+*Nov 22 07:15:13.571: %CRYPTO-6-GDOI_ON_OFF: GDOI is OFF
+*Nov 22 07:15:13.717: %LINK-5-CHANGED: Interface GigabitEthernet0/3, changed state to administratively down
+*Nov 22 07:15:19.214: %PNP-6-PNP_BEST_UDI_UPDATE: Best UDI [PID:IOSv,VID:1.0,SN:9WEA1HY98IR93BT9H8521] identified via (entity-mibs)
+*Nov 22 07:15:19.214: %PNP-6-PNP_CDP_UPDATE: Device UDI [PID:IOSv,VID:1.0,SN:9WEA1HY98IR93BT9H8521] identified for CDP
+*Nov 22 07:15:19.216: %PNP-6-PNP_DISCOVERY_STOPPED: PnP Discovery stopped (Startup Config Present)

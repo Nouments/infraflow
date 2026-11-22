@@ -1,0 +1,221 @@
+{
+ "id": "exec-f9555bbab8018616d19289594f0809da",
+ "idempotency_key_hash": "d81daa3f00ce671e55deef39444b1dbcc9c6e0029c7c6bfbdfe17e71cd9ceeec",
+ "request_hash": "0d2818d4af96f75d5d06f429f21a1e6a832e88fa1a9f0cca130f8617cc8089c1",
+ "actor_id": "user-nXPfUBj7pvEBoi9G",
+ "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1",
+ "status": "succeeded",
+ "tasks": [
+  {
+   "id": "r1-persist",
+   "type": "cisco.ios.configure",
+   "status": "succeeded",
+   "timeout_ms": 30000,
+   "max_attempts": 1,
+   "parameters": {
+    "device_id": "r1",
+    "hostname": "r1-persist",
+    "interfaces": [
+     {
+      "admin_state": "up",
+      "description": "infraflow persisted",
+      "ipv4_cidr": "198.51.100.1/24",
+      "name": "GigabitEthernet0/1"
+     }
+    ],
+    "persist": true,
+    "site": "vendor-lab"
+   },
+   "attempts": [
+    {
+     "number": 1,
+     "status": "succeeded",
+     "started_at": "2026-11-22T07:16:49.241118467Z",
+     "finished_at": "2026-11-22T07:17:06.039703776Z",
+     "duration_ms": 16792,
+     "result": {
+      "device_id": "r1",
+      "executed_at": "2026-11-22T07:17:06.036303639Z",
+      "family": "ios",
+      "observed_changes": {
+       "hostname": "r1-persist",
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "infraflow persisted",
+         "ipv4_address": "198.51.100.1",
+         "name": "GigabitEthernet0/1",
+         "subnet_mask": "255.255.255.0"
+        }
+       ]
+      },
+      "operation": "cisco.ios.configure",
+      "persistence": {
+       "requested": true,
+       "saved": true,
+       "startup_config": {
+        "hostname": "r1-persist",
+        "interfaces": [
+         {
+          "admin_state": "up",
+          "description": "infraflow persisted",
+          "ipv4_address": "198.51.100.1",
+          "name": "GigabitEthernet0/1",
+          "subnet_mask": "255.255.255.0"
+         }
+        ]
+       },
+       "verified": true
+      },
+      "previous_changes": {
+       "hostname": "r1-persist",
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "infraflow persisted",
+         "ipv4_address": "198.51.100.1",
+         "name": "GigabitEthernet0/1",
+         "subnet_mask": "255.255.255.0"
+        }
+       ]
+      },
+      "requested_changes": {
+       "hostname": "r1-persist",
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "infraflow persisted",
+         "ipv4_cidr": "198.51.100.1/24",
+         "name": "GigabitEthernet0/1"
+        }
+       ]
+      },
+      "site": "vendor-lab",
+      "status": "succeeded",
+      "vendor": "cisco",
+      "verified": true,
+      "warnings": [
+       "Configuration was applied to running-config, verified, saved with write memory, and startup-config was verified by read-back"
+      ]
+     }
+    }
+   ],
+   "result": {
+    "device_id": "r1",
+    "executed_at": "2026-11-22T07:17:06.036303639Z",
+    "family": "ios",
+    "observed_changes": {
+     "hostname": "r1-persist",
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "infraflow persisted",
+       "ipv4_address": "198.51.100.1",
+       "name": "GigabitEthernet0/1",
+       "subnet_mask": "255.255.255.0"
+      }
+     ]
+    },
+    "operation": "cisco.ios.configure",
+    "persistence": {
+     "requested": true,
+     "saved": true,
+     "startup_config": {
+      "hostname": "r1-persist",
+      "interfaces": [
+       {
+        "admin_state": "up",
+        "description": "infraflow persisted",
+        "ipv4_address": "198.51.100.1",
+        "name": "GigabitEthernet0/1",
+        "subnet_mask": "255.255.255.0"
+       }
+      ]
+     },
+     "verified": true
+    },
+    "previous_changes": {
+     "hostname": "r1-persist",
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "infraflow persisted",
+       "ipv4_address": "198.51.100.1",
+       "name": "GigabitEthernet0/1",
+       "subnet_mask": "255.255.255.0"
+      }
+     ]
+    },
+    "requested_changes": {
+     "hostname": "r1-persist",
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "infraflow persisted",
+       "ipv4_cidr": "198.51.100.1/24",
+       "name": "GigabitEthernet0/1"
+      }
+     ]
+    },
+    "site": "vendor-lab",
+    "status": "succeeded",
+    "vendor": "cisco",
+    "verified": true,
+    "warnings": [
+     "Configuration was applied to running-config, verified, saved with write memory, and startup-config was verified by read-back"
+    ]
+   },
+   "created_at": "2026-11-22T07:16:49.22593664Z",
+   "updated_at": "2026-11-22T07:17:06.039703776Z",
+   "started_at": "2026-11-22T07:16:49.241118467Z",
+   "finished_at": "2026-11-22T07:17:06.039703776Z"
+  }
+ ],
+ "created_at": "2026-11-22T07:16:49.226479508Z",
+ "updated_at": "2026-11-22T07:17:06.042629195Z",
+ "started_at": "2026-11-22T07:16:49.236714295Z",
+ "finished_at": "2026-11-22T07:17:06.042628735Z",
+ "cancel_requested_at": "0001-01-01T00:00:00Z",
+ "revision": 5,
+ "events": [
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.queued",
+   "status": "queued",
+   "timestamp": "2026-11-22T07:16:49.226479508Z",
+   "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.running",
+   "status": "running",
+   "timestamp": "2026-11-22T07:16:49.236714863Z",
+   "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_started",
+   "task_id": "r1-persist",
+   "status": "running",
+   "task_status": "running",
+   "timestamp": "2026-11-22T07:16:49.241119956Z",
+   "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_succeeded",
+   "task_id": "r1-persist",
+   "status": "running",
+   "task_status": "succeeded",
+   "timestamp": "2026-11-22T07:17:06.039710661Z",
+   "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.succeeded",
+   "status": "succeeded",
+   "timestamp": "2026-11-22T07:17:06.042629195Z",
+   "correlation_id": "1e393b060f1cd6c0382a3e9f4a94f9a1"
+  }
+ ]
+}

@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "scenario_id": "CIS-03",
+  "title": "IOSv 15.9(3)M8 AutoInstall against InfraFlow and reference DHCP (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T06:49:00Z",
+  "finished_at": "2026-11-22T07:31:00Z",
+  "duration_seconds": 2520.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "iosv-lab",
+  "device": "IOSVM8",
+  "model": "iosv",
+  "os": "Cisco IOS",
+  "os_version": "15.9(3)M8",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T06:45:30Z",
+      "description": "generate-all with an IOSv M8 cisco-autoinstall device (r4)",
+      "result": "refused by c9f5a86: no AutoInstall profile for this release"
+    },
+    {
+      "at": "2026-11-22T06:49:00Z",
+      "description": "15 min against InfraFlow serve-dhcp",
+      "result": "123+ DISCOVER/OFFER, no REQUEST"
+    },
+    {
+      "at": "2026-11-22T07:25:23Z",
+      "description": "InfraFlow DHCP stopped; 5 min against the reference ISC dhcpd 4.4.3-P1",
+      "result": "57 DISCOVER, 57 OFFER, 0 REQUEST, 0 ACK"
+    }
+  ],
+  "checks": [
+    {
+      "name": "generator refuses the release",
+      "expected": "explicit refusal",
+      "observed": "exit 1, lists the supported profiles",
+      "status": "PASS"
+    },
+    {
+      "name": "lease from InfraFlow",
+      "expected": "REQUEST after OFFER",
+      "observed": "0 REQUEST",
+      "status": "FAIL"
+    },
+    {
+      "name": "lease from the reference server",
+      "expected": "REQUEST after OFFER",
+      "observed": "0 REQUEST",
+      "status": "FAIL"
+    }
+  ],
+  "stages": [
+    {
+      "name": "DHCP_DISCOVERED",
+      "status": "PASS",
+      "evidence": "both captures"
+    },
+    {
+      "name": "DHCP_OFFERED",
+      "status": "PASS",
+      "evidence": "both captures"
+    },
+    {
+      "name": "DHCP_BOUND",
+      "status": "FAIL",
+      "evidence": "no DHCPREQUEST to either server"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/generate-refuses-iosv-m8.txt",
+      "sha256": "0d4aa0bbc5522d98f891db51f5c2cc7a669b86c3b7d9c054d13bd3d195107c31",
+      "description": "generator refusal"
+    },
+    {
+      "path": "logs/m8-diagnose.txt",
+      "sha256": "0654c188a4096b014eec9febd052160211953a8e835e199a2375a302a65101db",
+      "description": "diagnose, InfraFlow DHCP"
+    },
+    {
+      "path": "logs/m8-vs-reference-diagnose.txt",
+      "sha256": "41cc4ef2266387a1ab4319cf636c648e02e6bb5be259c89cbdab15385b8f7106",
+      "description": "diagnose, reference DHCP"
+    },
+    {
+      "path": "logs/ref-dhcpd.log",
+      "sha256": "bf45c895ccd37f4fdea3a40b16a97401ef6ca8cfe91e6542b90652632ca757bf",
+      "description": "reference dhcpd log"
+    },
+    {
+      "path": "logs/iosv-m8-console.log",
+      "sha256": "9bb3f76ad842e4120f768a7d918cb94d6aa7990e5abc8b11c044abc20d70b09a",
+      "description": "console, InfraFlow run"
+    },
+    {
+      "path": "logs/iosv-m8-vs-reference-console.log",
+      "sha256": "78084bd246da5cb7b7be60bcdf807b0157cb11a3526b16d5bf4f7d80d2d67b19",
+      "description": "console, reference run"
+    }
+  ],
+  "captures": [
+    {
+      "path": "captures/iosv-m8-autoinstall-infraflow-dhcp.pcap",
+      "sha256": "b2c24779904c12622d73a692a49ab9b3eca2d6e2f60551234159b9b0016b9efb",
+      "description": "IOSVM8 link, InfraFlow DHCP"
+    },
+    {
+      "path": "captures/iosv-m8-vs-reference-dhcpd.pcap",
+      "sha256": "2b6327c5e54ea416d5eda6722d05c4f2f47082c4107ea43cfcb8524de8a1721c",
+      "description": "IOSVM8 link, reference dhcpd"
+    },
+    {
+      "path": "captures/refdhcp-server-side.pcap",
+      "sha256": "f3db8faed9f9f5ee04dbf5997fcc08f61016044dbb2b3a0ebce7c115694d567e",
+      "description": "reference server link"
+    }
+  ],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [],
+  "initial_state": "IOSvm8 with empty NVRAM and no startup-config disk",
+  "final_state": "IOSvm8 at the initial configuration dialog, no lease from either server",
+  "status": "UNSUPPORTED",
+  "status_reason": "same device-side behaviour as M6 with two independent servers (was PARTIAL: reference comparison not run)",
+  "diagnosis": {
+    "expected": "DORA then TFTP",
+    "observed": "DISCOVER/OFFER loop with both servers",
+    "failed_stage": "DHCP_BOUND",
+    "cause": "the IOSv M8 AutoInstall client does not accept offers; behaviour identical to M6",
+    "cause_confirmed": false,
+    "confidence": "high",
+    "evidence": [
+      "captures/iosv-m8-vs-reference-dhcpd.pcap",
+      "logs/ref-dhcpd.log"
+    ],
+    "ruled_out": [
+      "InfraFlow DHCP server: the c7200 and the CHR complete DORA with it in the same capture (broadcasts are flooded to every port)",
+      "the reference ISC dhcpd gets the same DISCOVER/OFFER loop (M6 on 2026-11-22 before c9f5a86, M8 in this run)",
+      "PnP tech summary not collected on M8, so the internal handler trace is inferred from M6"
+    ],
+    "next_check": "collect flash:/pnp-tech on M8 if this image ever needs AutoInstall"
+  }
+}

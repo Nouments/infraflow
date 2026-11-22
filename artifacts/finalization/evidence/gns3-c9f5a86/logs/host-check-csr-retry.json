@@ -1,0 +1,20 @@
+{
+  "host": {
+    "cpus": 8,
+    "mem_total_bytes": 16475488256,
+    "mem_available_bytes": 4672643072,
+    "disk_path": "/home/noums/GNS3",
+    "disk_free_bytes": 58971766784,
+    "disk_total_bytes": 233464844288,
+    "load1": 13.29
+  },
+  "budget": {
+    "mem_bytes": 4294967296,
+    "disk_bytes": 1258291200,
+    "cpus": 1
+  },
+  "problems": [
+    "needs 4096 MiB RAM + 1 GiB reserve, 4456 MiB available"
+  ],
+  "ok": false
+}

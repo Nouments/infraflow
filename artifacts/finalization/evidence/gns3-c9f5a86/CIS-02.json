@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "scenario_id": "CIS-02",
+  "title": "IOSv 15.9(3)M6 AutoInstall against InfraFlow DHCP (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T06:49:00Z",
+  "finished_at": "2026-11-22T07:04:00Z",
+  "duration_seconds": 900.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "iosv-lab",
+  "device": "IOSV1",
+  "model": "iosv",
+  "os": "Cisco IOS",
+  "os_version": "15.9(3)M6",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T06:45:40Z",
+      "description": "generate-all with an IOSv M6 cisco-autoinstall device (r5)",
+      "result": "refused by c9f5a86: bootstrap for this profile is not verified"
+    },
+    {
+      "at": "2026-11-22T06:49:00Z",
+      "description": "IOSV1 booted for 15 min on the segment served by InfraFlow DHCP (generic pool)",
+      "result": "122+ DISCOVER/OFFER pairs, no REQUEST"
+    }
+  ],
+  "checks": [
+    {
+      "name": "generator refuses the profile",
+      "expected": "no AutoInstall output for an unverified profile",
+      "observed": "exit 1 with an explicit reason",
+      "status": "PASS"
+    },
+    {
+      "name": "lease",
+      "expected": "AutoInstall client accepts an offer",
+      "observed": "0 REQUEST",
+      "status": "FAIL"
+    }
+  ],
+  "stages": [
+    {
+      "name": "DHCP_DISCOVERED",
+      "status": "PASS",
+      "evidence": "capture"
+    },
+    {
+      "name": "DHCP_OFFERED",
+      "status": "PASS",
+      "evidence": "capture"
+    },
+    {
+      "name": "DHCP_BOUND",
+      "status": "FAIL",
+      "evidence": "no DHCPREQUEST"
+    },
+    {
+      "name": "TFTP_REQUESTED",
+      "status": "NOT_RUN",
+      "evidence": "not reached"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/generate-refuses-iosv-m6-bootstrap.txt",
+      "sha256": "cb96696b109a4b45e1e2654a619ca5fe3866b15dba3e0660fb53edd999dd21e9",
+      "description": "generator refusal"
+    },
+    {
+      "path": "logs/m6-diagnose.txt",
+      "sha256": "76e410ce888aebbb41068ebc6611b276d58c0642ce00916e461449c34cfeb99f",
+      "description": "infraflow-agent diagnose"
+    },
+    {
+      "path": "logs/iosv-m6-console.log",
+      "sha256": "28c6258197694fc036f274902ebe3fc361daf7a7500df7a09122bdef7230f0ca",
+      "description": "console"
+    }
+  ],
+  "captures": [
+    {
+      "path": "captures/iosv-m6-autoinstall-infraflow-dhcp.pcap",
+      "sha256": "c91a2e7740f6a8476013688a4d76d3c47d8045221dc56ed9fbd66aca341b2301",
+      "description": "IOSV1 link"
+    }
+  ],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [],
+  "initial_state": "IOSv with empty NVRAM and no startup-config disk; InfraFlow serve-dhcp running",
+  "final_state": "IOSV1 at the initial configuration dialog, no lease",
+  "status": "UNSUPPORTED",
+  "status_reason": "the image's AutoInstall client never requests an offered lease; the product refuses to generate it",
+  "diagnosis": {
+    "expected": "DORA then TFTP",
+    "observed": "DISCOVER/OFFER loop, no REQUEST",
+    "failed_stage": "DHCP_BOUND",
+    "cause": "IOSv 15.9(3)M6 AutoInstall/PnP handler stops immediately (device trace of 2026-11-22: 'Discovery Failed' in 0 ms)",
+    "cause_confirmed": true,
+    "confidence": "high",
+    "evidence": [
+      "captures/iosv-m6-autoinstall-infraflow-dhcp.pcap",
+      "gns3-20261122/logs/iosv1-pnp-tech-summary.txt"
+    ],
+    "ruled_out": [
+      "InfraFlow DHCP server: the c7200 and the CHR complete DORA with it in the same capture (broadcasts are flooded to every port)",
+      "the reference ISC dhcpd gets the same DISCOVER/OFFER loop (M6 on 2026-11-22 before c9f5a86, M8 in this run)"
+    ],
+    "next_check": "none on this image; use the SSH executor (CIS-04) or a platform with working AutoInstall (CIS-01)"
+  }
+}

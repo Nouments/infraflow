@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "scenario_id": "GNS-04-CIS",
+  "title": "Explicit persistence (persist: true) and verification after an IOS reload",
+  "mandatory": true,
+  "started_at": "2026-11-22T07:06:00Z",
+  "finished_at": "2026-11-22T07:17:10Z",
+  "duration_seconds": 670.0,
+  "infraflow_version": "c9f5a86 + uncommitted persistence patch (logs/persist-patch-on-c9f5a86.diff sha256 5dd54ebb13c605f2\u2026; Provider sha256 0d668450da37b7a78cf0696f8a4c61867e11fde966b866fb9bfe1718911ed447)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": true,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "vendor-lab",
+  "device": "r1",
+  "model": "iosv",
+  "os": "Cisco IOS",
+  "os_version": "15.9(3)M6",
+  "agent_id": "",
+  "execution_id": "exec-f09c9b6c02d262999f6db19c7beec8a1",
+  "actions": [
+    {
+      "at": "2026-11-22T07:13:44Z",
+      "description": "P1 cisco.ios.configure persist:true (hostname r1-persist, Gi0/1 198.51.100.1/24)",
+      "result": "succeeded; write memory [OK]; startup-config read back and matched"
+    },
+    {
+      "at": "2026-11-22T07:13:53Z",
+      "description": "P2 same executor without persist (Gi0/2 198.18.0.1/30)",
+      "result": "succeeded; no write memory"
+    },
+    {
+      "at": "2026-11-22T07:14:07Z",
+      "description": "independent console read of startup-config, then IOS 'reload' (answered 'no' to saving P2)",
+      "result": "startup holds P1, not P2"
+    },
+    {
+      "at": "2026-11-22T07:16:18Z",
+      "description": "console read after reload",
+      "result": "hostname r1-persist, Gi0/1 from NVRAM; Gi0/2 unconfigured"
+    },
+    {
+      "at": "2026-11-22T07:16:49Z",
+      "description": "P3 P1 request again, new key",
+      "result": "succeeded; pinned host key still valid; previous == requested"
+    }
+  ],
+  "checks": [
+    {
+      "name": "explicit opt-in",
+      "expected": "write memory only with persist:true",
+      "observed": "P2 issued none (unit test pins it too)",
+      "status": "PASS"
+    },
+    {
+      "name": "startup verified by the executor",
+      "expected": "persistence.verified",
+      "observed": "saved=true, verified=true",
+      "status": "PASS"
+    },
+    {
+      "name": "survives reload",
+      "expected": "P1 present after reload",
+      "observed": "hostname r1-persist; Gi0/1 198.51.100.1 (Method NVRAM)",
+      "status": "PASS"
+    },
+    {
+      "name": "non-persisted change lost",
+      "expected": "P2 absent after reload",
+      "observed": "Gi0/2 no ip address, shutdown",
+      "status": "PASS"
+    },
+    {
+      "name": "post-reload re-run",
+      "expected": "previous == requested",
+      "observed": "equal",
+      "status": "PASS"
+    }
+  ],
+  "stages": [
+    {
+      "name": "CONFIG_APPLIED",
+      "status": "PASS",
+      "evidence": "P1"
+    },
+    {
+      "name": "CONFIG_VERIFIED",
+      "status": "PASS",
+      "evidence": "running read-back"
+    },
+    {
+      "name": "CONFIG_PERSISTED",
+      "status": "PASS",
+      "evidence": "startup read-back + reload"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/r1-persist-executions-summary.txt",
+      "sha256": "6b8edf9e7c0784758754f2b6fb9487fbc00712f94221283b3ac8033502583277",
+      "description": "summary"
+    },
+    {
+      "path": "logs/r1-exec-f09c9b6c02d262999f6db19c7beec8a1.json",
+      "sha256": "75ffc7b0d3f71607ecc28389b4a4295957bb65f923b100057c9630d32f63d688",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-exec-a1a9142fb0b99c532482c6a1d7210a34.json",
+      "sha256": "99026a09897fa436ad53704770e284890595285b9978f1b85291e171b9cffffc",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-exec-f9555bbab8018616d19289594f0809da.json",
+      "sha256": "a10cd762e596785f9b00268603f454a63350f0d1207ce2f8527675d5cb4a4bbe",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-day0-readback.txt",
+      "sha256": "6f037867a7a6fab179dbeebd9498828955437f9db458a4e6078e268010f58335",
+      "description": "day-0 read-back (secrets removed)"
+    },
+    {
+      "path": "logs/r1-console-before-reload.txt",
+      "sha256": "2c9b215f3877597152eee41a7613bfdbf40dd095daf6143d7577c52a26688dfb",
+      "description": "console before reload"
+    },
+    {
+      "path": "logs/r1-reload-console.log",
+      "sha256": "8bfa9a4e779162603951adcac5232f3d4da87d803ce4dde9720b46612fe9d271",
+      "description": "reload console"
+    },
+    {
+      "path": "logs/r1-console-after-reload.txt",
+      "sha256": "3382b1ff5b75128a9bd552b53e14be5e685661ed9aad7bd07367c95313e0ccec",
+      "description": "console after reload"
+    },
+    {
+      "path": "logs/persist-patch-on-c9f5a86.diff",
+      "sha256": "5dd54ebb13c605f294e025cd274541bbaa3c172e0e6814fb4aab8026dcd4eef3",
+      "description": "the uncommitted patch under test"
+    },
+    {
+      "path": "logs/lab-binaries.txt",
+      "sha256": "23a40cc760d3df133e89182ade47bc7a0d3ef3280f144664d2e82bb032e9113d",
+      "description": "binary hashes"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [
+    "tested on c9f5a86 plus an UNCOMMITTED patch: this is not evidence for the HEAD commit, which has no persistence step",
+    "write memory also saved the console day-0 configuration (needed for SSH after reload)"
+  ],
+  "initial_state": "r1 day-0 on the console (SSH, user, Gi0/0); 'startup-config is not present'",
+  "final_state": "P1 survived the reload; P2 did not, as requested",
+  "status": "PASS",
+  "status_reason": "persistence requested explicitly, verified by the executor, and confirmed by an independent read after a real reload"
+}

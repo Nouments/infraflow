@@ -1,0 +1,173 @@
+{
+ "id": "exec-a1a9142fb0b99c532482c6a1d7210a34",
+ "idempotency_key_hash": "4dad7ca06958ba3b947ac172adf4de2d350f7b236840bfbe03af528c9dfa8990",
+ "request_hash": "d96b03da20d8111c70e5b15573db1ecb9e863a88c375f036df4a8f728b38efa5",
+ "actor_id": "user-nXPfUBj7pvEBoi9G",
+ "correlation_id": "be2035797594e245cae457cf00fb3bcc",
+ "status": "succeeded",
+ "tasks": [
+  {
+   "id": "r1-volatile",
+   "type": "cisco.ios.configure",
+   "status": "succeeded",
+   "timeout_ms": 30000,
+   "max_attempts": 1,
+   "parameters": {
+    "device_id": "r1",
+    "interfaces": [
+     {
+      "admin_state": "up",
+      "description": "infraflow not persisted",
+      "ipv4_cidr": "198.18.0.1/30",
+      "name": "GigabitEthernet0/2"
+     }
+    ],
+    "site": "vendor-lab"
+   },
+   "attempts": [
+    {
+     "number": 1,
+     "status": "succeeded",
+     "started_at": "2026-11-22T07:13:53.574957364Z",
+     "finished_at": "2026-11-22T07:13:55.199558951Z",
+     "duration_ms": 1618,
+     "result": {
+      "device_id": "r1",
+      "executed_at": "2026-11-22T07:13:55.198659833Z",
+      "family": "ios",
+      "observed_changes": {
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "infraflow not persisted",
+         "ipv4_address": "198.18.0.1",
+         "name": "GigabitEthernet0/2",
+         "subnet_mask": "255.255.255.252"
+        }
+       ]
+      },
+      "operation": "cisco.ios.configure",
+      "previous_changes": {
+       "interfaces": [
+        {
+         "admin_state": "down",
+         "name": "GigabitEthernet0/2"
+        }
+       ]
+      },
+      "requested_changes": {
+       "interfaces": [
+        {
+         "admin_state": "up",
+         "description": "infraflow not persisted",
+         "ipv4_cidr": "198.18.0.1/30",
+         "name": "GigabitEthernet0/2"
+        }
+       ]
+      },
+      "site": "vendor-lab",
+      "status": "succeeded",
+      "vendor": "cisco",
+      "verified": true,
+      "warnings": [
+       "Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (persist not requested)"
+      ]
+     }
+    }
+   ],
+   "result": {
+    "device_id": "r1",
+    "executed_at": "2026-11-22T07:13:55.198659833Z",
+    "family": "ios",
+    "observed_changes": {
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "infraflow not persisted",
+       "ipv4_address": "198.18.0.1",
+       "name": "GigabitEthernet0/2",
+       "subnet_mask": "255.255.255.252"
+      }
+     ]
+    },
+    "operation": "cisco.ios.configure",
+    "previous_changes": {
+     "interfaces": [
+      {
+       "admin_state": "down",
+       "name": "GigabitEthernet0/2"
+      }
+     ]
+    },
+    "requested_changes": {
+     "interfaces": [
+      {
+       "admin_state": "up",
+       "description": "infraflow not persisted",
+       "ipv4_cidr": "198.18.0.1/30",
+       "name": "GigabitEthernet0/2"
+      }
+     ]
+    },
+    "site": "vendor-lab",
+    "status": "succeeded",
+    "vendor": "cisco",
+    "verified": true,
+    "warnings": [
+     "Configuration was applied to running-config after preflight and verified by read-back; startup-config was not persisted (persist not requested)"
+    ]
+   },
+   "created_at": "2026-11-22T07:13:53.560684333Z",
+   "updated_at": "2026-11-22T07:13:55.199558951Z",
+   "started_at": "2026-11-22T07:13:53.574957364Z",
+   "finished_at": "2026-11-22T07:13:55.199558951Z"
+  }
+ ],
+ "created_at": "2026-11-22T07:13:53.561229295Z",
+ "updated_at": "2026-11-22T07:13:55.209808901Z",
+ "started_at": "2026-11-22T07:13:53.57081247Z",
+ "finished_at": "2026-11-22T07:13:55.20980828Z",
+ "cancel_requested_at": "0001-01-01T00:00:00Z",
+ "revision": 5,
+ "events": [
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.queued",
+   "status": "queued",
+   "timestamp": "2026-11-22T07:13:53.561229295Z",
+   "correlation_id": "be2035797594e245cae457cf00fb3bcc"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.running",
+   "status": "running",
+   "timestamp": "2026-11-22T07:13:53.570813258Z",
+   "correlation_id": "be2035797594e245cae457cf00fb3bcc"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_started",
+   "task_id": "r1-volatile",
+   "status": "running",
+   "task_status": "running",
+   "timestamp": "2026-11-22T07:13:53.574958522Z",
+   "correlation_id": "be2035797594e245cae457cf00fb3bcc"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_succeeded",
+   "task_id": "r1-volatile",
+   "status": "running",
+   "task_status": "succeeded",
+   "timestamp": "2026-11-22T07:13:55.199563016Z",
+   "correlation_id": "be2035797594e245cae457cf00fb3bcc"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.succeeded",
+   "status": "succeeded",
+   "timestamp": "2026-11-22T07:13:55.209808901Z",
+   "correlation_id": "be2035797594e245cae457cf00fb3bcc"
+  }
+ ]
+}

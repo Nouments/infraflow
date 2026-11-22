@@ -1,0 +1,32 @@
+# R2 post-check (read-only), 2026-11-22T10:04:11+0300
+terminal length 0
+r2#show version | include IOS Software|uptime
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+r2 uptime is 1 minute
+r2#
+show running-config | include ^hostname
+hostname r2
+r2#
+show running-config interface FastEthernet0/0
+Building configuration...
+
+Current configuration : 83 bytes
+!
+interface FastEthernet0/0
+ ip address 192.0.2.12 255.255.255.0
+ duplex half
+end
+
+r2#
+show ip route static
+S    203.0.113.0/24 [1/0] via 192.0.2.2
+r2#
+ping 192.0.2.2
+
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 192.0.2.2, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 8/12/20 ms
+r2#
+show startup-config | include ^hostname
+r2#

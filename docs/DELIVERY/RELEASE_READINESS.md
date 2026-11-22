@@ -1,6 +1,39 @@
 # Release readiness
 
-## Score: 87/100 (2026-11-22, evidence-based)
+## Score of `c9f5a86`: 88/100 (2026-11-22, release validation)
+
+Same eight-dimension rubric and weights as the 76, 85 and 87 scores. The score is given **only** from evidence
+produced on commit `c9f5a8676006f505e711f071bdf89f5056290dfa`:
+- the local gate in a clean worktree;
+- hosted CI run 44993837424;
+- GNS3 reports with `worktree_dirty: false`;
+- the soak of its binary.
+
+The commit message "up to 100/100" is not evidence. This is not a release approval.
+
+The last column is informational only. It covers `c9f5a86` plus the uncommitted changes, which hosted CI has not
+run; it is not the release score.
+
+| Dimension | Weight | 87 (c1917ac+dirty) | **c9f5a86** | c9f5a86 + uncommitted | Justification (evidence) |
+|---|---:|---:|---:|---:|---|
+| Provider correctness and reliability | 15 | 14 | **14** | 14 | Gate, race and hosted CI green on the commit. Short load + SIGKILL recovery PASS on the commit binary; soak of the commit binary 1 h 53 (stopped early): 0 errors in 6.43 M requests, no fd/thread growth, no latency drift. −1: RSS 575–710 MiB above the 512 MiB objective (D13, fixed only in the uncommitted tree: 42 min comparison soak at 499 MiB); soak shorter than planned; execution load against devices not measured |
+| Agent reliability and lifecycle | 15 | 14 | **14** | 14 | AGT-10/11 tests run in the commit's gate and hosted CI; real Agent sync in the lab (iosv-lab). −1: delivery to devices only through DHCP/TFTP. |
+| Provisioning and vendor compatibility | 20 | 14 | **14** | 15 | Re-run on the commit: c7200 AutoInstall, IOSv executor (including verified rollback), CHR import. IOSv M8 now UNSUPPORTED with evidence. +1 in the last column only: explicit persistence verified on a real IOS reload (uncommitted). −6/−5: FortiGate BLOCKED, IOL-XE BLOCKED, IOSv AutoInstall unusable, CSR not re-run (host RAM), no VLANs, no FortiOS executor. |
+| Real GNS3 integration tests | 15 | 13 | **14** | 14 | +1: every device scenario run on the commit has a validated JSON report naming the commit (GNS-02 PASS); idempotent topology; CHR survives a reboot. −1: two appliances blocked; no GNS3 CI category. |
+| Admin Web and API functionality | 10 | 9 | **9** | 9 | web-e2e 16/16 on the commit. GNS3 view out of scope (NOT_APPLICABLE). −1: no user deletion; routes/NAT not plannable from the web. |
+| Diagnostics and observability | 10 | 9 | **9** | 9 | `diagnose` classifies the IOSv captures (`DHCP_OFFER_NOT_ACCEPTED`) and refuses to claim success without evidence (c7200). −1: REQUEST-without-ACK proven on synthetic captures only. |
+| Security | 10 | 9 | **9** | 9 | govulncheck 0 reachable; unknown host keys fail closed on the CHR; device secrets masked, and an evidence scan found none. −1: SHA-1 exception for IOSv/IOS XE 16.7; DHCP/TFTP unauthenticated; GNS3 controller on default admin/admin. |
+| Documentation and delivery evidence | 5 | 5 | **5** | 5 | Dated addenda in 05/06/07, GNS3_VALIDATION_c9f5a86.md, hashed evidence, mistakes corrected in dated notes (c7200 version). |
+| **Total** | **100** | **87** | **88** | **89** | |
+
+### What would raise the score
+
+1. Commit the persistence patch and D13 fix, and get hosted CI on them (+1 provisioning; D13 would remove the memory finding, a full-length soak would then be needed for the Provider point).
+2. FortiGate access, then a FortiOS executor; the IOL-XE image; about 5.2 GiB of free RAM for the CSR re-run.
+3. A GNS3 CI runner (CI-02).
+4. VLANs (MTK-08), routes/NAT from the web (GEN-06), audited user deletion (WEB-06).
+
+## Previous score: 87/100 (2026-11-22 morning, `c1917ac` + uncommitted changes, later committed as `c9f5a86`)
 
 Same eight-dimension rubric and weights as the 76 and 85 scores, so they are comparable. Not a release approval.
 Base `c1917ac` plus uncommitted changes; hosted CI has not run on them.

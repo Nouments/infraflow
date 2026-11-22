@@ -1,0 +1,291 @@
+{
+ "id": "exec-9c824f15c3513a33e82b351d9df5811b",
+ "idempotency_key_hash": "76b64fe668a7de7ec0d9efd6e84afe54fb2156a2855b0e222eea69ea5d2d24c9",
+ "request_hash": "cb8bd2a9692e5bacd5bca407afcda060df8a08df0325822d3a87f2c33797b58f",
+ "actor_id": "user-nXPfUBj7pvEBoi9G",
+ "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e",
+ "status": "succeeded",
+ "tasks": [
+  {
+   "id": "mt1-import",
+   "type": "mikrotik.routeros.import",
+   "status": "succeeded",
+   "timeout_ms": 30000,
+   "max_attempts": 1,
+   "parameters": {
+    "device_id": "mt1",
+    "site": "vendor-lab"
+   },
+   "attempts": [
+    {
+     "number": 1,
+     "status": "succeeded",
+     "started_at": "2026-11-22T06:53:23.921501149Z",
+     "finished_at": "2026-11-22T06:53:24.738440804Z",
+     "duration_ms": 810,
+     "result": {
+      "artifact": "vendor-lab/native/device-mt1.auto.rsc",
+      "artifact_sha256": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d",
+      "device_id": "mt1",
+      "device_version": "7.8 (stable)",
+      "executed_at": "2026-11-22T06:53:24.734146457Z",
+      "import_output": "... 3 earlier lines omitted\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether1\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"192.0.2.21/24\" interface=\"ether1\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"} else={/ip address set $addressEntry address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"}\n}\n#line 7..11\r\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether2\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"198.51.100.129/25\" interface=\"ether2\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"} else={/ip address set $addressEntry address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"}\n}\n#line 12..16\r\n{\n\t:local routeEntry [/ip route find where comment=\"infraflow:mt1:route:203.0.113.0/24\"];\n\t:if ([:len $routeEntry] = 0) do={:set routeEntry [/ip route find where dst-address=\"203.0.113.0/24\" gateway=\"192.0.2.2\" !dynamic]};\n\t:if ([:len $routeEntry] = 0) do={/ip route add dst-address=203.0.113.0/24 gateway=\"192.0.2.2\" distance=1 comment=\"infraflow:mt1:route:203.0.113.0/24\"} else={/ip route set $routeEntry dst-address=203.0.113.0/24 gateway=\"192.0.2.2\" distance=1 comment=\"infraflow:mt1:route:203.0.113.0/24\"}\n}\n#line 17..20\r\n{\n\t:local ospfInstance [/routing ospf instance find where name=\"infraflow-v2\"];\n\t:if ([:len $ospfInstance] = 0) do={/routing ospf instance add name=infraflow-v2 version=2 router-id=192.0.2.21} else={/routing ospf instance set $ospfInstance router-id=192.0.2.21}\n}\n#line 21..24\r\n{\n\t:local ospfArea [/routing ospf area find where name=\"area-0-0-0-0\"];\n\t:if ([:len $ospfArea] = 0) do={/routing ospf area add name=area-0-0-0-0 area-id=0.0.0.0 instance=infraflow-v2} else={/routing ospf area set $ospfArea area-id=0.0.0.0 instance=infraflow-v2}\n}\n#line 25..29\r\n{\n\t:local ospfTemplate [/routing ospf interface-template find where comment=\"infraflow:mt1:ospf:192.0.2.0/24\"];\n\t:if ([:len $ospfTemplate] = 0) do={:set ospfTemplate [/routing ospf interface-template find where networks=\"192.0.2.0/24\" area=area-0-0-0-0]};\n\t:if ([:len $ospfTemplate] = 0) do={/routing ospf interface-template add networks=192.0.2.0/24 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:192.0.2.0/24\"} else={/routing ospf interface-template set $ospfTemplate networks=192.0.2.0/24 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:192.0.2.0/24\"}\n}\n#line 30..34\r\n{\n\t:local ospfTemplate [/routing ospf interface-template find where comment=\"infraflow:mt1:ospf:198.51.100.128/25\"];\n\t:if ([:len $ospfTemplate] = 0) do={:set ospfTemplate [/routing ospf interface-template find where networks=\"198.51.100.128/25\" area=area-0-0-0-0]};\n\t:if ([:len $ospfTemplate] = 0) do={/routing ospf interface-template add networks=198.51.100.128/25 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:198.51.100.128/25\"} else={/routing ospf interface-template set $ospfTemplate networks=198.51.100.128/25 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:198.51.100.128/25\"}\n}\nINFRAFLOW-IMPORT-COMPLETE",
+      "observed": {
+       "addresses": [
+        {
+         "_flags": "0",
+         "actual-interface": "ether1",
+         "address": "192.0.2.21/24",
+         "comment": "infraflow:mt1:interface:ether1",
+         "interface": "ether1",
+         "network": "192.0.2.0"
+        },
+        {
+         "_flags": "1 D",
+         "actual-interface": "ether1",
+         "address": "192.0.2.4/24",
+         "interface": "ether1",
+         "network": "192.0.2.0"
+        },
+        {
+         "_flags": "2",
+         "actual-interface": "ether2",
+         "address": "198.51.100.129/25",
+         "comment": "infraflow:mt1:interface:ether2",
+         "interface": "ether2",
+         "network": "198.51.100.128"
+        }
+       ],
+       "dhcp_clients": [
+        {
+         "_flags": "0",
+         "add-default-route": "yes",
+         "address": "192.0.2.4/24",
+         "default-route-distance": "1",
+         "dhcp-options": "hostname,clientid",
+         "dhcp-server": "192.0.2.2",
+         "expires-after": "9m38s",
+         "interface": "ether1",
+         "status": "bound",
+         "use-peer-dns": "yes",
+         "use-peer-ntp": "yes"
+        }
+       ],
+       "identity": "mt1",
+       "ospf_instances": [
+        {
+         "_flags": "0",
+         "name": "infraflow-v2",
+         "router-id": "192.0.2.21",
+         "version": "2",
+         "vrf": "main"
+        }
+       ],
+       "routes": [
+        {
+         "_flags": "DAc+",
+         "distance": "0",
+         "dst-address": "192.0.2.0/24",
+         "gateway": "ether1",
+         "immediate-gw": "ether1",
+         "local-address": "192.0.2.4%ether1",
+         "routing-table": "main",
+         "scope": "10",
+         "suppress-hw-offload": "no"
+        },
+        {
+         "_flags": "DAc+",
+         "distance": "0",
+         "dst-address": "192.0.2.0/24",
+         "gateway": "ether1",
+         "immediate-gw": "ether1",
+         "local-address": "192.0.2.21%ether1",
+         "routing-table": "main",
+         "scope": "10",
+         "suppress-hw-offload": "no"
+        },
+        {
+         "_flags": "0 As",
+         "comment": "infraflow:mt1:route:203.0.113.0/24",
+         "distance": "1",
+         "dst-address": "203.0.113.0/24",
+         "gateway": "192.0.2.2",
+         "immediate-gw": "192.0.2.2%ether1",
+         "pref-src": "",
+         "routing-table": "main",
+         "scope": "30",
+         "suppress-hw-offload": "no",
+         "target-scope": "10"
+        }
+       ]
+      },
+      "operation": "mikrotik.routeros.import",
+      "site": "vendor-lab",
+      "status": "succeeded",
+      "uploaded_file": "infraflow-mt1.rsc",
+      "verified": true,
+      "warnings": [
+       "RouterOS persists configuration immediately; no rollback is performed by this executor"
+      ]
+     }
+    }
+   ],
+   "result": {
+    "artifact": "vendor-lab/native/device-mt1.auto.rsc",
+    "artifact_sha256": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d",
+    "device_id": "mt1",
+    "device_version": "7.8 (stable)",
+    "executed_at": "2026-11-22T06:53:24.734146457Z",
+    "import_output": "... 3 earlier lines omitted\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether1\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"192.0.2.21/24\" interface=\"ether1\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"} else={/ip address set $addressEntry address=192.0.2.21/24 interface=\"ether1\" comment=\"infraflow:mt1:interface:ether1\"}\n}\n#line 7..11\r\n{\n\t:local addressEntry [/ip address find where comment=\"infraflow:mt1:interface:ether2\"];\n\t:if ([:len $addressEntry] = 0) do={:set addressEntry [/ip address find where address=\"198.51.100.129/25\" interface=\"ether2\" !dynamic]};\n\t:if ([:len $addressEntry] = 0) do={/ip address add address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"} else={/ip address set $addressEntry address=198.51.100.129/25 interface=\"ether2\" comment=\"infraflow:mt1:interface:ether2\"}\n}\n#line 12..16\r\n{\n\t:local routeEntry [/ip route find where comment=\"infraflow:mt1:route:203.0.113.0/24\"];\n\t:if ([:len $routeEntry] = 0) do={:set routeEntry [/ip route find where dst-address=\"203.0.113.0/24\" gateway=\"192.0.2.2\" !dynamic]};\n\t:if ([:len $routeEntry] = 0) do={/ip route add dst-address=203.0.113.0/24 gateway=\"192.0.2.2\" distance=1 comment=\"infraflow:mt1:route:203.0.113.0/24\"} else={/ip route set $routeEntry dst-address=203.0.113.0/24 gateway=\"192.0.2.2\" distance=1 comment=\"infraflow:mt1:route:203.0.113.0/24\"}\n}\n#line 17..20\r\n{\n\t:local ospfInstance [/routing ospf instance find where name=\"infraflow-v2\"];\n\t:if ([:len $ospfInstance] = 0) do={/routing ospf instance add name=infraflow-v2 version=2 router-id=192.0.2.21} else={/routing ospf instance set $ospfInstance router-id=192.0.2.21}\n}\n#line 21..24\r\n{\n\t:local ospfArea [/routing ospf area find where name=\"area-0-0-0-0\"];\n\t:if ([:len $ospfArea] = 0) do={/routing ospf area add name=area-0-0-0-0 area-id=0.0.0.0 instance=infraflow-v2} else={/routing ospf area set $ospfArea area-id=0.0.0.0 instance=infraflow-v2}\n}\n#line 25..29\r\n{\n\t:local ospfTemplate [/routing ospf interface-template find where comment=\"infraflow:mt1:ospf:192.0.2.0/24\"];\n\t:if ([:len $ospfTemplate] = 0) do={:set ospfTemplate [/routing ospf interface-template find where networks=\"192.0.2.0/24\" area=area-0-0-0-0]};\n\t:if ([:len $ospfTemplate] = 0) do={/routing ospf interface-template add networks=192.0.2.0/24 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:192.0.2.0/24\"} else={/routing ospf interface-template set $ospfTemplate networks=192.0.2.0/24 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:192.0.2.0/24\"}\n}\n#line 30..34\r\n{\n\t:local ospfTemplate [/routing ospf interface-template find where comment=\"infraflow:mt1:ospf:198.51.100.128/25\"];\n\t:if ([:len $ospfTemplate] = 0) do={:set ospfTemplate [/routing ospf interface-template find where networks=\"198.51.100.128/25\" area=area-0-0-0-0]};\n\t:if ([:len $ospfTemplate] = 0) do={/routing ospf interface-template add networks=198.51.100.128/25 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:198.51.100.128/25\"} else={/routing ospf interface-template set $ospfTemplate networks=198.51.100.128/25 area=area-0-0-0-0 comment=\"infraflow:mt1:ospf:198.51.100.128/25\"}\n}\nINFRAFLOW-IMPORT-COMPLETE",
+    "observed": {
+     "addresses": [
+      {
+       "_flags": "0",
+       "actual-interface": "ether1",
+       "address": "192.0.2.21/24",
+       "comment": "infraflow:mt1:interface:ether1",
+       "interface": "ether1",
+       "network": "192.0.2.0"
+      },
+      {
+       "_flags": "1 D",
+       "actual-interface": "ether1",
+       "address": "192.0.2.4/24",
+       "interface": "ether1",
+       "network": "192.0.2.0"
+      },
+      {
+       "_flags": "2",
+       "actual-interface": "ether2",
+       "address": "198.51.100.129/25",
+       "comment": "infraflow:mt1:interface:ether2",
+       "interface": "ether2",
+       "network": "198.51.100.128"
+      }
+     ],
+     "dhcp_clients": [
+      {
+       "_flags": "0",
+       "add-default-route": "yes",
+       "address": "192.0.2.4/24",
+       "default-route-distance": "1",
+       "dhcp-options": "hostname,clientid",
+       "dhcp-server": "192.0.2.2",
+       "expires-after": "9m38s",
+       "interface": "ether1",
+       "status": "bound",
+       "use-peer-dns": "yes",
+       "use-peer-ntp": "yes"
+      }
+     ],
+     "identity": "mt1",
+     "ospf_instances": [
+      {
+       "_flags": "0",
+       "name": "infraflow-v2",
+       "router-id": "192.0.2.21",
+       "version": "2",
+       "vrf": "main"
+      }
+     ],
+     "routes": [
+      {
+       "_flags": "DAc+",
+       "distance": "0",
+       "dst-address": "192.0.2.0/24",
+       "gateway": "ether1",
+       "immediate-gw": "ether1",
+       "local-address": "192.0.2.4%ether1",
+       "routing-table": "main",
+       "scope": "10",
+       "suppress-hw-offload": "no"
+      },
+      {
+       "_flags": "DAc+",
+       "distance": "0",
+       "dst-address": "192.0.2.0/24",
+       "gateway": "ether1",
+       "immediate-gw": "ether1",
+       "local-address": "192.0.2.21%ether1",
+       "routing-table": "main",
+       "scope": "10",
+       "suppress-hw-offload": "no"
+      },
+      {
+       "_flags": "0 As",
+       "comment": "infraflow:mt1:route:203.0.113.0/24",
+       "distance": "1",
+       "dst-address": "203.0.113.0/24",
+       "gateway": "192.0.2.2",
+       "immediate-gw": "192.0.2.2%ether1",
+       "pref-src": "",
+       "routing-table": "main",
+       "scope": "30",
+       "suppress-hw-offload": "no",
+       "target-scope": "10"
+      }
+     ]
+    },
+    "operation": "mikrotik.routeros.import",
+    "site": "vendor-lab",
+    "status": "succeeded",
+    "uploaded_file": "infraflow-mt1.rsc",
+    "verified": true,
+    "warnings": [
+     "RouterOS persists configuration immediately; no rollback is performed by this executor"
+    ]
+   },
+   "created_at": "2026-11-22T06:53:23.915585907Z",
+   "updated_at": "2026-11-22T06:53:24.738440804Z",
+   "started_at": "2026-11-22T06:53:23.921501149Z",
+   "finished_at": "2026-11-22T06:53:24.738440804Z"
+  }
+ ],
+ "created_at": "2026-11-22T06:53:23.915785373Z",
+ "updated_at": "2026-11-22T06:53:24.741606433Z",
+ "started_at": "2026-11-22T06:53:23.918469249Z",
+ "finished_at": "2026-11-22T06:53:24.74160601Z",
+ "cancel_requested_at": "0001-01-01T00:00:00Z",
+ "revision": 5,
+ "events": [
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.queued",
+   "status": "queued",
+   "timestamp": "2026-11-22T06:53:23.915785373Z",
+   "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.running",
+   "status": "running",
+   "timestamp": "2026-11-22T06:53:23.918469841Z",
+   "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_started",
+   "task_id": "mt1-import",
+   "status": "running",
+   "task_status": "running",
+   "timestamp": "2026-11-22T06:53:23.921518268Z",
+   "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_succeeded",
+   "task_id": "mt1-import",
+   "status": "running",
+   "task_status": "succeeded",
+   "timestamp": "2026-11-22T06:53:24.738449637Z",
+   "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.succeeded",
+   "status": "succeeded",
+   "timestamp": "2026-11-22T06:53:24.741606433Z",
+   "correlation_id": "3b815dfc4f31bf749a5abf2d2ed54a5e"
+  }
+ ]
+}

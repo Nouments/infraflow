@@ -17,26 +17,32 @@
 | D6 | Browser E2E | Web plan-and-generate refused RouterOS auto-rsc and Cisco IOS | 93a7ebc | TestPlanAndGenerateAgreesWithNativeGenerator |
 | D7 | Diagnostics on real capture | A TFTP transfer cut by the end of a capture was reported as failed | dd7b140 | TestCaptureReportsInterruptedTFTPTransfer |
 | D8 | Hosted CI (Windows) | RouterOS unreachable test asserted Linux error text | aa79e52 | itself |
-| D9 | Load profile (2026-11-22) | Every single-artifact read re-hashed every artifact of every site: one `/api/v1/sites` = 1 + 2×sites full catalog passes, an Agent sync of N files = N passes | uncommitted | TestReadArtifactVerifiesOnlyItsOwnSite |
-| D10 | Load profile (2026-11-22) | Central log store re-parsed every stored timestamp on every append (retention purge) | uncommitted | TestStoreRetentionCacheNeverHidesAnExpiredEvent (mutation-checked) |
-| D11 | Review for AGT-11 (2026-11-22) | A partial or empty Agent report was shown as "N completed, 0 failed of N" (total = results in the report, not published artifacts); rejected reports left no trace | uncommitted | TestReportOutcomeClassification, TestRejectedReportsAreRecordedAndDuplicatesAreNotDoubleCounted |
-| D12 | Real GNS3 run (2026-11-22) | New GNS3 client: a template with `"cpus": 0.0` broke decoding and a partially decoded list was used | uncommitted (new code) | TestUndecodableListReturnsNothingRatherThanAPartialList, TestInventoryMarksTemplatesWhoseImageIsAbsent |
+| D9 | Load profile (2026-11-22) | Every single-artifact read re-hashed every artifact of every site: one `/api/v1/sites` = 1 + 2×sites full catalog passes, an Agent sync of N files = N passes | c9f5a86 | TestReadArtifactVerifiesOnlyItsOwnSite |
+| D10 | Load profile (2026-11-22) | Central log store re-parsed every stored timestamp on every append (retention purge) | c9f5a86 | TestStoreRetentionCacheNeverHidesAnExpiredEvent (mutation-checked) |
+| D11 | Review for AGT-11 (2026-11-22) | A partial or empty Agent report was shown as "N completed, 0 failed of N" (total = results in the report, not published artifacts); rejected reports left no trace | c9f5a86 | TestReportOutcomeClassification, TestRejectedReportsAreRecordedAndDuplicatesAreNotDoubleCounted |
+| D12 | Real GNS3 run (2026-11-22) | New GNS3 client: a template with `"cpus": 0.0` broke decoding and a partially decoded list was used | c9f5a86 | TestUndecodableListReturnsNothingRatherThanAPartialList, TestInventoryMarksTemplatesWhoseImageIsAbsent |
+| D13 | Soak of c9f5a86 (2026-11-22) | Central log store kept every event twice in memory (slice + map of values): a 57 MiB store held 233 MiB of live heap; Provider RSS plateaued at 590–700 MiB under steady load (objective 512) | uncommitted | TestStoreIDIndexSurvivesCompactionAndReload (mutation-checked); heap 233 → 133 MiB on the same store |
+| D14 | GNS3 lab, c9f5a86 (2026-11-22) | The Cisco executor never saved configuration, so changes were lost on reload (GNS-04) — a gap, not a regression | uncommitted: explicit `persist: true` (write memory + startup-config read-back) | TestCiscoIOSPersistSavesAndVerifiesStartupConfig, TestCiscoIOSPersistFailureIsReportedAndNotRolledBack, TestCiscoIOSNeverPersistsUnlessRequested; real IOSv reload |
 
 ## Blockers
 
 | ID | Item | Evidence | What unblocks it |
 |---|---|---|---|
-| B1 | FortiGate FGT1 delivery/verification | fortinet/fgt1-blocked.txt | the appliance's admin password or a fresh FortiOS VM; then a FortiOS executor is needed |
+| B1 | FortiGate FGT1 delivery/verification | fortinet/fgt1-blocked.txt | the appliance's admin password or a fresh FortiOS VM; then a FortiOS executor is needed (still blocked on c9f5a86; no password guessed) |
 | B2 | IOL-XE 17.18 | `docker images` has no `iol-xe` image | the licensed image |
+| B3 | CSR1000v re-run on c9f5a86 (CIS-05) | gns3-c9f5a86/logs/host-check-csr.json | ~5.2 GiB free RAM on the GNS3 host (4096 MiB + 1 GiB reserve); the reserve is not lowered |
 
 ## Open (not defects in InfraFlow code, or not resolved)
 
 | Item | Status | Facts |
 |---|---|---|
-| IOSv AutoInstall (M6, M8) | M6: UNSUPPORTED (2026-11-22); M8: PARTIAL | 2026-11-20: `DHCP_OFFER_NOT_ACCEPTED` on the wire, cause unproven. 2026-11-22: same behaviour with a reference ISC dhcpd (3 option sets); IOS trace shows the AutoInstall handler stopping in 0 ms; the regular DHCP client binds. Image-side. See gns3-20261122/CIS-02-REF.json |
+| IOSv AutoInstall (M6, M8) | UNSUPPORTED (M6 and, on c9f5a86, M8) | c9f5a86: M8 sends 0 REQUEST to the reference ISC dhcpd too; the generator refuses both profiles. Earlier: 2026-11-20: `DHCP_OFFER_NOT_ACCEPTED` on the wire, cause unproven. 2026-11-22: same behaviour with a reference ISC dhcpd (3 option sets); IOS trace shows the AutoInstall handler stopping in 0 ms; the regular DHCP client binds. Image-side. See gns3-20261122/CIS-02-REF.json |
 | CHR factory DHCP client | observation | not removed by the generated script; OSPF sourced from that address |
 | Web console example | UX | built-in example has no provisioning method, so "Generate" returns NOT_REQUIRED |
 | GNS3 CSR1000v vmxnet3 | lab | link stays down; virtio-net-pci works |
 | Interrupted Agent sync, incomplete report, load | PASS (2026-11-22) | AGT-10, AGT-11, PRV-19 in 05 |
-| Reload persistence (GNS-04), multi-hour soak (PRV-20), GNS3 view in the Admin Web (GNS-09) | NOT_RUN | executors do not write startup config; only 10 s load stages; GNS3 is CLI lab tooling |
+| Reload persistence (GNS-04) | PARTIAL on c9f5a86 | CHR survives reboot on the commit; Cisco `persist: true` proven on a real IOS reload with an uncommitted patch (D14) |
+| Multi-hour soak (PRV-20) | see 05 | 3 h soak of the c9f5a86 binary; found D13 |
+| GNS3 view in the Admin Web (GNS-09) | NOT_APPLICABLE | out of product scope: the Provider never contacts GNS3 |
+| GNS3 c7200 template | lab | image file named 153-3.XB12 boots 12.4(24)T5 |
 | GNS3 category in hosted CI | NOT_RUN | needs a lab runner and a token with `workflow` scope |

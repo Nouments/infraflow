@@ -1,0 +1,10 @@
+{
+  "project": "InfraFlow-Automated-Validation",
+  "nodes": [
+    {"name": "SW-PROV", "template": "Ethernet switch", "x": 0, "y": 0, "purpose": "isolated provisioning segment"},
+    {"name": "CSR1", "template": "Cisco CSR1000v", "x": 250, "y": 200, "disk_mib": 1200, "purpose": "Cisco CSR1000v IOS XE 16.7.1 (inventory vendor-lab/r3): SSH executor and persistence", "properties": {"adapter_type": "virtio-net-pci"}}
+  ],
+  "links": [
+    {"a": {"node": "CSR1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 7}}
+  ]
+}

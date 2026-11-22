@@ -1,0 +1,167 @@
+Connected to Dynamips VM "R2" (ID 1, type c7200) - Console port
+Press ENTER to get the prompt.
+ROMMON emulation microcode.
+
+Launching IOS image at 0x80008000...
+
+              Restricted Rights Legend
+
+Use, duplication, or disclosure by the Government is
+subject to restrictions as set forth in subparagraph
+(c) of the Commercial Computer Software - Restricted
+Rights clause at FAR sec. 52.227-19 and subparagraph
+(c) (1) (ii) of the Rights in Technical Data and Computer
+Software clause at DFARS sec. 252.227-7013.
+
+           cisco Systems, Inc.
+           170 West Tasman Drive
+           San Jose, California 95134-1706
+
+
+
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2011 by Cisco Systems, Inc.
+Compiled Fri 04-Mar-11 06:49 by prod_rel_team
+
+
+This product contains cryptographic features and is subject to United
+States and local country laws governing import, export, transfer and
+use. Delivery of Cisco cryptographic products does not imply
+third-party authority to import, export, distribute or use encryption.
+Importers, exporters, distributors and users are responsible for
+compliance with U.S. and local country laws. By using this product you
+agree to comply with applicable laws and regulations. If you are unable
+to comply with U.S. and local laws, return this product immediately.
+
+A summary of U.S. laws governing Cisco cryptographic products may be found at:
+http://www.cisco.com/wwl/export/crypto/tool/stqrg.html
+
+If you require further assistance please contact us by sending email to
+export@cisco.com.
+
+Cisco 7206VXR (NPE400) processor (revision A) with 491520K/32768K bytes of memory.
+Processor board ID 4279256517
+R7000 CPU at 150MHz, Implementation 39, Rev 2.1, 256KB L2, 512KB L3 Cache
+6 slot VXR midplane, Version 2.1
+
+Last reset from power-on
+
+PCI bus mb0_mb1 (Slots 0, 1, 3 and 5) has a capacity of 600 bandwidth points.
+Current configuration on bus mb0_mb1 has a total of 640 bandwidth points. 
+The set of PA-2FE, PA-POS-2OC3, and I/O-2FE qualify for "half 
+bandwidth points" consideration, when full bandwidth point counting 
+results in oversubscription, under the condition that only one of the 
+two ports is used. With this adjustment, current configuration on bus 
+mb0_mb1 has a total of 440 bandwidth points. 
+This configuration is within the PCI bus capacity and is supported 
+under the above condition. 
+
+PCI bus mb2 (Slots 2, 4, 6) has a capacity of 600 bandwidth points.
+Current configuration on bus mb2 has a total of 400 bandwidth points 
+This configuration is within the PCI bus capacity and is supported. 
+
+Please refer to the following document "Cisco 7200 Series Port Adaptor
+Hardware Configuration Guidelines" on Cisco.com <http://www.cisco.com>
+for c7200 bandwidth points oversubscription and usage guidelines.
+
+
+4 Ethernet interfaces
+5 FastEthernet interfaces
+509K bytes of NVRAM.
+
+8192K bytes of Flash internal SIMM (Sector size 256K).Installed image archive
+
+Loading network-confg from 192.0.2.2 (via FastEthernet0/0): !
+[OK - 22 bytes]
+Configuration mapped ip address 192.0.2.12 to r2
+Loading r2-confg from 192.0.2.2 (via FastEthernet0/0): !
+[OK - 135 bytes]
+
+% Crashinfo may not be recovered at bootflash:crashinfo
+% This file system device reports an error
+
+
+Press RETURN to get started!
+
+
+*Nov 22 07:02:01.067: % Error opening nvram:/ifIndex-table No such file or directory
+*Nov 22 07:02:27.519: %LINEPROTO-5-UPDOWN: Line protocol on Interface VoIP-Null0, changed state to up
+*Nov 22 07:02:27.527: %LINK-3-UPDOWN: Interface FastEthernet0/0, changed state to up
+*Nov 22 07:02:27.531: %LINK-3-UPDOWN: Interface FastEthernet1/0, changed state to up
+*Nov 22 07:02:27.535: %LINK-3-UPDOWN: Interface FastEthernet1/1, changed state to up
+*Nov 22 07:02:27.539: %LINK-3-UPDOWN: Interface FastEthernet2/0, changed state to up
+*Nov 22 07:02:27.547: %LINK-3-UPDOWN: Interface FastEthernet2/1, changed state to up
+*Nov 22 07:02:27.551: %LINK-3-UPDOWN: Interface Ethernet3/0, changed state to up
+*Nov 22 07:02:27.555: %LINK-3-UPDOWN: Interface Ethernet3/1, changed state to up
+*Nov 22 07:02:27.559: %LINK-3-UPDOWN: Interface Ethernet3/2, changed state to up
+*Nov 22 07:02:27.567: %LINK-3-UPDOWN: Interface Ethernet3/3, changed state to up
+*Nov 22 07:02:28.523: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet0/0, changed state to up
+*Nov 22 07:02:28.531: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/0, changed state to up
+*Nov 22 07:02:28.535: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/1, changed state to up
+*Nov 22 07:02:28.539: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/0, changed state to up
+*Nov 22 07:02:28.547: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/1, changed state to up
+*Nov 22 07:02:28.551: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/0, changed state to up
+*Nov 22 07:02:28.555: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/1, changed state to up
+*Nov 22 07:02:28.559: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/2, changed state to up
+*Nov 22 07:02:28.567: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/3, changed state to up
+*Nov 22 07:02:36.727: AUTOINSTALL: FastEthernet0/0 is assigned 192.0.2.12
+*Nov 22 07:02:36.727: AUTOINSTALL: Obtain tftp server name 192.0.2.2resolved to 192.0.2.2
+*Nov 22 07:02:50.379: %PARSER-4-BADCFG: Unexpected end of configuration file.
+
+*Nov 22 07:02:50.379: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/network-confg by console
+*Nov 22 07:03:07.171: %PARSER-4-BADCFG: Unexpected end of configuration file.
+
+*Nov 22 07:03:07.175: %SYS-5-CONFIG_I: Configured from tftp://192.0.2.2/r2-confg by console
+*Nov 22 07:03:09.511: %LINK-5-CHANGED: Interface FastEthernet1/0, changed state to administratively down
+*Nov 22 07:03:09.511: %LINK-5-CHANGED: Interface FastEthernet1/1, changed state to administratively down
+*Nov 22 07:03:09.515: %LINK-5-CHANGED: Interface FastEthernet2/0, changed state to administratively down
+*Nov 22 07:03:09.515: %LINK-5-CHANGED: Interface FastEthernet2/1, changed state to administratively down
+*Nov 22 07:03:09.519: %LINK-5-CHANGED: Interface Ethernet3/0, changed state to administratively down
+*Nov 22 07:03:09.519: %LINK-5-CHANGED: Interface Ethernet3/1, changed state to administratively down
+*Nov 22 07:03:09.519: %LINK-5-CHANGED: Interface Ethernet3/2, changed state to administratively down
+*Nov 22 07:03:09.523: %LINK-5-CHANGED: Interface Ethernet3/3, changed state to administratively down
+*Nov 22 07:03:15.543: %SYS-5-RESTART: System restarted --
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+Technical Support: http://www.cisco.com/techsupport
+Copyright (c) 1986-2011 by Cisco Systems, Inc.
+Compiled Fri 04-Mar-11 06:49 by prod_rel_team
+*Nov 22 07:03:15.575: %SNMP-5-COLDSTART: SNMP agent on host r2 is undergoing a cold start
+*Nov 22 07:03:15.667: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/0, changed state to down
+*Nov 22 07:03:15.671: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet1/1, changed state to down
+*Nov 22 07:03:15.671: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/0, changed state to down
+*Nov 22 07:03:15.675: %LINEPROTO-5-UPDOWN: Line protocol on Interface FastEthernet2/1, changed state to down
+*Nov 22 07:03:15.675: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/0, changed state to down
+*Nov 22 07:03:15.679: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/1, changed state to down
+*Nov 22 07:03:15.679: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/2, changed state to down
+*Nov 22 07:03:15.683: %LINEPROTO-5-UPDOWN: Line protocol on Interface Ethernet3/3, changed state to down
+*Nov 22 07:03:15.743: %CRYPTO-6-ISAKMP_ON_OFF: ISAKMP is OFF
+*Nov 22 07:03:15.743: %CRYPTO-6-GDOI_ON_OFF: GDOI is OFF
+r2>enable
+r2#
+r2#terminal length 0
+r2#show version | include IOS Software|uptime
+Cisco IOS Software, 7200 Software (C7200-ADVENTERPRISEK9-M), Version 12.4(24)T5, RELEASE SOFTWARE (fc3)
+r2 uptime is 1 minute
+r2#show running-config | include ^hostname
+hostname r2
+r2#show running-config interface FastEthernet0/0
+Building configuration...
+
+Current configuration : 83 bytes
+!
+interface FastEthernet0/0
+ ip address 192.0.2.12 255.255.255.0
+ duplex half
+end
+
+r2#show ip route static
+S    203.0.113.0/24 [1/0] via 192.0.2.2
+r2#ping 192.0.2.2
+
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 192.0.2.2, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 8/12/20 ms
+r2#show startup-config | include ^hostname
+r2#

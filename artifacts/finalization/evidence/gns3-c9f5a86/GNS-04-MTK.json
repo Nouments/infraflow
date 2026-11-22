@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "scenario_id": "GNS-04-MTK",
+  "title": "MikroTik CHR configuration after a reboot (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T07:18:30Z",
+  "finished_at": "2026-11-22T07:20:30Z",
+  "duration_seconds": 120.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "vendor-lab",
+  "device": "mt1",
+  "model": "CHR",
+  "os": "RouterOS",
+  "os_version": "7.8",
+  "agent_id": "",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T07:18:30Z",
+      "description": "/system reboot on the console",
+      "result": "rebooted"
+    },
+    {
+      "at": "2026-11-22T07:20:20Z",
+      "description": "console read after reboot",
+      "result": "uptime 1m18s; identity and owned objects present"
+    }
+  ],
+  "checks": [
+    {
+      "name": "survives reboot",
+      "expected": "InfraFlow-owned objects present",
+      "observed": "infraflow:mt1:interface:ether1/ether2, route 203.0.113.0/24, ospf infraflow-v2",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/mt1-console-after-reboot.txt",
+      "sha256": "1ba58ac5935573bc556be277fb6cee38085c0ed9d0d477bf8070a51831eeb0cd",
+      "description": "console after reboot"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [
+    "RouterOS persists every change immediately; no explicit save step exists or is needed"
+  ],
+  "initial_state": "configuration imported by MTK-02",
+  "final_state": "identity mt1, owned addresses, static route and OSPF instance present after reboot",
+  "status": "PASS",
+  "status_reason": "imported configuration observed after a real reboot"
+}

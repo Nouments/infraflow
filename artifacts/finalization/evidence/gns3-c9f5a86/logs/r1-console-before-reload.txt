@@ -1,0 +1,25 @@
+# IOSV1 post-check (read-only), 2026-11-22T10:14:07+0300
+show startup-config | include ^hostname|description|^interface Gig$p-config | include ^hostname|description|^interface Gig|         ip addres include ^hostname|description|^interface Gig|ip address          19
+hostname r1-persist
+interface GigabitEthernet0/0
+ ip address 192.0.2.11 255.255.255.0
+interface GigabitEthernet0/1
+ description infraflow persisted
+ ip address 198.51.100.1 255.255.255.0
+interface GigabitEthernet0/2
+interface GigabitEthernet0/3
+r1-persist#
+show running-config interface GigabitEthernet0/2
+Building configuration...
+
+Current configuration : 154 bytes
+!
+interface GigabitEthernet0/2
+ description infraflow not persisted
+ ip address 198.18.0.1 255.255.255.252
+ duplex auto
+ speed auto
+ media-type rj45
+end
+
+r1-persist#

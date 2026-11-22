@@ -1,0 +1,26 @@
+# PC1 (VPCS) against the reference ISC dhcpd, 2026-11-22T10:24:04+0300
+ip dhcp
+DDORA IP 10.99.0.100/24 GW 10.99.0.1
+
+PC1> 
+show ip
+
+NAME        : PC1[1]
+IP/MASK     : 10.99.0.100/24
+GATEWAY     : 10.99.0.1
+DNS         : 
+DHCP SERVER : 10.99.0.1
+DHCP LEASE  : 3600, 3600/1800/3150
+MAC         : 00:50:79:66:68:00
+LPORT       : 10100
+RHOST:PORT  : 127.0.0.1:10101
+MTU         : 1500
+
+PC1> 
+ping 10.99.0.1 -c 3
+
+84 bytes from 10.99.0.1 icmp_seq=1 ttl=64 time=2.332 ms
+84 bytes from 10.99.0.1 icmp_seq=2 ttl=64 time=0.525 ms
+84 bytes from 10.99.0.1 icmp_seq=3 ttl=64 time=0.640 ms
+
+PC1> 

@@ -619,7 +619,7 @@ func TestCiscoIOSConfigureVerifiedSuccess(t *testing.T) {
 	if obsIface.IPv4Address != "10.0.0.1" || obsIface.SubnetMask != "255.255.255.252" || obsIface.AdminState != "up" {
 		t.Fatalf("unexpected observed interface: %+v", obsIface)
 	}
-	if len(output.Warnings) == 0 || !strings.Contains(output.Warnings[0], "write memory disabled by policy") {
+	if len(output.Warnings) == 0 || !strings.Contains(output.Warnings[0], "startup-config was not persisted") {
 		t.Fatalf("expected warning about startup-config not persisted, got %+v", output.Warnings)
 	}
 }

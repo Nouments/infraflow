@@ -1,0 +1,208 @@
+Summary: The workflow stopped at DHCP (DHCP_OFFER_NOT_ACCEPTED).
+Observed status: failed
+Last confirmed successful stage: unknown
+Failure stage: DHCP DHCP_OFFER_NOT_ACCEPTED
+Likely cause: The DHCP server sent 157 offers but the client never requested the lease; the server answered, the client did not accept or did not receive the offers.
+Confidence: medium
+Recommended next action: Capture on the client segment to confirm the offers reach the device, check the device's own DHCP client log (for Cisco: debug dhcp detail, show pnp tech summary), and compare with a reference DHCP server before changing InfraFlow's offer.
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.6 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.4 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Evidence [capture/DHCP]: DHCP DISCOVER on the wire: client 0c:ab:da:a7:00:00
+Evidence [capture/DHCP]: DHCP OFFER on the wire: client 0c:ab:da:a7:00:00, server 192.0.2.2, address 192.0.2.3 (sent by 192.0.2.2)
+Missing evidence: run_id/device_id correlation fields on every selected event source

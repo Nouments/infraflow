@@ -1,0 +1,2 @@
+infraflow-provider: site "iosv-lab": native configuration: device r4: Cisco IOS AutoInstall supports only exact model/release profiles 7200 12.4(24)T5 (LAB-VERIFIED), 7200 15.3(3)XB12 (IMPLEMENTED), iosv 15.9(3)M6 (PARTIAL); got model "iosv" release "15.9(3)M8"
+exit=1

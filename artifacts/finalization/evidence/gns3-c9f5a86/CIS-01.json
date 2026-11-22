@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "scenario_id": "CIS-01",
+  "title": "Cisco 7200 12.4(24)T5 AutoInstall from InfraFlow DHCP/TFTP (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T07:01:40Z",
+  "finished_at": "2026-11-22T07:04:30Z",
+  "duration_seconds": 170.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "iosv-lab",
+  "device": "r2",
+  "model": "7200",
+  "os": "Cisco IOS",
+  "os_version": "12.4(24)T5",
+  "agent_id": "agent-iosv",
+  "execution_id": "",
+  "actions": [
+    {
+      "at": "2026-11-22T06:46:30Z",
+      "description": "run 1: inventory declared 15.3(3)XB12 from the template image file name",
+      "result": "AutoInstall completed, but the device reported 12.4(24)T5: run kept as evidence of the mismatch, not as the result"
+    },
+    {
+      "at": "2026-11-22T07:00:30Z",
+      "description": "inventory corrected to 12.4(24)T5 (the version the device reports), regenerated, Agent re-synced",
+      "result": "r2-confg sha256 04bcfe05\u2026"
+    },
+    {
+      "at": "2026-11-22T07:01:40Z",
+      "description": "R2 stopped and started (power cycle, empty NVRAM)",
+      "result": "boot"
+    },
+    {
+      "at": "2026-11-22T07:03:07Z",
+      "description": "AutoInstall",
+      "result": "Configured from tftp://192.0.2.2/network-confg then r2-confg"
+    },
+    {
+      "at": "2026-11-22T07:04:20Z",
+      "description": "read-only console post-check",
+      "result": "hostname r2, Fa0/0 192.0.2.12/24, static route, ping 5/5"
+    }
+  ],
+  "checks": [
+    {
+      "name": "DHCP",
+      "expected": "reservation 192.0.2.12 for ca:01:b6:b0:00:00",
+      "observed": "DISCOVER/OFFER/REQUEST/ACK on the wire and in serve-dhcp log",
+      "status": "PASS"
+    },
+    {
+      "name": "TFTP",
+      "expected": "network-confg and r2-confg served",
+      "observed": "RRQ and transfer.completed for both",
+      "status": "PASS"
+    },
+    {
+      "name": "applied",
+      "expected": "hostname, interface address, static route",
+      "observed": "hostname r2; 192.0.2.12 255.255.255.0; S 203.0.113.0/24 via 192.0.2.2",
+      "status": "PASS"
+    },
+    {
+      "name": "reachability",
+      "expected": "ping 192.0.2.2",
+      "observed": "5/5",
+      "status": "PASS"
+    }
+  ],
+  "stages": [
+    {
+      "name": "DHCP_DISCOVERED",
+      "status": "PASS",
+      "evidence": "capture"
+    },
+    {
+      "name": "DHCP_OFFERED",
+      "status": "PASS",
+      "evidence": "capture"
+    },
+    {
+      "name": "DHCP_BOUND",
+      "status": "PASS",
+      "evidence": "AUTOINSTALL: FastEthernet0/0 is assigned 192.0.2.12"
+    },
+    {
+      "name": "TFTP_REQUESTED",
+      "status": "PASS",
+      "evidence": "RRQ network-confg, r2-confg"
+    },
+    {
+      "name": "ARTIFACT_TRANSFERRED",
+      "status": "PASS",
+      "evidence": "[OK - 135 bytes]"
+    },
+    {
+      "name": "CONFIG_APPLIED",
+      "status": "PASS",
+      "evidence": "%SYS-5-CONFIG_I from tftp://192.0.2.2/r2-confg"
+    },
+    {
+      "name": "CONFIG_VERIFIED",
+      "status": "PASS",
+      "evidence": "console post-check"
+    },
+    {
+      "name": "CONFIG_PERSISTED",
+      "status": "NOT_APPLICABLE",
+      "evidence": "AutoInstall applies to running-config by design"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/r2-console-run2.log",
+      "sha256": "c45d76622c6335229dd8e3eb41b4e4656314cc0e2cc118b3195348afb85a1b0b",
+      "description": "console, run 2"
+    },
+    {
+      "path": "logs/r2-postcheck-run2.txt",
+      "sha256": "9c7cff3ee2511db7bfe0d797321a72563403e2f12bf5dfa036315af4337d01dd",
+      "description": "post-check, run 2"
+    },
+    {
+      "path": "logs/r2-infraflow-dhcp-tftp-run2.log",
+      "sha256": "4fd690c19f21f1b158534f262e93ed1c33d062d8bc8cb20135407ce16bd36c2f",
+      "description": "serve-dhcp/serve-tftp log"
+    },
+    {
+      "path": "logs/iosv-lab-tftp-hashes-run2.txt",
+      "sha256": "e3bf32469ca3a51163f3a68a8c60004d4c3c3d7682458b445c8295c3a4784eee",
+      "description": "served artifact hashes"
+    },
+    {
+      "path": "logs/r2-diagnose.txt",
+      "sha256": "348d8e4278d6119f556558a2e63353b32bd131114d7d55c34373f83086eeeb8c",
+      "description": "infraflow-agent diagnose on run 2"
+    },
+    {
+      "path": "logs/r2-console-run1.log",
+      "sha256": "706d235738c760b2bd983922377a58230bfb0792e07e615774dd1aa7b74fae2b",
+      "description": "run 1 console (inventory version mismatch)"
+    },
+    {
+      "path": "logs/r2-postcheck-run1.txt",
+      "sha256": "3ab365bf4e064eb00b80b7bb6f36bbdf1d7ebe35589d13d1647cdd5235528cb2",
+      "description": "run 1 post-check"
+    },
+    {
+      "path": "inputs/lab-c9f5a86.yaml",
+      "sha256": "b6088ad369e59bf642de7591ce94c0c84e2e9498921f4ab396846b9768e9adf3",
+      "description": "inventory used"
+    }
+  ],
+  "captures": [
+    {
+      "path": "captures/r2-c7200-autoinstall-run2.pcap",
+      "sha256": "1660a6a880395b89c5655db802f36bb6ac3599fc9ab67d68a318c7da21498c44",
+      "description": "R2 link, run 2"
+    },
+    {
+      "path": "captures/r2-c7200-autoinstall-run1-inventory-15.3.pcap",
+      "sha256": "c675f650cb261d9e6c9d17afa2cac9d44df0b324169f1a2b6356ea4467c19c5e",
+      "description": "R2 link, run 1"
+    }
+  ],
+  "artifact_hashes": {
+    "iosv-lab/r2-confg": "04bcfe059217dc44c1beffe411d3e9bea5bd24e6e281e1ecf814878ccb732be0",
+    "iosv-lab/network-confg": "42e005ebeb22f606a03a794a9f7b611add3ee51a0b9e2247316562d4b56fbac7"
+  },
+  "errors": [],
+  "warnings": [
+    "the GNS3 'Cisco 7200' template image file is named c7200-adventerprisek9-mz.153-3.XB12.image but the device reports 12.4(24)T5; the 15.3(3)XB12 profile is still not lab-verified",
+    "infraflow-agent diagnose reports 'no failure found' with low confidence because Agent/Provider logs were not supplied; the console and capture checks above decide the status"
+  ],
+  "initial_state": "R2 powered off, empty NVRAM (startup-config not present); site iosv-lab generated by c9f5a86 and synced by agent-iosv; serve-dhcp/serve-tftp running",
+  "final_state": "r2 configured from InfraFlow artifacts; startup-config still empty (AutoInstall does not save)",
+  "status": "PASS",
+  "status_reason": "all provisioning stages observed on the wire and on the device"
+}

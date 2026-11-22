@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "scenario_id": "MTK-02",
+  "title": "MikroTik CHR 7.8: host-key policy, import, read-back, idempotency (c9f5a86)",
+  "mandatory": true,
+  "started_at": "2026-11-22T06:51:30Z",
+  "finished_at": "2026-11-22T06:53:40Z",
+  "duration_seconds": 130.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "vendor-lab",
+  "device": "mt1",
+  "model": "CHR",
+  "os": "RouterOS",
+  "os_version": "7.8",
+  "agent_id": "",
+  "execution_id": "exec-9c824f15c3513a33e82b351d9df5811b",
+  "actions": [
+    {
+      "at": "2026-11-22T06:53:20Z",
+      "description": "M1 import with no known_hosts entry",
+      "result": "failed closed, presented key named, nothing imported"
+    },
+    {
+      "at": "2026-11-22T06:53:23Z",
+      "description": "M2 console-derived key pinned, import",
+      "result": "succeeded, verified"
+    },
+    {
+      "at": "2026-11-22T06:53:27Z",
+      "description": "M3 same request, new key",
+      "result": "succeeded, verified, no duplicates"
+    },
+    {
+      "at": "2026-11-22T06:53:30Z",
+      "description": "M4 replay of the M2 key",
+      "result": "HTTP 200, same execution"
+    }
+  ],
+  "checks": [
+    {
+      "name": "unknown host key",
+      "expected": "fail closed",
+      "observed": "host key is unknown or not approved \u2026 presented ssh-rsa SHA256:+to3eoGx\u2026",
+      "status": "PASS"
+    },
+    {
+      "name": "import + read-back",
+      "expected": "verified, no mismatches",
+      "observed": "verified=true, mismatches=null",
+      "status": "PASS"
+    },
+    {
+      "name": "idempotency",
+      "expected": "re-run verified without duplicates; replay returns the same execution",
+      "observed": "M3 verified; M4 HTTP 200",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/mt1-executions-summary.txt",
+      "sha256": "ff4dfdbabe314e5800513350d9d8cc46a725738b462891789716b2bc2a5fe01d",
+      "description": "summary"
+    },
+    {
+      "path": "logs/mt1-exec-1f197c636cf4d4e46b5095559cef11ea.json",
+      "sha256": "191f5b6109f61ee968bb303788b240dcb3e0cd35c75657be156368d6ea16705e",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/mt1-exec-9c824f15c3513a33e82b351d9df5811b.json",
+      "sha256": "3444773d53549a8c23500c1eafc2b318102f46f1c999d5019ebd3b5cda890893",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/mt1-exec-ad833bc1160d35c3b6ea78ec96903889.json",
+      "sha256": "830bbeb8da58bd3a78413c4117cac1ae1ec0694a4c7fe895e323ac3a53bc3238",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/mt1-day0-console.txt",
+      "sha256": "6842d7724cba85e7d70195b74bbc73ebb54237ad4598dc60984d81bf73e8764d",
+      "description": "day-0 console (passwords masked)"
+    },
+    {
+      "path": "logs/mt1-known-host.txt",
+      "sha256": "9e1eb6616c2ddee569a5d07bd2b358f7ea63294bb505dfe1e872a3ac8d7dcdc8",
+      "description": "console-derived host key"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {
+    "vendor-lab/native/device-mt1.auto.rsc": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d"
+  },
+  "errors": [],
+  "warnings": [
+    "the CHR keeps its factory DHCP client on ether1 and also holds a dynamic address (192.0.2.4 at read-back)"
+  ],
+  "initial_state": "fresh CHR; day-0 on console: admin password, user infraflow (group full), 192.0.2.21/24 on ether1 without owner comment",
+  "final_state": "identity mt1; ether1/ether2 addresses, static route and OSPF instance owned by InfraFlow",
+  "status": "PASS",
+  "status_reason": "MTK-02/03/04 re-run on the commit's own binary"
+}

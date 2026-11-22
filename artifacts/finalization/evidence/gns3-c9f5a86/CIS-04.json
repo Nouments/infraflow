@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "scenario_id": "CIS-04",
+  "title": "IOSv 15.9(3)M6 SSH executor on the pristine c9f5a86 Provider",
+  "mandatory": true,
+  "started_at": "2026-11-22T07:32:50Z",
+  "finished_at": "2026-11-22T07:33:30Z",
+  "duration_seconds": 40.0,
+  "infraflow_version": "c9f5a86 (clean worktree; static Provider sha256 78d64782833bef5a8adbdadf91f4d915e70fcd01be12f9c238be8020de138de5)",
+  "commit": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+  "worktree_dirty": false,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "vendor-lab",
+  "device": "r1",
+  "model": "iosv",
+  "os": "Cisco IOS",
+  "os_version": "15.9(3)M6",
+  "agent_id": "",
+  "execution_id": "exec-6b6c5d5e2e70c922946046a9fab27918",
+  "actions": [
+    {
+      "at": "2026-11-22T07:32:57Z",
+      "description": "C1 apply Gi0/3 198.18.0.5/30",
+      "result": "succeeded, verified"
+    },
+    {
+      "at": "2026-11-22T07:33:05Z",
+      "description": "C2 replay with the same Idempotency-Key",
+      "result": "HTTP 200, same execution"
+    },
+    {
+      "at": "2026-11-22T07:33:08Z",
+      "description": "C3 same request, new key",
+      "result": "succeeded; previous_changes == requested"
+    },
+    {
+      "at": "2026-11-22T07:33:15Z",
+      "description": "C4 Gi0/2 198.51.100.9/24 overlapping Gi0/1",
+      "result": "IOS rejected; rollback verified by read-back"
+    }
+  ],
+  "checks": [
+    {
+      "name": "apply + verify",
+      "expected": "verified read-back",
+      "observed": "verified=true",
+      "status": "PASS"
+    },
+    {
+      "name": "replay",
+      "expected": "200 and the same execution id",
+      "observed": "200, exec-6b6c5d5e\u2026",
+      "status": "PASS"
+    },
+    {
+      "name": "idempotent re-run",
+      "expected": "previous state equals requested",
+      "observed": "equal",
+      "status": "PASS"
+    },
+    {
+      "name": "rollback on device rejection",
+      "expected": "failed, rolled back, verified",
+      "observed": "'changes were rolled back \u2026 verified by read-back'",
+      "status": "PASS"
+    },
+    {
+      "name": "binary provenance",
+      "expected": "pristine c9f5a86 text",
+      "observed": "warning 'write memory disabled by policy' (pre-patch wording)",
+      "status": "PASS"
+    }
+  ],
+  "stages": [],
+  "logs": [
+    {
+      "path": "logs/r1-cis04-executions-summary.txt",
+      "sha256": "643974d2890b28e3a3982a29255474ea1808f09b4dcbdfe0a736d13bd21f81f0",
+      "description": "summary"
+    },
+    {
+      "path": "logs/r1-exec-6b6c5d5e2e70c922946046a9fab27918.json",
+      "sha256": "83a0a0788330b84d495d8fe3d29a4bfee7beae9b736094baaf9604f9e58e5dce",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-exec-55db98de45df0cac95d66502db472b07.json",
+      "sha256": "aa0eb1cb7660cfdf9feb90dd9d9492f3ca343e6c9cc1dd69c4a93079bb9eb7e7",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-exec-0d59a8aa1c10442e46f0722fcfcf1e6c.json",
+      "sha256": "93515361992bb96762bdefc17ebd4f7f71277e2599857aa14632ef17df8de613",
+      "description": "execution record"
+    },
+    {
+      "path": "logs/r1-known-host.txt",
+      "sha256": "bac6693fad50efbc693c7521c4253a65c57224c4ad4a5a6dae690081202f32a5",
+      "description": "console-derived host key"
+    },
+    {
+      "path": "logs/lab-binaries.txt",
+      "sha256": "23a40cc760d3df133e89182ade47bc7a0d3ef3280f144664d2e82bb032e9113d",
+      "description": "binary hashes"
+    }
+  ],
+  "captures": [],
+  "artifact_hashes": {},
+  "errors": [],
+  "warnings": [
+    "SHA-1 key exchange exception granted to vendor-lab/r1 only (IOSv offers only SHA-1 KEX)"
+  ],
+  "initial_state": "r1 booted from its startup-config (saved by GNS-04-CIS); host key pinned from the console; ssh_legacy_sha1_targets [vendor-lab/r1]",
+  "final_state": "Gi0/3 configured in running-config only; Gi0/2 back to its preflight state",
+  "status": "PASS",
+  "status_reason": "all executor checks passed on the commit's own binary"
+}

@@ -1,0 +1,35 @@
+# IOSV1 post-check (read-only), 2026-11-22T10:13:10+0300
+show crypto key mypubkey rsa SSHKEY
+% Key pair was generated at: 07:06:35 UTC Nov 22 2026
+Key name: SSHKEY
+Key type: RSA KEYS
+ Storage Device: not specified
+ Usage: General Purpose Key
+ Key is not exportable.
+ Key Data:
+  30820122 300D0609 2A864886 F70D0101 01050003 82010F00 3082010A 02820101 
+  00B6ED74 E7A2E519 03C57B26 EBB7FF79 2E12F9E1 F16A36A6 641A1766 25E368F9 
+  60908DC6 532BCA9D D2616E6F 197EF941 5FA095C5 15BB1A42 3FAB235B 036C2B74 
+  DC90A184 8FA3FAE9 73F30454 925A5B88 838C8D9E 1C87FDD4 EFA51499 2B4A2EC4 
+  DE1AF3C0 8B6313A3 BB875EB5 C7AEB1D8 93043AE6 43315F55 F967FC17 66BFC269 
+  4A718F79 8B5988DB B28A781F 49EFDF14 3BFDBB36 2D4EA96E 2B78F9D5 23841C70 
+  972D52DC DE3CA9F3 F6AD85DA 750027B7 788A2846 C74EA99D 15598A01 07C52E32 
+  7330A7E6 95014E41 D6D8D365 35DAB40D 9BB27BDD D7D1A89B 7E363A68 C35C9CD4 
+  F10E26B5 E5549D83 47E04D43 E19ABA36 5C01D353 4E22F6BE 14D04314 19A1FF7C 
+  E1020301 0001
+r1#
+show ip interface brief
+Interface                  IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0         192.0.2.11      YES manual up                    up      
+GigabitEthernet0/1         unassigned      YES unset  administratively down down    
+GigabitEthernet0/2         unassigned      YES unset  administratively down down    
+GigabitEthernet0/3         unassigned      YES unset  administratively down down    
+r1#
+show startup-config
+startup-config is not present
+r1#
+show running-config | include ^hostname|^username|^ip ssh
+hostname r1
+ip ssh rsa keypair-name SSHKEY
+ip ssh version 2
+r1#

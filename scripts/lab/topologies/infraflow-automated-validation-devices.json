@@ -1,0 +1,20 @@
+{
+  "project": "InfraFlow-Automated-Validation",
+  "nodes": [
+    {"name": "SW-PROV", "template": "Ethernet switch", "x": 0, "y": 0, "purpose": "isolated provisioning segment (no uplink to the host network)"},
+    {"name": "IOSV1", "template": "Cisco IOSv", "x": -250, "y": 0, "disk_mib": 200, "purpose": "Cisco IOSv 15.9(3)M6 (inventory vendor-lab/r1): AutoInstall M6, then SSH executor and persistence", "properties": {"hdb_disk_image": ""}},
+    {"name": "REFDHCP", "template": "debian-dhcp", "x": 250, "y": -100, "mem_mib": 128, "disk_mib": 50, "purpose": "reference ISC dhcpd (stopped while InfraFlow serves DHCP)"},
+    {"name": "PC1", "template": "VPCS", "x": 250, "y": 100, "mem_mib": 16, "purpose": "control DHCP client"},
+    {"name": "R2", "template": "Cisco 7200", "x": -250, "y": 150, "disk_mib": 300, "purpose": "Cisco 7200 (inventory iosv-lab/r2): AutoInstall from InfraFlow DHCP/TFTP"},
+    {"name": "MT1", "template": "MikroTik CRS328-4C-20S-4S", "x": -250, "y": -150, "mem_mib": 256, "disk_mib": 200, "purpose": "MikroTik CHR 7.8 (inventory vendor-lab/mt1): mikrotik.routeros.import", "properties": {"ram": 256}},
+    {"name": "IOSVM8", "template": "Cisco IOSvm8", "x": 0, "y": 200, "disk_mib": 200, "purpose": "Cisco IOSv 15.9(3)M8: AutoInstall M8 with an empty NVRAM", "properties": {"hdb_disk_image": ""}}
+  ],
+  "links": [
+    {"a": {"node": "IOSV1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 0}},
+    {"a": {"node": "REFDHCP", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 1}},
+    {"a": {"node": "PC1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 2}},
+    {"a": {"node": "R2", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 4}},
+    {"a": {"node": "MT1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 5}},
+    {"a": {"node": "IOSVM8", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 6}}
+  ]
+}

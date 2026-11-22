@@ -125,3 +125,11 @@ AutoInstall on platforms where it was observed working (c7200).
 
 IOSV1, REFDHCP and PC1 stopped, project closed (not deleted). The controller
 was left running on 127.0.0.1:3080, as the brief expected it to be.
+
+## Correction — later on 2026-11-22 (release validation of `c9f5a86`)
+
+- "The Cisco 7200 template now points to a 15.3(3)XB12 image" (Images section) was read from the image file name only. Booted
+  on 2026-11-22, that image reports **12.4(24)T5**; the 15.3(3)XB12 profile is not lab-verified.
+- The c7200 AutoInstall, CHR, IOSv executor and IOSv M8 scenarios were re-run on `c9f5a86`: see
+  [GNS3_VALIDATION_c9f5a86.md](GNS3_VALIDATION_c9f5a86.md). This report is kept unchanged above as the record of the
+  `c1917ac` (dirty) run.

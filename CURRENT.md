@@ -1,6 +1,25 @@
 # InfraFlow — Delivery and engineering status
 
-## Current status — 2026-11-22
+## Current status — 2026-11-22 (release validation of `c9f5a86`)
+
+- **HEAD:** `c9f5a8676006f505e711f071bdf89f5056290dfa` on `develop`, equal to `origin/develop`.
+- **Hosted CI:** run 44993837424 on this exact SHA succeeded (linux with race and govulncheck, windows,
+  presentation-demo).
+- **Local gate:** 13/13 PASS in a clean worktree of the commit.
+- **GNS3 on the commit's binaries:**
+  - c7200 AutoInstall, IOSv SSH executor and CHR import: PASS.
+  - CHR configuration survives a reboot.
+  - IOSv M6 and M8 AutoInstall: UNSUPPORTED (M8 also fails against a reference ISC dhcpd).
+  - CSR not re-run (host RAM); FortiGate and IOL-XE BLOCKED.
+  - Reports: `artifacts/finalization/evidence/gns3-c9f5a86/`, [GNS3_VALIDATION_c9f5a86.md](docs/DELIVERY/GNS3_VALIDATION_c9f5a86.md).
+- **Soak (commit binary), PARTIAL:** stopped at 1 h 53 of 3 h. 0 errors in 6.43 M requests, no leak of fds/threads,
+  no latency drift, but RSS 575–710 MiB (> 512 objective): defect D13, fixed only in the uncommitted tree.
+- **Uncommitted, not in HEAD:** explicit Cisco `persist: true` with startup-config read-back, proven on a real IOS
+  reload (D14); log store memory fix (D13); `scripts/qa/load -soak`. Nothing was committed or pushed.
+- **Score of `c9f5a86`:** **88/100**, not 100. See [RELEASE_READINESS.md](docs/DELIVERY/RELEASE_READINESS.md).
+- **Risk:** the GNS3 controller still uses `admin`/`admin`.
+
+## Previous status — 2026-11-22 (morning, `c1917ac` + uncommitted changes)
 
 - Base `c1917ac` (`develop`, clean at start). Changes below are **uncommitted**; nothing committed or pushed.
 - **GNS3** server was not running; started on 127.0.0.1:3080 (3.1.0a4, v3 API, default admin/admin — a risk). New

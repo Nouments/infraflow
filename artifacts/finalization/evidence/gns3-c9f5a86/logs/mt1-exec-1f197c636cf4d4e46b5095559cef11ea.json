@@ -1,0 +1,102 @@
+{
+ "id": "exec-1f197c636cf4d4e46b5095559cef11ea",
+ "idempotency_key_hash": "ec8de736429e94ba6be718aea1e98ae6a6f3f94da22232e3db2fb19e49641e03",
+ "request_hash": "cb8bd2a9692e5bacd5bca407afcda060df8a08df0325822d3a87f2c33797b58f",
+ "actor_id": "user-nXPfUBj7pvEBoi9G",
+ "correlation_id": "8d78e31537ba211aabe4746125f46475",
+ "status": "failed",
+ "tasks": [
+  {
+   "id": "mt1-import",
+   "type": "mikrotik.routeros.import",
+   "status": "failed",
+   "timeout_ms": 30000,
+   "max_attempts": 1,
+   "parameters": {
+    "device_id": "mt1",
+    "site": "vendor-lab"
+   },
+   "attempts": [
+    {
+     "number": 1,
+     "status": "failed",
+     "started_at": "2026-11-22T06:53:20.045583638Z",
+     "finished_at": "2026-11-22T06:53:21.767016693Z",
+     "duration_ms": 1716,
+     "result": {
+      "artifact": "vendor-lab/native/device-mt1.auto.rsc",
+      "artifact_sha256": "7b6df7a87620792f76902a46313299de6048383f90eeed6fa7304ebb9d784d0d",
+      "device_id": "mt1",
+      "error": "SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.21:22: presented ssh-rsa SHA256:+to3eoGx8Qi2cAo3M8oMMqBxOQR5hc2DqKNDDPrihrM; no configuration was imported",
+      "executed_at": "2026-11-22T06:53:21.766062423Z",
+      "observed": {
+       "addresses": null,
+       "identity": "",
+       "routes": null
+      },
+      "operation": "mikrotik.routeros.import",
+      "site": "vendor-lab",
+      "status": "failed",
+      "verified": false
+     },
+     "error": "SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.21:22: presented ssh-rsa SHA256:+to3eoGx8Qi2cAo3M8oMMqBxOQR5hc2DqKNDDPrihrM; no configuration was imported"
+    }
+   ],
+   "error": "SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.21:22: presented ssh-rsa SHA256:+to3eoGx8Qi2cAo3M8oMMqBxOQR5hc2DqKNDDPrihrM; no configuration was imported",
+   "created_at": "2026-11-22T06:53:20.029972471Z",
+   "updated_at": "2026-11-22T06:53:21.767016693Z",
+   "started_at": "2026-11-22T06:53:20.045583638Z",
+   "finished_at": "2026-11-22T06:53:21.767016693Z"
+  }
+ ],
+ "created_at": "2026-11-22T06:53:20.0302258Z",
+ "updated_at": "2026-11-22T06:53:21.777087285Z",
+ "started_at": "2026-11-22T06:53:20.041612414Z",
+ "finished_at": "2026-11-22T06:53:21.777086766Z",
+ "cancel_requested_at": "0001-01-01T00:00:00Z",
+ "error": "one or more tasks failed or were blocked",
+ "revision": 5,
+ "events": [
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.queued",
+   "status": "queued",
+   "timestamp": "2026-11-22T06:53:20.0302258Z",
+   "correlation_id": "8d78e31537ba211aabe4746125f46475"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.running",
+   "status": "running",
+   "timestamp": "2026-11-22T06:53:20.041613072Z",
+   "correlation_id": "8d78e31537ba211aabe4746125f46475"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_started",
+   "task_id": "mt1-import",
+   "status": "running",
+   "task_status": "running",
+   "timestamp": "2026-11-22T06:53:20.045584903Z",
+   "correlation_id": "8d78e31537ba211aabe4746125f46475"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.task.attempt_failed",
+   "task_id": "mt1-import",
+   "status": "running",
+   "task_status": "failed",
+   "timestamp": "2026-11-22T06:53:21.767144647Z",
+   "correlation_id": "8d78e31537ba211aabe4746125f46475",
+   "error": "SSH connection to mt1 (192.0.2.21) failed: ssh handshake with 192.0.2.21:22: ssh: handshake failed: ssh: host key is unknown or not approved for 192.0.2.21:22: presented ssh-rsa SHA256:+to3eoGx8Qi2cAo3M8oMMqBxOQR5hc2DqKNDDPrihrM; no configuration was imported"
+  },
+  {
+   "actor_id": "user-nXPfUBj7pvEBoi9G",
+   "action": "execution.failed",
+   "status": "failed",
+   "timestamp": "2026-11-22T06:53:21.777087285Z",
+   "correlation_id": "8d78e31537ba211aabe4746125f46475",
+   "error": "one or more tasks failed or were blocked"
+  }
+ ]
+}

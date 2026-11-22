@@ -1,0 +1,47 @@
+# MT1 after reboot, 2026-11-22T10:18:59+0300
+/system resource print
+                   uptime: 1m18s
+                  version: 7.8 (stable)
+               build-time: Feb/24/2023 09:03:00
+         factory-software: 7.1
+              free-memory: 107.3MiB
+             total-memory: 192.0MiB
+                      cpu: QEMU
+                cpu-count: 1
+            cpu-frequency: 2419MHz
+                 cpu-load: 3%
+           free-hdd-space: 71.3MiB
+          total-hdd-space: 89.2MiB
+  write-sect-since-reboot: 504
+         write-sect-total: 504
+        architecture-name: x86_64
+               board-name: CHR
+                 platform: MikroTik
+[9999B[admin@mt1] > 
+/system identity print
+  name: mt1
+[9999B[admin@mt1] > 
+/ip address print without-paging
+Flags: D - DYNAMIC
+Columns: ADDRESS, NETWORK, INTERFACE
+#   ADDRESS            NETWORK         INTERFACE
+;;; infraflow:mt1:interface:ether1
+0   192.0.2.21/24      192.0.2.0       ether1   
+;;; infraflow:mt1:interface:ether2
+1   198.51.100.129/25  198.51.100.128  ether2   
+2 D 192.0.2.4/24       192.0.2.0       ether1   
+
+[9999B[admin@mt1] > 
+/ip route print without-paging where static
+Flags: A - ACTIVE; s, y - COPY
+Columns: DST-ADDRESS, GATEWAY, DISTANCE
+#    DST-ADDRESS     GATEWAY    DISTANCE
+;;; infraflow:mt1:route:203.0.113.0/24
+0 As 203.0.113.0/24  192.0.2.2         1
+
+[9999B[admin@mt1] > 
+/routing ospf instance print without-paging
+Flags: X - disabled, I - inactive 
+ 0   name="infraflow-v2" version=2 vrf=main router-id=192.0.2.21 
+
+[9999B[admin@mt1] > 

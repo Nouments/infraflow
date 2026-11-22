@@ -60,7 +60,11 @@ type Store struct {
 	fileSize  int64
 	retention time.Duration
 	events    []Event
-	byID      map[string]Event
+	// byID maps an event ID to its index in events. Indexes stay valid
+	// because events is only appended to or replaced by rewriteLocked,
+	// which rebuilds this map; storing a second copy of each Event here
+	// doubled the store's memory footprint (D13).
+	byID map[string]int
 	// oldest caches the earliest stored timestamp so that retention purges
 	// only scan the store when something can actually have expired. It is
 	// invalidated by every rewrite and rebuilt by the next full scan.
@@ -89,7 +93,7 @@ func NewStoreWithRetention(directory string, maxBytes int64, retention time.Dura
 		return nil, fmt.Errorf("secure central log directory: %w", err)
 	}
 	path := filepath.Join(directory, "central-events.jsonl")
-	store := &Store{path: path, maxBytes: maxBytes, retention: retention, byID: make(map[string]Event)}
+	store := &Store{path: path, maxBytes: maxBytes, retention: retention, byID: make(map[string]int)}
 	fileInfo, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return store, nil
@@ -120,8 +124,8 @@ func NewStoreWithRetention(directory string, maxBytes int64, retention time.Dura
 		if _, exists := store.byID[event.ID]; exists {
 			return nil, fmt.Errorf("duplicate central log event id %q", event.ID)
 		}
+		store.byID[event.ID] = len(store.events)
 		store.events = append(store.events, event)
-		store.byID[event.ID] = event
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read central log store: %w", err)
@@ -155,8 +159,8 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 		if err != nil {
 			return result, err
 		}
-		if existing, exists := store.byID[event.ID]; exists {
-			oldData, _ := json.Marshal(existing)
+		if index, exists := store.byID[event.ID]; exists {
+			oldData, _ := json.Marshal(store.events[index])
 			newData, _ := json.Marshal(event)
 			if !bytes.Equal(oldData, newData) {
 				return result, fmt.Errorf("log event id %q was reused with different content", event.ID)
@@ -200,8 +204,8 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 			return result, fmt.Errorf("persist central log event: %w", errors.Join(writeErr, closeErr))
 		}
 		store.fileSize += int64(len(line))
+		store.byID[event.ID] = len(store.events)
 		store.events = append(store.events, event)
-		store.byID[event.ID] = event
 		store.noteAppendedLocked(event)
 		result.Accepted++
 	}
@@ -295,7 +299,9 @@ func (store *Store) compactLocked(target int64) (int, error) {
 
 func (store *Store) rewriteLocked(retained []Event) error {
 	store.oldestKnown = false
-	var data strings.Builder
+	// bytes.Buffer, not strings.Builder: AtomicWrite takes []byte, and
+	// converting a Builder's string would copy the whole store once more.
+	var data bytes.Buffer
 	for _, event := range retained {
 		encoded, err := json.Marshal(event)
 		if err != nil {
@@ -307,13 +313,13 @@ func (store *Store) rewriteLocked(retained []Event) error {
 	if int64(data.Len()) > store.maxBytes {
 		return fmt.Errorf("retained log data exceeds %d-byte limit", store.maxBytes)
 	}
-	if err := safefs.AtomicWrite(filepath.Dir(store.path), filepath.Base(store.path), []byte(data.String()), 0o600); err != nil {
+	if err := safefs.AtomicWrite(filepath.Dir(store.path), filepath.Base(store.path), data.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("publish retained central logs: %w", err)
 	}
 	store.events = retained
-	store.byID = make(map[string]Event, len(retained))
-	for _, event := range retained {
-		store.byID[event.ID] = event
+	store.byID = make(map[string]int, len(retained))
+	for index, event := range retained {
+		store.byID[event.ID] = index
 	}
 	store.fileSize = int64(data.Len())
 	return nil

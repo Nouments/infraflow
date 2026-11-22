@@ -76,8 +76,22 @@ func main() {
 	stageDuration := flag.Duration("stage", 10*time.Second, "duration of each load stage")
 	stagesFlag := flag.String("concurrency", "1,8,32,64", "comma-separated concurrency per stage")
 	recovery := flag.Bool("recovery", true, "run the SIGKILL crash-recovery step (disable when profiling)")
+	soak := flag.Duration("soak", 0, "soak mode: run -soak-concurrency clients for this long, in -soak-window windows")
+	soakConcurrency := flag.Int("soak-concurrency", 4, "soak mode: concurrent clients")
+	soakWindow := flag.Duration("soak-window", time.Minute, "soak mode: measurement window")
 	flag.Parse()
 	runRecovery = *recovery
+	if *soak > 0 {
+		if *providerBinary == "" || *outDir == "" {
+			fmt.Fprintln(os.Stderr, "usage: load -provider <binary> -out <dir> -soak 3h")
+			os.Exit(2)
+		}
+		if err := runSoak(*providerBinary, *inputs, *outDir, *soak, *soakConcurrency, *soakWindow); err != nil {
+			fmt.Fprintln(os.Stderr, "soak:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *providerBinary == "" || *outDir == "" {
 		fmt.Fprintln(os.Stderr, "usage: load -provider <binary> -inputs <yaml> -out <dir>")
 		os.Exit(2)
@@ -100,16 +114,25 @@ type lab struct {
 }
 
 func run(binary, inputs, outDir string, stageDuration time.Duration, stagesFlag string) error {
-	work, err := filepath.Abs(filepath.Join(outDir, "work"))
+	l, sites, err := setupLab(binary, inputs, outDir)
 	if err != nil {
 		return err
 	}
+	defer l.stop()
+	return runStages(l, sites, binary, inputs, outDir, stageDuration, stagesFlag)
+}
+
+func setupLab(binary, inputs, outDir string) (*lab, int, error) {
+	work, err := filepath.Abs(filepath.Join(outDir, "work"))
+	if err != nil {
+		return nil, 0, err
+	}
 	if err := os.MkdirAll(work, 0o700); err != nil {
-		return err
+		return nil, 0, err
 	}
 	input, err := os.ReadFile(inputs)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	apiPort, grpcPort := freePort(), freePort()
 	l := &lab{binary: binary, work: work, base: fmt.Sprintf("http://127.0.0.1:%d", apiPort), inputYAML: input,
@@ -129,30 +152,35 @@ logging:
   directory: %s/log
 `, grpcPort, apiPort, work, work, work, work, work, work)
 	if err := os.WriteFile(l.config, []byte(config), 0o600); err != nil {
-		return err
+		return nil, 0, err
 	}
 	if err := os.WriteFile(filepath.Join(work, "known_hosts"), nil, 0o600); err != nil {
-		return err
+		return nil, 0, err
 	}
 	if out, err := exec.Command(binary, "generate-all", "-f", inputs, "-out", filepath.Join(work, "artifacts")).CombinedOutput(); err != nil {
-		return fmt.Errorf("generate-all: %v: %s", err, out)
+		return nil, 0, fmt.Errorf("generate-all: %v: %s", err, out)
 	}
 	if err := l.start(); err != nil {
-		return err
+		return nil, 0, err
 	}
-	defer l.stop()
 	password, err := os.ReadFile(filepath.Join(work, ".admin-password"))
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	l.password = strings.TrimSpace(string(password))
 	if err := l.login(); err != nil {
-		return err
+		return nil, 0, err
 	}
 	sites, err := l.siteCount()
 	if err != nil {
-		return err
+		l.stop()
+		return nil, 0, err
 	}
+	return l, sites, nil
+}
+
+func runStages(l *lab, sites int, binary, inputs, outDir string, stageDuration time.Duration, stagesFlag string) error {
+	work := l.work
 
 	result := report{
 		GeneratedAt: time.Now().UTC(), Inputs: inputs, Sites: sites,
@@ -592,4 +620,95 @@ func tail(value string, n int) string {
 		return value
 	}
 	return value[len(value)-n:]
+}
+
+type soakWindow struct {
+	Index         int       `json:"index"`
+	EndedAt       time.Time `json:"ended_at"`
+	Requests      int       `json:"requests"`
+	Errors        int       `json:"errors"`
+	ThroughputRPS float64   `json:"throughput_rps"`
+	P50MS         float64   `json:"p50_ms"`
+	P99MS         float64   `json:"p99_ms"`
+	RSSMiB        float64   `json:"rss_peak_mib"`
+	OpenFiles     int       `json:"open_files_peak"`
+	Threads       int       `json:"threads_peak"`
+	CPUPercent    float64   `json:"cpu_percent_avg"`
+}
+
+// runSoak keeps a steady load for a long period and checks for drift: no
+// errors, no growth of open files or threads, bounded memory, and p99 in the
+// last quarter no worse than 3x the first quarter. The report is rewritten
+// after every window, so an interrupted soak still leaves its data.
+func runSoak(binary, inputs, outDir string, total time.Duration, concurrency int, window time.Duration) error {
+	l, sites, err := setupLab(binary, inputs, outDir)
+	if err != nil {
+		return err
+	}
+	defer l.stop()
+	started := time.Now().UTC()
+	result := map[string]any{
+		"mode": "soak", "started_at": started, "planned_duration": total.String(), "concurrency": concurrency,
+		"window": window.String(), "inputs": inputs, "sites": sites,
+		"host":       map[string]any{"os": runtime.GOOS, "cpus": runtime.NumCPU(), "go": runtime.Version()},
+		"objectives": map[string]any{"errors": 0, "open_files_growth_max": 16, "threads_growth_max": 8, "rss_mib_max": 512, "p99_last_quarter_vs_first_max_ratio": 3.0},
+	}
+	var windows []soakWindow
+	write := func() {
+		result["windows"] = windows
+		data, _ := json.MarshalIndent(result, "", "  ")
+		_ = os.WriteFile(filepath.Join(outDir, "soak-report.json"), append(data, '\n'), 0o644)
+	}
+	for index := 0; time.Since(started) < total; index++ {
+		stage := l.stage(concurrency, window)
+		if l.process.ProcessState != nil {
+			result["error"] = "provider exited during the soak: " + tail(l.output.String(), 500)
+			break
+		}
+		windows = append(windows, soakWindow{Index: index, EndedAt: time.Now().UTC(), Requests: stage.Requests, Errors: stage.Errors,
+			ThroughputRPS: stage.ThroughputRPS, P50MS: stage.LatencyMS["p50"], P99MS: stage.LatencyMS["p99"],
+			RSSMiB: stage.Process.RSSPeakMiB, OpenFiles: stage.Process.OpenFilesPeak, Threads: stage.Process.ThreadsPeak, CPUPercent: stage.Process.CPUPercentAvg})
+		write()
+	}
+	result["finished_at"] = time.Now().UTC()
+	met := map[string]bool{}
+	pass := len(windows) >= 4 && result["error"] == nil
+	if len(windows) >= 4 {
+		quarter := len(windows) / 4
+		errorsTotal, requests, rssMax := 0, 0, 0.0
+		for _, w := range windows {
+			errorsTotal += w.Errors
+			requests += w.Requests
+			rssMax = max(rssMax, w.RSSMiB)
+		}
+		avg := func(ws []soakWindow, f func(soakWindow) float64) float64 {
+			total := 0.0
+			for _, w := range ws {
+				total += f(w)
+			}
+			return total / float64(len(ws))
+		}
+		first, last := windows[:quarter], windows[len(windows)-quarter:]
+		p99First, p99Last := avg(first, func(w soakWindow) float64 { return w.P99MS }), avg(last, func(w soakWindow) float64 { return w.P99MS })
+		fdFirst, fdLast := avg(first, func(w soakWindow) float64 { return float64(w.OpenFiles) }), avg(last, func(w soakWindow) float64 { return float64(w.OpenFiles) })
+		thFirst, thLast := avg(first, func(w soakWindow) float64 { return float64(w.Threads) }), avg(last, func(w soakWindow) float64 { return float64(w.Threads) })
+		met["no_errors"] = errorsTotal == 0
+		met["rss_bounded"] = rssMax <= 512
+		met["open_files_stable"] = fdLast-fdFirst <= 16
+		met["threads_stable"] = thLast-thFirst <= 8
+		met["p99_no_drift"] = p99First == 0 || p99Last <= 3*p99First
+		result["summary"] = map[string]any{"windows": len(windows), "requests": requests, "errors": errorsTotal, "rss_peak_mib": rssMax,
+			"p99_first_quarter_ms": p99First, "p99_last_quarter_ms": p99Last, "open_files_first_last": []float64{fdFirst, fdLast}, "threads_first_last": []float64{thFirst, thLast}}
+		for _, ok := range met {
+			pass = pass && ok
+		}
+	}
+	result["objectives_met"] = met
+	result["pass"] = pass
+	write()
+	fmt.Fprintf(os.Stderr, "soak: %d windows, pass=%v %v\n", len(windows), pass, met)
+	if !pass {
+		return errors.New("soak objectives not met")
+	}
+	return nil
 }

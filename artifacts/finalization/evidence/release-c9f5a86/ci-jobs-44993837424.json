@@ -1,0 +1,393 @@
+{
+  "total_count": 3,
+  "jobs": [
+    {
+      "id": 137120509618,
+      "run_id": 44993837424,
+      "workflow_name": "Go CI",
+      "head_branch": "develop",
+      "run_url": "https://api.github.com/repos/Nouments/infraflow/actions/runs/44993837424",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOU4bkJc8AAAAf7QTusg",
+      "head_sha": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+      "url": "https://api.github.com/repos/Nouments/infraflow/actions/jobs/137120509618",
+      "html_url": "https://github.com/Nouments/infraflow/actions/runs/44993837424/job/137120509618",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-22T06:27:58Z",
+      "started_at": "2026-11-22T06:28:01Z",
+      "completed_at": "2026-11-22T06:31:11Z",
+      "name": "linux",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-22T06:28:01Z",
+          "completed_at": "2026-11-22T06:28:02Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-22T06:28:02Z",
+          "completed_at": "2026-11-22T06:28:04Z"
+        },
+        {
+          "name": "Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-22T06:28:04Z",
+          "completed_at": "2026-11-22T06:28:08Z"
+        },
+        {
+          "name": "Assert patched Go toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-22T06:28:08Z",
+          "completed_at": "2026-11-22T06:28:08Z"
+        },
+        {
+          "name": "Check reachable vulnerabilities",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-22T06:28:08Z",
+          "completed_at": "2026-11-22T06:28:17Z"
+        },
+        {
+          "name": "Run go test -count=1 ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-22T06:28:17Z",
+          "completed_at": "2026-11-22T06:28:39Z"
+        },
+        {
+          "name": "Run go test -race -count=1 ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-22T06:28:39Z",
+          "completed_at": "2026-11-22T06:30:56Z"
+        },
+        {
+          "name": "Run go vet ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-22T06:30:56Z",
+          "completed_at": "2026-11-22T06:31:02Z"
+        },
+        {
+          "name": "Run go build ./provider/cmd ./agent/cmd",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-11-22T06:31:02Z",
+          "completed_at": "2026-11-22T06:31:04Z"
+        },
+        {
+          "name": "Enforce Agent package coverage",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-11-22T06:31:04Z",
+          "completed_at": "2026-11-22T06:31:07Z"
+        },
+        {
+          "name": "Admin Web script checks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-11-22T06:31:07Z",
+          "completed_at": "2026-11-22T06:31:07Z"
+        },
+        {
+          "name": "Run test -z \"$(gofmt -l $(git ls-files '*.go'))\"",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-11-22T06:31:07Z",
+          "completed_at": "2026-11-22T06:31:07Z"
+        },
+        {
+          "name": "Run git diff --check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-11-22T06:31:07Z",
+          "completed_at": "2026-11-22T06:31:07Z"
+        },
+        {
+          "name": "Post Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-11-22T06:31:07Z",
+          "completed_at": "2026-11-22T06:31:08Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 26,
+          "started_at": "2026-11-22T06:31:08Z",
+          "completed_at": "2026-11-22T06:31:08Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 27,
+          "started_at": "2026-11-22T06:31:08Z",
+          "completed_at": "2026-11-22T06:31:08Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/Nouments/infraflow/check-runs/137120509618",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000000152,
+      "runner_name": "GitHub Actions 1000000152",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 137120509767,
+      "run_id": 44993837424,
+      "workflow_name": "Go CI",
+      "head_branch": "develop",
+      "run_url": "https://api.github.com/repos/Nouments/infraflow/actions/runs/44993837424",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOU4bkJc8AAAAf7QTvRw",
+      "head_sha": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+      "url": "https://api.github.com/repos/Nouments/infraflow/actions/jobs/137120509767",
+      "html_url": "https://github.com/Nouments/infraflow/actions/runs/44993837424/job/137120509767",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-22T06:27:58Z",
+      "started_at": "2026-11-22T06:28:00Z",
+      "completed_at": "2026-11-22T06:28:21Z",
+      "name": "presentation-demo",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-22T06:28:01Z",
+          "completed_at": "2026-11-22T06:28:02Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-22T06:28:02Z",
+          "completed_at": "2026-11-22T06:28:03Z"
+        },
+        {
+          "name": "Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-22T06:28:03Z",
+          "completed_at": "2026-11-22T06:28:06Z"
+        },
+        {
+          "name": "Launch presentation demo",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-22T06:28:06Z",
+          "completed_at": "2026-11-22T06:28:13Z"
+        },
+        {
+          "name": "Verify generated presentation artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-22T06:28:13Z",
+          "completed_at": "2026-11-22T06:28:13Z"
+        },
+        {
+          "name": "Verify real Agent multisite synchronization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-22T06:28:13Z",
+          "completed_at": "2026-11-22T06:28:19Z"
+        },
+        {
+          "name": "Post Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-11-22T06:28:19Z",
+          "completed_at": "2026-11-22T06:28:19Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-11-22T06:28:19Z",
+          "completed_at": "2026-11-22T06:28:19Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-11-22T06:28:19Z",
+          "completed_at": "2026-11-22T06:28:19Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/Nouments/infraflow/check-runs/137120509767",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000000153,
+      "runner_name": "GitHub Actions 1000000153",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 137120509827,
+      "run_id": 44993837424,
+      "workflow_name": "Go CI",
+      "head_branch": "develop",
+      "run_url": "https://api.github.com/repos/Nouments/infraflow/actions/runs/44993837424",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOU4bkJc8AAAAf7QTvgw",
+      "head_sha": "c9f5a8676006f505e711f071bdf89f5056290dfa",
+      "url": "https://api.github.com/repos/Nouments/infraflow/actions/jobs/137120509827",
+      "html_url": "https://github.com/Nouments/infraflow/actions/runs/44993837424/job/137120509827",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-22T06:27:58Z",
+      "started_at": "2026-11-22T06:28:00Z",
+      "completed_at": "2026-11-22T06:30:42Z",
+      "name": "windows",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-22T06:28:01Z",
+          "completed_at": "2026-11-22T06:28:02Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-22T06:28:02Z",
+          "completed_at": "2026-11-22T06:28:07Z"
+        },
+        {
+          "name": "Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-22T06:28:07Z",
+          "completed_at": "2026-11-22T06:28:39Z"
+        },
+        {
+          "name": "Run msys2/setup-msys2@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-22T06:28:39Z",
+          "completed_at": "2026-11-22T06:29:10Z"
+        },
+        {
+          "name": "Assert patched Go toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-22T06:29:10Z",
+          "completed_at": "2026-11-22T06:29:10Z"
+        },
+        {
+          "name": "Run go test -count=1 ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-22T06:29:10Z",
+          "completed_at": "2026-11-22T06:30:29Z"
+        },
+        {
+          "name": "Run go vet ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-22T06:30:29Z",
+          "completed_at": "2026-11-22T06:30:32Z"
+        },
+        {
+          "name": "Run go build ./provider/cmd ./agent/cmd",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-22T06:30:32Z",
+          "completed_at": "2026-11-22T06:30:36Z"
+        },
+        {
+          "name": "Run $goFiles = git ls-files '*.go'",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-11-22T06:30:36Z",
+          "completed_at": "2026-11-22T06:30:37Z"
+        },
+        {
+          "name": "Run git diff --check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-11-22T06:30:37Z",
+          "completed_at": "2026-11-22T06:30:37Z"
+        },
+        {
+          "name": "Post Run actions/setup-go@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-11-22T06:30:37Z",
+          "completed_at": "2026-11-22T06:30:37Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-11-22T06:30:37Z",
+          "completed_at": "2026-11-22T06:30:39Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-11-22T06:30:39Z",
+          "completed_at": "2026-11-22T06:30:40Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/Nouments/infraflow/check-runs/137120509827",
+      "labels": [
+        "windows-latest"
+      ],
+      "runner_id": 1000000154,
+      "runner_name": "GitHub Actions 1000000154",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ]
+}
