@@ -1,0 +1,12 @@
+{
+  "project": {
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd",
+    "name": "InfraFlow-Automated-Validation",
+    "status": "opened",
+    "auto_open": false,
+    "auto_start": false,
+    "auto_close": true
+  },
+  "created": true,
+  "opened": true
+}

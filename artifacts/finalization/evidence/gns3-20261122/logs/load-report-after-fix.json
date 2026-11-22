@@ -1,0 +1,258 @@
+{
+  "generated_at": "2026-11-22T06:00:19.627147676Z",
+  "host": {
+    "arch": "amd64",
+    "cpus": 8,
+    "go": "go1.27.2-X:nodwarf5",
+    "os": "linux"
+  },
+  "inputs": "examples/multisite-preparation.yaml",
+  "sites": 4,
+  "objectives": {
+    "error_rate_max": 0,
+    "p99_ms_max_at_32_concurrent": 1000,
+    "recovery_seconds_max": 10,
+    "rss_mib_max": 512
+  },
+  "stages": [
+    {
+      "concurrency": 1,
+      "duration_seconds": 10.002647784,
+      "requests": 7912,
+      "errors": 0,
+      "throughput_rps": 790.9905627843708,
+      "latency_ms": {
+        "max": 35.754,
+        "p50": 0.392,
+        "p95": 4.791,
+        "p99": 5.753
+      },
+      "per_endpoint": {
+        "events": {
+          "p50_ms": 0.383,
+          "p95_ms": 0.637,
+          "p99_ms": 0.885,
+          "requests": 753
+        },
+        "health": {
+          "p50_ms": 0.263,
+          "p95_ms": 0.448,
+          "p99_ms": 0.654,
+          "requests": 3174
+        },
+        "plan_preview": {
+          "p50_ms": 1.075,
+          "p95_ms": 1.817,
+          "p99_ms": 2.608,
+          "requests": 827
+        },
+        "sites": {
+          "p50_ms": 4.247,
+          "p95_ms": 5.73,
+          "p99_ms": 7.84,
+          "requests": 1614
+        },
+        "status": {
+          "p50_ms": 0.408,
+          "p95_ms": 0.679,
+          "p99_ms": 0.927,
+          "requests": 1544
+        }
+      },
+      "provider_process": {
+        "cpu_percent_avg": 148.4995786027458,
+        "rss_peak_mib": 40.515625,
+        "threads_peak": 14,
+        "open_files_peak": 14,
+        "samples": 51
+      }
+    },
+    {
+      "concurrency": 8,
+      "duration_seconds": 10.009821756,
+      "requests": 17791,
+      "errors": 0,
+      "throughput_rps": 1777.354325948499,
+      "latency_ms": {
+        "max": 35.261,
+        "p50": 1.851,
+        "p95": 16.229,
+        "p99": 21.12
+      },
+      "per_endpoint": {
+        "events": {
+          "p50_ms": 1.349,
+          "p95_ms": 4.294,
+          "p99_ms": 7.769,
+          "requests": 1747
+        },
+        "health": {
+          "p50_ms": 1.119,
+          "p95_ms": 3.912,
+          "p99_ms": 6.616,
+          "requests": 7040
+        },
+        "plan_preview": {
+          "p50_ms": 3.608,
+          "p95_ms": 8.924,
+          "p99_ms": 12.094,
+          "requests": 1865
+        },
+        "sites": {
+          "p50_ms": 13.673,
+          "p95_ms": 21.049,
+          "p99_ms": 25.556,
+          "requests": 3602
+        },
+        "status": {
+          "p50_ms": 1.491,
+          "p95_ms": 4.649,
+          "p99_ms": 7.454,
+          "requests": 3537
+        }
+      },
+      "provider_process": {
+        "cpu_percent_avg": 590.2687577829731,
+        "rss_peak_mib": 102.6640625,
+        "threads_peak": 17,
+        "open_files_peak": 29,
+        "samples": 51
+      }
+    },
+    {
+      "concurrency": 32,
+      "duration_seconds": 10.019418205,
+      "requests": 17881,
+      "errors": 0,
+      "throughput_rps": 1784.6345600263326,
+      "latency_ms": {
+        "max": 186.035,
+        "p50": 12.869,
+        "p95": 50.34,
+        "p99": 76.218
+      },
+      "per_endpoint": {
+        "events": {
+          "p50_ms": 9.787,
+          "p95_ms": 35.148,
+          "p99_ms": 49.935,
+          "requests": 1851
+        },
+        "health": {
+          "p50_ms": 8.604,
+          "p95_ms": 30.923,
+          "p99_ms": 42.693,
+          "requests": 7047
+        },
+        "plan_preview": {
+          "p50_ms": 13.149,
+          "p95_ms": 39.849,
+          "p99_ms": 57.993,
+          "requests": 1828
+        },
+        "sites": {
+          "p50_ms": 34.221,
+          "p95_ms": 75.234,
+          "p99_ms": 100.207,
+          "requests": 3624
+        },
+        "status": {
+          "p50_ms": 10.085,
+          "p95_ms": 34.544,
+          "p99_ms": 47.032,
+          "requests": 3531
+        }
+      },
+      "provider_process": {
+        "cpu_percent_avg": 603.8503683545082,
+        "rss_peak_mib": 163.078125,
+        "threads_peak": 30,
+        "open_files_peak": 69,
+        "samples": 51
+      }
+    },
+    {
+      "concurrency": 64,
+      "duration_seconds": 10.039881103,
+      "requests": 18666,
+      "errors": 0,
+      "throughput_rps": 1859.185363701413,
+      "latency_ms": {
+        "max": 232.765,
+        "p50": 27.054,
+        "p95": 83.999,
+        "p99": 130.793
+      },
+      "per_endpoint": {
+        "events": {
+          "p50_ms": 22.401,
+          "p95_ms": 65.691,
+          "p99_ms": 93.395,
+          "requests": 1828
+        },
+        "health": {
+          "p50_ms": 21.278,
+          "p95_ms": 59.895,
+          "p99_ms": 78.847,
+          "requests": 7554
+        },
+        "plan_preview": {
+          "p50_ms": 26.678,
+          "p95_ms": 68.262,
+          "p99_ms": 105.653,
+          "requests": 1792
+        },
+        "sites": {
+          "p50_ms": 57.43,
+          "p95_ms": 129.64,
+          "p99_ms": 178.166,
+          "requests": 3627
+        },
+        "status": {
+          "p50_ms": 23.932,
+          "p95_ms": 67.485,
+          "p99_ms": 89.615,
+          "requests": 3865
+        }
+      },
+      "provider_process": {
+        "cpu_percent_avg": 608.1983412606638,
+        "rss_peak_mib": 232.75390625,
+        "threads_peak": 37,
+        "open_files_peak": 133,
+        "samples": 51
+      }
+    }
+  ],
+  "concurrent_generation": {
+    "all_identical": true,
+    "duration_ms": {
+      "max": 83.126,
+      "p50": 73.697,
+      "p95": 83.126,
+      "p99": 83.126
+    },
+    "failures": null,
+    "parallel_runs": 8
+  },
+  "crash_recovery": {
+    "recovered": true,
+    "seconds_to_serving": 1.719527,
+    "session_survived": true,
+    "sites_after": 4,
+    "sites_before": 4
+  },
+  "disk_bytes": {
+    "artifacts": 42952,
+    "database": 4096,
+    "log": 45838508
+  },
+  "objectives_met": {
+    "concurrent_generation_deterministic": true,
+    "no_errors": true,
+    "p99_at_32": true,
+    "recovery": true,
+    "rss": true
+  },
+  "pass": true
+}

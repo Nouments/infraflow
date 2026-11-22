@@ -1,0 +1,18 @@
+{
+  "host": {
+    "cpus": 8,
+    "mem_total_bytes": 16475488256,
+    "mem_available_bytes": 7710728192,
+    "disk_path": "/home/noums/GNS3",
+    "disk_free_bytes": 61118611456,
+    "disk_total_bytes": 233464844288,
+    "load1": 2.92
+  },
+  "budget": {
+    "mem_bytes": 687865856,
+    "disk_bytes": 262144000,
+    "cpus": 1
+  },
+  "problems": [],
+  "ok": true
+}

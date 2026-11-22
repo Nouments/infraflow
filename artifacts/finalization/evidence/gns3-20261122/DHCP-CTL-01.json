@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "infraflow_version": "dev (develop, uncommitted changes of 2026-11-22)",
+  "commit": "c1917ac22b3e82b05ea62e13a1660a24d1c57e4a",
+  "worktree_dirty": true,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "lab-validation",
+  "agent_id": "",
+  "execution_id": "",
+  "artifact_hashes": {},
+  "errors": [],
+  "stages": [
+    {
+      "name": "DHCP_DISCOVERED",
+      "status": "PASS"
+    },
+    {
+      "name": "DHCP_OFFERED",
+      "status": "PASS"
+    },
+    {
+      "name": "DHCP_BOUND",
+      "status": "PASS"
+    }
+  ],
+  "scenario_id": "DHCP-CTL-01",
+  "title": "Reference DHCP control: plain client lease (VPCS)",
+  "mandatory": false,
+  "started_at": "2026-11-22T08:41:00+03:00",
+  "finished_at": "2026-11-22T08:41:12+03:00",
+  "duration_seconds": 12,
+  "device": "PC1",
+  "model": "VPCS",
+  "os": "VPCS",
+  "os_version": "builtin",
+  "initial_state": "no address",
+  "actions": [
+    {
+      "at": "2026-11-22T08:41:03+03:00",
+      "description": "ip dhcp",
+      "result": "DORA complete"
+    }
+  ],
+  "final_state": "10.99.0.100/24, gateway 10.99.0.1",
+  "checks": [
+    {
+      "name": "DORA",
+      "expected": "DISCOVER, OFFER, REQUEST, ACK",
+      "observed": "all four in dhcpd log and capture",
+      "status": "PASS"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/ref-dhcpd-run1.log",
+      "sha256": "ed4aadbb855aaada71c52bb9b1158c00d940e476064ca6585e316045cb5d926e",
+      "description": "dhcpd log"
+    }
+  ],
+  "captures": [
+    {
+      "path": "captures/iosv1-ref-dhcp.pcap",
+      "sha256": "91ec446f8140cc7407f7b73ba5641a24a136e16f1d509c20a2fe0a846e4e8663",
+      "description": "capture"
+    }
+  ],
+  "warnings": [],
+  "status": "PASS",
+  "status_reason": "the reference server and the isolated segment work for a standard client"
+}

@@ -1,6 +1,21 @@
 # InfraFlow — Delivery and engineering status
 
-## Current status — 2026-11-19 (evening)
+## Current status — 2026-11-22
+
+- Base `c1917ac` (`develop`, clean at start). Changes below are **uncommitted**; nothing committed or pushed.
+- **GNS3** server was not running; started on 127.0.0.1:3080 (3.1.0a4, v3 API, default admin/admin — a risk). New
+  Go client and `infraflow-provider gns3 …` commands; isolated project `InfraFlow-Automated-Validation` built from real
+  templates; JSON scenario reports validated by `gns3 report-check`.
+- **IOSv AutoInstall explained:** an independent ISC dhcpd gets the same DISCOVER/OFFER loop; IOS's own trace shows its
+  AutoInstall handler stopping in 0 ms; its regular DHCP client binds. Image-side → UNSUPPORTED.
+- **Agent:** interrupted sync tested over a cut TCP connection (AGT-10); partial/stale/rejected reports are no longer shown
+  as success (AGT-11, defect D11).
+- **Provider load:** two CPU hotspots found by profiling and fixed (D9 catalog re-hashing, D10 log purge):
+  125 → 1 859 req/s at 64 concurrent clients, 0 errors.
+- Score **87/100** (was 85). See [RELEASE_READINESS.md](docs/DELIVERY/RELEASE_READINESS.md) and
+  [GNS3_VALIDATION_20261122.md](docs/DELIVERY/GNS3_VALIDATION_20261122.md).
+
+## Previous status — 2026-11-19 (evening)
 
 - Base `62a28b0`. That commit had deleted `.github/workflows/go-ci.yml`; it is
   restored. Every earlier hosted run failed only at the govulncheck step

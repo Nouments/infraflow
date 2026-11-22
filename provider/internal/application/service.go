@@ -514,32 +514,20 @@ func (service *Service) OpenArtifact(path string) (io.ReadCloser, protocol.Artif
 }
 
 func (service *Service) SubmitReport(report protocol.AgentReport) (bool, error) {
-	if !protocol.ValidSiteName(report.AgentID) || len(report.AgentID) > 128 || report.ReportedAt.IsZero() || report.ReportID != protocol.ComputeReportID(report) || len(report.Artifacts) > 10000 {
-		return false, fmt.Errorf("%w: invalid metadata", ErrInvalidAgentReport)
-	}
-	catalog, err := service.artifacts.Catalog()
-	if err != nil {
-		return false, fmt.Errorf("load published artifact catalog: %w", err)
-	}
-	published := make(map[string]string, len(catalog))
-	for _, artifact := range catalog {
-		published[artifact.Path] = artifact.OutputHash
-	}
-	seen := make(map[string]struct{}, len(report.Artifacts))
-	for _, result := range report.Artifacts {
-		if result.Status != protocol.StatusCompleted && result.Status != protocol.StatusFailed && result.Status != protocol.StatusBlocked {
-			return false, fmt.Errorf("%w: invalid artifact status", ErrInvalidAgentReport)
+	if err := service.validateReport(report); err != nil {
+		if errors.Is(err, ErrInvalidAgentReport) {
+			// A rejected report is evidence too: without this event an Agent
+			// whose reports are refused would look as if it never reported.
+			agentID := report.AgentID
+			if !protocol.ValidSiteName(agentID) || len(agentID) > 128 {
+				agentID = ""
+			}
+			reason := strings.TrimPrefix(err.Error(), ErrInvalidAgentReport.Error()+": ")
+			if eventErr := service.recordEvent(context.Background(), "agent.report.rejected", "", agentID, "", map[string]any{"reason": reason, "results": len(report.Artifacts)}); eventErr != nil {
+				return false, errors.Join(err, fmt.Errorf("record report rejection: %w", eventErr))
+			}
 		}
-		if len(result.Message) > 1024 || strings.TrimSpace(result.Path) == "" {
-			return false, fmt.Errorf("%w: invalid artifact result", ErrInvalidAgentReport)
-		}
-		if expectedHash, exists := published[result.Path]; !exists || result.OutputHash != expectedHash {
-			return false, fmt.Errorf("%w: artifact result does not match published state", ErrInvalidAgentReport)
-		}
-		if _, exists := seen[result.Path]; exists {
-			return false, fmt.Errorf("%w: duplicate artifact result", ErrInvalidAgentReport)
-		}
-		seen[result.Path] = struct{}{}
+		return false, err
 	}
 	added, err := service.reports.Append(report)
 	if err != nil {
@@ -549,6 +537,37 @@ func (service *Service) SubmitReport(report protocol.AgentReport) (bool, error) 
 		return false, fmt.Errorf("record report event: %w", err)
 	}
 	return added, nil
+}
+
+func (service *Service) validateReport(report protocol.AgentReport) error {
+	if !protocol.ValidSiteName(report.AgentID) || len(report.AgentID) > 128 || report.ReportedAt.IsZero() || report.ReportID != protocol.ComputeReportID(report) || len(report.Artifacts) > 10000 {
+		return fmt.Errorf("%w: invalid metadata", ErrInvalidAgentReport)
+	}
+	catalog, err := service.artifacts.Catalog()
+	if err != nil {
+		return fmt.Errorf("load published artifact catalog: %w", err)
+	}
+	published := make(map[string]string, len(catalog))
+	for _, artifact := range catalog {
+		published[artifact.Path] = artifact.OutputHash
+	}
+	seen := make(map[string]struct{}, len(report.Artifacts))
+	for _, result := range report.Artifacts {
+		if result.Status != protocol.StatusCompleted && result.Status != protocol.StatusFailed && result.Status != protocol.StatusBlocked {
+			return fmt.Errorf("%w: invalid artifact status", ErrInvalidAgentReport)
+		}
+		if len(result.Message) > 1024 || strings.TrimSpace(result.Path) == "" {
+			return fmt.Errorf("%w: invalid artifact result", ErrInvalidAgentReport)
+		}
+		if expectedHash, exists := published[result.Path]; !exists || result.OutputHash != expectedHash {
+			return fmt.Errorf("%w: artifact result does not match published state", ErrInvalidAgentReport)
+		}
+		if _, exists := seen[result.Path]; exists {
+			return fmt.Errorf("%w: duplicate artifact result", ErrInvalidAgentReport)
+		}
+		seen[result.Path] = struct{}{}
+	}
+	return nil
 }
 
 func (service *Service) Reports() []protocol.AgentReport {

@@ -1326,9 +1326,11 @@
       card.append(frame);
 
       const report = node("p", "site-report");
-      report.textContent = site.last_report
-        ? `Last Agent report ${site.last_report.report_id} from ${site.last_report.agent_id} at ${formatDate(site.last_report.reported_at)}: ${site.last_report.completed} completed, ${site.last_report.failed} failed, ${site.last_report.blocked} blocked of ${site.last_report.total}. Transfer and verification only; not device deployment.`
-        : "No Agent execution report has been persisted for this site.";
+      const lastReport = site.last_report;
+      report.dataset.outcome = site.report_outcome || "NO_REPORT";
+      report.textContent = lastReport
+        ? `Last Agent report: ${lastReport.outcome} — ${lastReport.outcome_reason}. Report ${lastReport.report_id} from ${lastReport.agent_id} at ${formatDate(lastReport.reported_at)}: ${lastReport.completed} completed, ${lastReport.failed} failed, ${lastReport.blocked} blocked, ${lastReport.missing} missing, ${lastReport.stale} stale of ${lastReport.expected} published. Transfer and verification only; not device deployment.`
+        : "NO_REPORT — no Agent execution report has been persisted for this site; the outcome is unknown.";
       card.append(report);
 
       const artifacts = node("details", "site-artifacts");

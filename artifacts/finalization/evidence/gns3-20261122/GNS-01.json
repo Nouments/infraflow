@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "infraflow_version": "dev (develop, uncommitted changes of 2026-11-22)",
+  "commit": "c1917ac22b3e82b05ea62e13a1660a24d1c57e4a",
+  "worktree_dirty": true,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "lab-validation",
+  "agent_id": "",
+  "execution_id": "",
+  "artifact_hashes": {},
+  "errors": [],
+  "stages": [],
+  "scenario_id": "GNS-01",
+  "title": "Controller discovery and real inventory",
+  "mandatory": true,
+  "started_at": "2026-11-22T08:27:50+03:00",
+  "finished_at": "2026-11-22T08:33:40+03:00",
+  "duration_seconds": 350,
+  "device": "controller",
+  "model": "GNS3 server",
+  "os": "GNS3",
+  "os_version": "3.1.0a4",
+  "initial_state": "gns3server not running (nothing listening on 127.0.0.1:3080)",
+  "actions": [
+    {
+      "at": "2026-11-22T08:27:50+03:00",
+      "description": "started gns3server bound to 127.0.0.1:3080 (command-line only; persistent configuration unchanged)",
+      "result": "listening"
+    },
+    {
+      "at": "2026-11-22T08:33:00+03:00",
+      "description": "infraflow-provider gns3 inventory (credentials from INFRAFLOW_GNS3_* environment)",
+      "result": "first run exposed a client decoding defect (float cpus); fixed, re-run"
+    },
+    {
+      "at": "2026-11-22T08:33:40+03:00",
+      "description": "infraflow-provider gns3 host-check -disk ~/GNS3",
+      "result": "ok"
+    }
+  ],
+  "final_state": "controller reachable on loopback only, v3 API, bearer authentication",
+  "checks": [
+    {
+      "name": "version",
+      "expected": "API version and server version reported by /v3/version",
+      "observed": "v3, 3.1.0a4",
+      "status": "PASS"
+    },
+    {
+      "name": "authentication",
+      "expected": "bearer token from /v3/access/users/authenticate; HTTP Basic refused by v3",
+      "observed": "token issued; Basic -> 401",
+      "status": "PASS"
+    },
+    {
+      "name": "templates",
+      "expected": "every template listed with image availability checked, none guessed",
+      "observed": "30 templates; 28 images present; IOL-XE (iol-xe/iol-xe:17-18-02) and Mikrotik WinBox (gns3/mikrotik-winbox) absent",
+      "status": "PASS"
+    },
+    {
+      "name": "inventory errors",
+      "expected": "no section silently missing",
+      "observed": "errors: none",
+      "status": "PASS"
+    },
+    {
+      "name": "host resources",
+      "expected": "CPU, RAM, disk read before any node is started",
+      "observed": "8 vCPU, 7.1 GiB available RAM, 56.9 GiB free disk",
+      "status": "PASS"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/gns3-inventory.json",
+      "sha256": "1afdce8ca65ae2df54d9082866603cc4903403141a762f38b931ffd99786059e",
+      "description": "inventory (remote compute host redacted)"
+    },
+    {
+      "path": "logs/host-check.json",
+      "sha256": "137c1341c5337675b8c14e099beb2a3cac351bf659c96c21a635d0c97a96924f",
+      "description": "host resources"
+    }
+  ],
+  "captures": [],
+  "warnings": [
+    "controller uses the default admin/admin account; change it before exposing the server",
+    "the controller lists a remote compute that was unreachable; /v3/statistics blocks on it"
+  ],
+  "status": "PASS",
+  "status_reason": "inventory collected from the real controller with no missing section"
+}

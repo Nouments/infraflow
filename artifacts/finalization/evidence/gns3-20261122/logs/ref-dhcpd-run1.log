@@ -1,0 +1,52 @@
+Internet Systems Consortium DHCP Server 4.4.3-P1
+Copyright 2004-2022 Internet Systems Consortium.
+All rights reserved.
+For info, please visit https://www.isc.org/software/dhcp/
+Config file: /etc/dhcp/dhcpd-ref.conf
+Database file: /var/lib/dhcp/dhcpd.leases
+PID file: /var/run/dhcpd.pid
+Wrote 0 leases to leases file.
+Listening on LPF/eth0/02:42:d4:c7:c2:00/10.99.0.0/24
+Sending on   LPF/eth0/02:42:d4:c7:c2:00/10.99.0.0/24
+Sending on   Socket/fallback/fallback-net
+Server starting service.
+DHCPDISCOVER from 00:50:79:66:68:00 via eth0
+DHCPOFFER on 10.99.0.100 to 00:50:79:66:68:00 (PC1) via eth0
+DHCPREQUEST for 10.99.0.100 (10.99.0.1) from 00:50:79:66:68:00 (PC1) via eth0
+DHCPACK on 10.99.0.100 to 00:50:79:66:68:00 (PC1) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 via eth0
+DHCPOFFER on 10.99.0.101 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.101 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.101 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPDISCOVER from 0c:4a:6a:7a:00:00 (Router) via eth0
+DHCPOFFER on 10.99.0.102 to 0c:4a:6a:7a:00:00 (Router) via eth0

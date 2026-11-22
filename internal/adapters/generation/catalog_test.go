@@ -251,3 +251,43 @@ func TestCatalogRejectsSymlinkedArtifactAndManifest(t *testing.T) {
 		})
 	}
 }
+
+// PRV-19 regression: reading one artifact validates its own site manifest and
+// its own bytes, not every file of every site. A tampered file is still refused
+// (by its own reader and by the full catalog), and the per-read safety checks
+// at the root still apply.
+func TestReadArtifactVerifiesOnlyItsOwnSite(t *testing.T) {
+	infrastructure, err := config.Parse([]byte("sites:\n  - name: alpha\n  - name: beta\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := Generate(infrastructure, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "beta", "topology.json"), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Catalog(root); !errors.Is(err, ErrArtifactHashMismatch) {
+		t.Fatalf("full catalog must still reject the tampered site: %v", err)
+	}
+	if _, _, err := ReadArtifact(root, "beta/topology.json"); !errors.Is(err, ErrArtifactHashMismatch) {
+		t.Fatalf("tampered artifact must be refused by its reader: %v", err)
+	}
+	data, artifact, err := ReadArtifact(root, "alpha/inventory.json")
+	if err != nil || protocol.SHA256(data) != artifact.OutputHash {
+		t.Fatalf("an intact site must stay readable when another site is damaged: %v", err)
+	}
+	if _, _, err := ReadArtifact(root, "gamma/inventory.json"); !os.IsNotExist(err) {
+		t.Fatalf("unknown site must be not-exist: %v", err)
+	}
+	if _, _, err := ReadArtifact(root, "alpha/unlisted.json"); !os.IsNotExist(err) {
+		t.Fatalf("unlisted file must be not-exist: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, generationJournalName), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadArtifact(root, "alpha/inventory.json"); !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("an interrupted publication must block every read: %v", err)
+	}
+}

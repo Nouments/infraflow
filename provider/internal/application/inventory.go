@@ -51,7 +51,27 @@ type ReportSummary struct {
 	Failed     int       `json:"failed"`
 	Blocked    int       `json:"blocked"`
 	Total      int       `json:"total"`
+	// Expected is the number of artifacts the site publishes now. Missing
+	// counts published artifacts the report does not mention; Stale counts
+	// results for a hash that is no longer published (the site was
+	// regenerated after the report).
+	Expected int `json:"expected"`
+	Missing  int `json:"missing"`
+	Stale    int `json:"stale"`
+	// Outcome is derived only from the report and the current catalog. An
+	// absent or partial report is never shown as a success.
+	Outcome       string `json:"outcome"`
+	OutcomeReason string `json:"outcome_reason"`
 }
+
+// Report outcomes, from the strongest evidence of failure down.
+const (
+	ReportOutcomeNoReport   = "NO_REPORT"
+	ReportOutcomeFailed     = "FAILED"
+	ReportOutcomeStale      = "STALE"
+	ReportOutcomeIncomplete = "INCOMPLETE"
+	ReportOutcomeComplete   = "COMPLETE"
+)
 
 // SiteSummary joins the published catalog, the site manifest, the declared
 // inventory, the observed Agents, and the last persisted report of one site.
@@ -67,6 +87,7 @@ type SiteSummary struct {
 	Capabilities     []protocol.GenerationCapability `json:"capabilities"`
 	Agents           []domain.Agent                  `json:"agents"`
 	LastReport       *ReportSummary                  `json:"last_report,omitempty"`
+	ReportOutcome    string                          `json:"report_outcome"`
 	Problems         []string                        `json:"problems,omitempty"`
 }
 
@@ -118,6 +139,10 @@ func (service *Service) Sites() ([]SiteSummary, error) {
 		service.loadSiteManifest(site)
 		service.loadSiteInventory(site)
 		site.LastReport = lastSiteReport(reports, site)
+		site.ReportOutcome = ReportOutcomeNoReport
+		if site.LastReport != nil {
+			site.ReportOutcome = site.LastReport.Outcome
+		}
 		result = append(result, *site)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
@@ -238,7 +263,47 @@ func lastSiteReport(reports []protocol.AgentReport, site *SiteSummary) *ReportSu
 			summary.Blocked++
 		}
 	}
+	classifyReport(summary, latest, site.Artifacts)
 	return summary
+}
+
+// classifyReport compares a report with the site's current catalog. Only a
+// COMPLETED result for the exact published hash counts towards COMPLETE.
+func classifyReport(summary *ReportSummary, report *protocol.AgentReport, published []ArtifactEntry) {
+	results := make(map[string]protocol.ArtifactResult, len(report.Artifacts))
+	for _, result := range report.Artifacts {
+		results[result.Path] = result
+	}
+	summary.Expected = len(published)
+	currentFailed := 0
+	for _, artifact := range published {
+		result, ok := results[artifact.Path]
+		switch {
+		case !ok:
+			summary.Missing++
+		case result.OutputHash != artifact.OutputHash:
+			summary.Stale++
+		case result.Status != protocol.StatusCompleted:
+			currentFailed++
+		}
+	}
+	switch {
+	case currentFailed > 0:
+		summary.Outcome = ReportOutcomeFailed
+		summary.OutcomeReason = fmt.Sprintf("%d published artifact(s) reported failed or blocked", currentFailed)
+	case summary.Stale > 0:
+		summary.Outcome = ReportOutcomeStale
+		summary.OutcomeReason = fmt.Sprintf("%d result(s) refer to a hash that is no longer published; the site changed after this report", summary.Stale)
+	case summary.Missing > 0:
+		summary.Outcome = ReportOutcomeIncomplete
+		summary.OutcomeReason = fmt.Sprintf("report covers %d of %d published artifact(s); the outcome of the others is unknown", summary.Expected-summary.Missing, summary.Expected)
+	case summary.Expected == 0 && len(report.Artifacts) > 0:
+		summary.Outcome = ReportOutcomeStale
+		summary.OutcomeReason = "the site publishes no artifact now; the report refers to an earlier catalog"
+	default:
+		summary.Outcome = ReportOutcomeComplete
+		summary.OutcomeReason = "every published artifact was reported completed with its published SHA-256"
+	}
 }
 
 // DiagnosticRequest selects the execution, Agent, site, or device to explain.

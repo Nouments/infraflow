@@ -1,0 +1,207 @@
+{
+  "collected_at": "2026-11-22T06:03:11.531793039Z",
+  "controller": {
+    "version": "3.1.0a4",
+    "local": false,
+    "controller_host": "127.0.0.1",
+    "api_version": "v3"
+  },
+  "project": {
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd",
+    "name": "InfraFlow-Automated-Validation",
+    "status": "opened",
+    "auto_open": false,
+    "auto_start": false,
+    "auto_close": true
+  },
+  "nodes": [
+    {
+      "node_id": "d0e8cc5e-5f3e-46ce-8898-79a813ce31cc",
+      "name": "SW-PROV",
+      "node_type": "ethernet_switch",
+      "status": "started",
+      "compute_id": "local",
+      "template_id": "92a43283-9c7e-5a68-9695-1f05a2e8dd05",
+      "console": 5000,
+      "console_host": "127.0.0.1",
+      "console_type": "none",
+      "ports": [
+        {
+          "name": "Ethernet0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet1",
+          "adapter_number": 0,
+          "port_number": 1,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet2",
+          "adapter_number": 0,
+          "port_number": 2,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet3",
+          "adapter_number": 0,
+          "port_number": 3,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet4",
+          "adapter_number": 0,
+          "port_number": 4,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet5",
+          "adapter_number": 0,
+          "port_number": 5,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet6",
+          "adapter_number": 0,
+          "port_number": 6,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Ethernet7",
+          "adapter_number": 0,
+          "port_number": 7,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    {
+      "node_id": "c24a6a7a-c19f-46fa-9971-f241c8a970e1",
+      "name": "IOSV1",
+      "node_type": "qemu",
+      "status": "started",
+      "compute_id": "local",
+      "template_id": "6229184a-9d99-4ff5-9e16-4a4e8d017d2d",
+      "console": 5001,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "Gi0/0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/1",
+          "adapter_number": 1,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/2",
+          "adapter_number": 2,
+          "port_number": 0,
+          "link_type": "ethernet"
+        },
+        {
+          "name": "Gi0/3",
+          "adapter_number": 3,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    {
+      "node_id": "e9d4c7c2-c115-4a94-bbfd-9376a3fd059c",
+      "name": "REFDHCP",
+      "node_type": "docker",
+      "status": "started",
+      "compute_id": "local",
+      "template_id": "385f7c1a-42a0-4beb-8a2c-9a3f73335ba6",
+      "console": 5004,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "eth0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    },
+    {
+      "node_id": "32bcda23-c59c-4b39-8f14-63e6e0a0aae0",
+      "name": "PC1",
+      "node_type": "vpcs",
+      "status": "started",
+      "compute_id": "local",
+      "template_id": "52136454-1f50-590a-94e4-816bd02d1062",
+      "console": 5005,
+      "console_host": "127.0.0.1",
+      "console_type": "telnet",
+      "ports": [
+        {
+          "name": "Ethernet0",
+          "adapter_number": 0,
+          "port_number": 0,
+          "link_type": "ethernet"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "link_id": "16512a11-713d-442b-812d-2b51be96029b",
+      "nodes": [
+        {
+          "node_id": "c24a6a7a-c19f-46fa-9971-f241c8a970e1",
+          "adapter_number": 0,
+          "port_number": 0
+        },
+        {
+          "node_id": "d0e8cc5e-5f3e-46ce-8898-79a813ce31cc",
+          "adapter_number": 0,
+          "port_number": 0
+        }
+      ],
+      "capture_file_name": "iosv1-ref-dhcp-opt43.pcap",
+      "capture_file_path": "/home/noums/GNS3/projects/af712d95-a011-4c54-b3f1-242e365e71dd/project-files/captures/iosv1-ref-dhcp-opt43.pcap",
+      "link_type": "ethernet"
+    },
+    {
+      "link_id": "5ee6d91f-fb35-4b4c-b8ac-fb00ac066607",
+      "nodes": [
+        {
+          "node_id": "e9d4c7c2-c115-4a94-bbfd-9376a3fd059c",
+          "adapter_number": 0,
+          "port_number": 0
+        },
+        {
+          "node_id": "d0e8cc5e-5f3e-46ce-8898-79a813ce31cc",
+          "adapter_number": 0,
+          "port_number": 1
+        }
+      ],
+      "link_type": "ethernet"
+    },
+    {
+      "link_id": "2d13d64a-ec50-412b-9870-b79a900a42e1",
+      "nodes": [
+        {
+          "node_id": "32bcda23-c59c-4b39-8f14-63e6e0a0aae0",
+          "adapter_number": 0,
+          "port_number": 0
+        },
+        {
+          "node_id": "d0e8cc5e-5f3e-46ce-8898-79a813ce31cc",
+          "adapter_number": 0,
+          "port_number": 2
+        }
+      ],
+      "link_type": "ethernet"
+    }
+  ]
+}

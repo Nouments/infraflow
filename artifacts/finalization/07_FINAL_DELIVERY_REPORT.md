@@ -43,3 +43,19 @@ sha256sum -c artifacts/finalization/evidence/SHA256SUMS   # run from artifacts/f
 Lab nodes stopped and the lab project closed (nothing deleted); lab secret files, exported host keys and packet
 captures deleted from the scratch area and from the lab container; no pre-existing project, appliance or host
 network setting was changed.
+
+## Addendum — 2026-11-22
+
+Base `c1917ac` (clean at start), branch `develop`. All changes below are **uncommitted**; no commit or push was made.
+Score **87/100** on the unchanged rubric (was 85) — see docs/DELIVERY/RELEASE_READINESS.md.
+
+Implemented:
+- AGT-11: Agent report outcome against the current catalog (NO_REPORT / INCOMPLETE / STALE / FAILED / COMPLETE), shown in the Admin Web; rejected reports recorded as `agent.report.rejected` events (D11).
+- AGT-10: integration tests with the real gRPC client, on-disk store and a TCP connection cut mid-stream, plus Agent restart. No code change was needed: staging, hashing and atomic rename already held. Mutation-checked.
+- PRV-19: `scripts/qa/load` (real Provider, 4 stages, concurrent generation, SIGKILL recovery). Two defects found by CPU profile and fixed (D9, D10): at concurrency 64, 125 → 1 859 req/s, p99 1 188 → 131 ms, 0 errors.
+- GNS3: `internal/gns3` Controller client and `infraflow-provider gns3 inventory|host-check|project-ensure|topology-apply|start|stop|snapshot|report-check`; reproducible topology; JSON scenario reports with validation (D12 found on the real server).
+- DIA-09: reference DHCP comparison executed; IOSv M6 AutoInstall reclassified UNSUPPORTED (image-side), with evidence.
+
+Counts (05): 94 features — PASS 77, PARTIAL 2, BLOCKED 2, NOT_RUN 4, UNSUPPORTED 7, NOT_APPLICABLE 2.
+Gate: `scripts/qa/gate.sh` 13/13 PASS on the final tree (see below). Hosted CI does not cover these uncommitted changes.
+Evidence: evidence/gns3-20261122/ (SHA256SUMS inside), docs/DELIVERY/GNS3_VALIDATION_20261122.md.

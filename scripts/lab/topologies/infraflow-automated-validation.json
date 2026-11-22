@@ -1,0 +1,14 @@
+{
+  "project": "InfraFlow-Automated-Validation",
+  "nodes": [
+    {"name": "SW-PROV", "template": "Ethernet switch", "x": 0, "y": 0, "purpose": "isolated provisioning segment (no uplink to the host network)"},
+    {"name": "IOSV1", "template": "Cisco IOSv", "x": -250, "y": 0, "disk_mib": 200, "purpose": "Cisco IOSv 15.9(3)M6, booted with an empty NVRAM for AutoInstall", "properties": {"hdb_disk_image": ""}},
+    {"name": "REFDHCP", "template": "debian-dhcp", "x": 250, "y": -100, "mem_mib": 128, "disk_mib": 50, "purpose": "reference ISC dhcpd, and InfraFlow serve-dhcp/serve-tftp run inside the same container in turn"},
+    {"name": "PC1", "template": "VPCS", "x": 250, "y": 100, "mem_mib": 16, "purpose": "control DHCP client: proves the server answers a plain client"}
+  ],
+  "links": [
+    {"a": {"node": "IOSV1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 0}},
+    {"a": {"node": "REFDHCP", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 1}},
+    {"a": {"node": "PC1", "adapter": 0, "port": 0}, "b": {"node": "SW-PROV", "adapter": 0, "port": 2}}
+  ]
+}

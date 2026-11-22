@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "infraflow_version": "dev (develop, uncommitted changes of 2026-11-22)",
+  "commit": "c1917ac22b3e82b05ea62e13a1660a24d1c57e4a",
+  "worktree_dirty": true,
+  "gns3": {
+    "url": "http://127.0.0.1:3080",
+    "version": "3.1.0a4",
+    "project": "InfraFlow-Automated-Validation",
+    "project_id": "af712d95-a011-4c54-b3f1-242e365e71dd"
+  },
+  "site": "lab-validation",
+  "agent_id": "",
+  "execution_id": "",
+  "artifact_hashes": {},
+  "errors": [],
+  "stages": [],
+  "scenario_id": "GNS-03",
+  "title": "Isolated, reproducible validation project",
+  "mandatory": true,
+  "started_at": "2026-11-22T08:37:30+03:00",
+  "finished_at": "2026-11-22T08:38:30+03:00",
+  "duration_seconds": 60,
+  "device": "SW-PROV, IOSV1, REFDHCP, PC1",
+  "model": "Ethernet switch, Cisco IOSv, debian-dhcp, VPCS",
+  "os": "mixed",
+  "os_version": "n/a",
+  "initial_state": "project InfraFlow-Automated-Validation absent; 10 projects on the server",
+  "actions": [
+    {
+      "at": "2026-11-22T08:37:30+03:00",
+      "description": "gns3 host-check -topology scripts/lab/topologies/infraflow-automated-validation.json",
+      "result": "budget 656 MiB RAM, 250 MiB disk: ok"
+    },
+    {
+      "at": "2026-11-22T08:37:40+03:00",
+      "description": "gns3 project-ensure -project InfraFlow-Automated-Validation",
+      "result": "created (auto_open=false, auto_start=false)"
+    },
+    {
+      "at": "2026-11-22T08:37:50+03:00",
+      "description": "gns3 topology-apply (1st run)",
+      "result": "4 nodes, 3 links created"
+    },
+    {
+      "at": "2026-11-22T08:38:00+03:00",
+      "description": "gns3 topology-apply (2nd run)",
+      "result": "4 nodes reused, 3 links reused, nothing created"
+    }
+  ],
+  "final_state": "project opened with 4 nodes and 3 links; no other project touched",
+  "checks": [
+    {
+      "name": "templates by name",
+      "expected": "every node built from a template that exists on this server",
+      "observed": "Ethernet switch, Cisco IOSv, debian-dhcp, VPCS resolved",
+      "status": "PASS"
+    },
+    {
+      "name": "idempotent re-apply",
+      "expected": "second apply changes nothing",
+      "observed": "created_nodes=null, reused 4, created_links=0, reused_links=3",
+      "status": "PASS"
+    },
+    {
+      "name": "isolation",
+      "expected": "no uplink to the host network; other projects unchanged",
+      "observed": "no Cloud/NAT node; only this project created",
+      "status": "PASS"
+    }
+  ],
+  "logs": [
+    {
+      "path": "logs/project-ensure.json",
+      "sha256": "00d1e7b084eacd002e95fd19672b8c4babaa02c5567be1d978043f38d0e06ca3",
+      "description": "project creation"
+    },
+    {
+      "path": "logs/topology-apply-1.json",
+      "sha256": "fa01f002e0ce540a17ac517ba229700d7c1db18b8ec4b34822ad4f8a635f6b39",
+      "description": "first apply"
+    },
+    {
+      "path": "logs/topology-apply-2.json",
+      "sha256": "58b8090ac3cddec9e7d9ea8bbe1a9dca492b47325c127991127014918bc8a702",
+      "description": "second apply"
+    },
+    {
+      "path": "logs/project-snapshot.json",
+      "sha256": "20a7a18a0f609d7b80cc62cc53f975d274862d6cd6bd58930f3b0fa03b2ea960",
+      "description": "final nodes and links"
+    }
+  ],
+  "captures": [],
+  "warnings": [],
+  "status": "PASS",
+  "status_reason": "project and topology created from real templates and re-applied without change"
+}

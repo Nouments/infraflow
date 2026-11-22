@@ -61,6 +61,11 @@ type Store struct {
 	retention time.Duration
 	events    []Event
 	byID      map[string]Event
+	// oldest caches the earliest stored timestamp so that retention purges
+	// only scan the store when something can actually have expired. It is
+	// invalidated by every rewrite and rebuilt by the next full scan.
+	oldest      time.Time
+	oldestKnown bool
 }
 
 func NewStore(directory string, maxBytes int64) (*Store, error) {
@@ -197,6 +202,7 @@ func (store *Store) Append(events []Event) (AppendResult, error) {
 		store.fileSize += int64(len(line))
 		store.events = append(store.events, event)
 		store.byID[event.ID] = event
+		store.noteAppendedLocked(event)
 		result.Accepted++
 	}
 	return result, nil
@@ -216,7 +222,11 @@ func (store *Store) Purge(now time.Time) (int, error) {
 
 func (store *Store) purgeLocked(now time.Time) (int, error) {
 	cutoff := now.Add(-store.retention)
+	if len(store.events) == 0 || (store.oldestKnown && !store.oldest.Before(cutoff)) {
+		return 0, nil
+	}
 	retained := make([]Event, 0, len(store.events))
+	var oldest time.Time
 	for _, event := range store.events {
 		timestamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
 		if err != nil {
@@ -224,16 +234,34 @@ func (store *Store) purgeLocked(now time.Time) (int, error) {
 		}
 		if !timestamp.Before(cutoff) {
 			retained = append(retained, event)
+			if oldest.IsZero() || timestamp.Before(oldest) {
+				oldest = timestamp
+			}
 		}
 	}
 	removed := len(store.events) - len(retained)
-	if removed == 0 {
-		return 0, nil
+	if removed > 0 {
+		if err := store.rewriteLocked(retained); err != nil {
+			return 0, err
+		}
 	}
-	if err := store.rewriteLocked(retained); err != nil {
-		return 0, err
-	}
+	store.oldest, store.oldestKnown = oldest, len(retained) > 0
 	return removed, nil
+}
+
+// noteAppendedLocked keeps the cached oldest timestamp exact after an append.
+func (store *Store) noteAppendedLocked(event Event) {
+	if !store.oldestKnown {
+		return
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
+	if err != nil {
+		store.oldestKnown = false
+		return
+	}
+	if timestamp.Before(store.oldest) {
+		store.oldest = timestamp
+	}
 }
 
 // compactLocked drops the oldest events until the encoded store fits in
@@ -266,6 +294,7 @@ func (store *Store) compactLocked(target int64) (int, error) {
 }
 
 func (store *Store) rewriteLocked(retained []Event) error {
+	store.oldestKnown = false
 	var data strings.Builder
 	for _, event := range retained {
 		encoded, err := json.Marshal(event)

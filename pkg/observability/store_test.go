@@ -111,6 +111,40 @@ func TestStoreRetentionPurgesExpiredEventsAndPersistsTheBoundedSet(t *testing.T)
 	}
 }
 
+// PRV-19: the purge skips its scan while nothing can have expired. The cache
+// must never hide an expiry: neither for an event ingested late with an older
+// timestamp (Agent outbox replay) nor for events that expire as time passes.
+func TestStoreRetentionCacheNeverHidesAnExpiredEvent(t *testing.T) {
+	retention := time.Hour
+	store, err := NewStoreWithRetention(t.TempDir(), DefaultCentralLogLimit, retention)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	fresh := storeEvent("fresh", "INFO", "agent-1", "run-1", "fresh")
+	fresh.Timestamp = now.Format(time.RFC3339Nano)
+	if _, err := store.Append([]Event{fresh}); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := store.Purge(now); err != nil || removed != 0 {
+		t.Fatalf("nothing should expire yet: %d %v", removed, err)
+	}
+	late := storeEvent("late", "INFO", "agent-1", "run-0", "replayed from an Agent outbox")
+	late.Timestamp = now.Add(-30 * time.Minute).Format(time.RFC3339Nano)
+	if _, err := store.Append([]Event{late}); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := store.Purge(now.Add(45 * time.Minute)); err != nil || removed != 1 {
+		t.Fatalf("late event with an older timestamp must expire first: removed=%d %v", removed, err)
+	}
+	if removed, err := store.Purge(now.Add(2 * time.Hour)); err != nil || removed != 1 {
+		t.Fatalf("remaining event must expire as time passes: removed=%d %v", removed, err)
+	}
+	if removed, err := store.Purge(now.Add(3 * time.Hour)); err != nil || removed != 0 {
+		t.Fatalf("empty store purge: %d %v", removed, err)
+	}
+}
+
 func TestOutboxSurvivesOfflineRestartUntilCentralAcknowledgement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent", "pending.json")
 	outbox, err := NewOutbox(path, DefaultOutboxLimit)

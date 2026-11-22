@@ -60,6 +60,9 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 	if command == "apply" {
 		return runApply(arguments[1:], stdout, stderr)
 	}
+	if command == "gns3" {
+		return runGNS3(arguments[1:], stdout, stderr)
+	}
 	if command != "validate" && command != "plan" && command != "generate" && command != "generate-all" && command != "generate-terraform" && command != "generate-bootstrap" && command != "generate-device-config" && command != "template-info" && command != "capability-summary" && command != "capability-matrix" {
 		fmt.Fprintf(stderr, "infraflow-provider: unknown command %q\n", command)
 		printUsage(stderr)
@@ -759,6 +762,7 @@ Usage:
 	infraflow-provider capability-matrix -f <infra.yaml>
 	infraflow-provider apply -f <infra.yaml> -data-dir <state-directory>
 	infraflow-provider serve -config <provider.yaml>
+	infraflow-provider gns3 inventory|host-check|project-ensure|topology-apply|start|stop|snapshot [flags]
 
-Validation is side-effect free. Planning does not execute tasks. Apply persists a planning job and audit event only; it never contacts a device or starts an agent task. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC.`)
+Validation is side-effect free. Planning does not execute tasks. Apply persists a planning job and audit event only; it never contacts a device or starts an agent task. Template inspection reports selected metadata and capability state without executing anything. Capability summaries and matrices provide evidence-only readiness snapshots and do not trigger jobs or provisioning. The gRPC service streams verified artifacts to authenticated agents and accepts execution reports. Configure api_listen_address to enable Fiber REST/web hosting and web_ui_enabled: true to serve the console at /. Remote API addresses require TLS certificate/key files. The browser console uses the existing user login and RBAC. The gns3 commands are lab tooling for validation on a GNS3 controller (credentials from INFRAFLOW_GNS3_URL, INFRAFLOW_GNS3_USERNAME, INFRAFLOW_GNS3_PASSWORD); serve never contacts GNS3.`)
 }
